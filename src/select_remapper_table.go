@@ -96,7 +96,7 @@ func (remapper *SelectRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Nod
 	return remapper.overrideTable(node, tableNode)
 }
 
-// FROM [PG_FUNCTION()]
+// FROM PG_FUNCTION()
 func (remapper *SelectRemapperTable) RemapTableFunction(node *pgQuery.Node) *pgQuery.Node {
 	// pg_catalog.pg_get_keywords() -> hard-coded keywords
 	if remapper.parserTable.IsPgGetKeywordsFunction(node) {
@@ -106,6 +106,11 @@ func (remapper *SelectRemapperTable) RemapTableFunction(node *pgQuery.Node) *pgQ
 	// pg_show_all_settings() -> duckdb_settings()
 	if remapper.parserTable.IsPgShowAllSettingsFunction(node) {
 		return remapper.parserTable.MakePgShowAllSettingsNode(node)
+	}
+
+	// set_config() -> SET statement
+	if remapper.parserTable.IsSetConfigFunction(node) {
+		return remapper.parserTable.MakeSetConfigNode(node)
 	}
 
 	return node

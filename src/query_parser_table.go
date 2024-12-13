@@ -19,6 +19,7 @@ const (
 	PG_FUNCTION_PG_GET_KEYWORDS      = "pg_get_keywords"
 	PG_FUNCTION_ARRAY_UPPER          = "array_upper"
 	PG_FUNCTION_PG_SHOW_ALL_SETTINGS = "pg_show_all_settings"
+	PG_FUNCTION_SET_CONFIG           = "set_config"
 )
 
 type QueryParserTable struct {
@@ -390,6 +391,54 @@ func (parser *QueryParserTable) MakePgShowAllSettingsNode(node *pgQuery.Node) *p
 	}
 }
 
+// set_config()
+func (parser *QueryParserTable) IsSetConfigFunction(node *pgQuery.Node) bool {
+	for _, funcNode := range node.GetRangeFunction().Functions {
+		for _, funcItemNode := range funcNode.GetList().Items {
+			funcCallNode := funcItemNode.GetFuncCall()
+			if funcCallNode == nil {
+				continue
+			}
+			if len(funcCallNode.Funcname) != 1 {
+				continue
+			}
+			function := funcCallNode.Funcname[0].GetString_().Sval
+			if function == PG_FUNCTION_SET_CONFIG {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// set_config() -> SET statement
+func (parser *QueryParserTable) MakeSetConfigNode(node *pgQuery.Node) *pgQuery.Node {
+	funcCallNode := node.GetRangeFunction().Functions[0].GetList().Items[0].GetFuncCall()
+	if len(funcCallNode.Args) < 2 {
+			return node
+	}
+
+	paramName := funcCallNode.Args[0].GetAConst().GetSval().Sval
+	paramValue := funcCallNode.Args[1].GetAConst().GetSval().Sval
+
+	// Use mapped parameter if exists, otherwise use original name
+	duckDBParam, ok := PG_SET_CONFIG_PARAMETER_MAP[paramName]
+	if !ok {
+			duckDBParam = paramName
+	}
+
+	return &pgQuery.Node{
+			Node: &pgQuery.Node_VariableSetStmt{
+					VariableSetStmt: &pgQuery.VariableSetStmt{
+							Name: duckDBParam,
+							Args: []*pgQuery.Node{
+									pgQuery.MakeAConstStrNode(paramValue, 0),
+							},
+					},
+			},
+	}
+}
+
 func (parser *QueryParserTable) isPgCatalogSchema(qSchemaTable QuerySchemaTable) bool {
 	return qSchemaTable.Schema == PG_SCHEMA_PG_CATALOG || qSchemaTable.Schema == ""
 }
@@ -555,6 +604,11 @@ var PG_SHDESCRIPTION_VALUE_BY_COLUMN = NewOrderedMap([][]string{
 	{"classoid", "0"},
 	{"description", "NULL"},
 })
+
+var PG_SET_CONFIG_PARAMETER_MAP = map[string]string{
+	"bytea_output":    "fmt_bytes",
+	"client_encoding": "fmt_encoding",
+}
 
 type DuckDBKeyword struct {
 	word     string
