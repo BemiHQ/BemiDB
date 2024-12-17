@@ -499,6 +499,11 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"type"},
 			"values":      {""},
 		},
+		// WHERE pg functions
+		"SELECT gss_authenticated, encrypted FROM (SELECT false, false, false, false, false WHERE false) t(pid, gss_authenticated, principal, encrypted, credentials_delegated) WHERE pid = pg_backend_pid()": {
+			"description": {"gss_authenticated", "encrypted"},
+			"values":      {},
+		},
 	}
 
 	for query, responses := range responsesByQuery {

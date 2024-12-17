@@ -86,6 +86,11 @@ func (selectRemapper *SelectRemapper) remapSelectStatement(selectStatement *pgQu
 		return selectStatement
 	}
 
+	// WHERE
+	if selectStatement.WhereClause != nil {
+		selectStatement = selectRemapper.remapWhereExpression(selectStatement, selectStatement.WhereClause, indentLevel)
+	}
+
 	// FROM
 	if len(selectStatement.FromClause) > 0 {
 		// SELECT
@@ -302,6 +307,29 @@ func (selectRemapper *SelectRemapper) remapTypeCastsInNode(node *pgQuery.Node) *
 	}
 
 	return node
+}
+
+func (selectRemapper *SelectRemapper) remapWhereExpression(selectStatement *pgQuery.SelectStmt, node *pgQuery.Node, indentLevel int) *pgQuery.SelectStmt {
+	selectRemapper.traceTreeTraversal("WHERE expression", indentLevel)
+
+	if aExpr := node.GetAExpr(); aExpr != nil {
+		if aExpr.Lexpr != nil {
+			selectRemapper.traceTreeTraversal("WHERE expression left", indentLevel+1)
+			selectStatement = selectRemapper.remapWhereExpression(selectStatement, aExpr.Lexpr, indentLevel+1)
+		}
+		if aExpr.Rexpr != nil {
+			selectRemapper.traceTreeTraversal("WHERE expression right", indentLevel+1)
+			selectStatement = selectRemapper.remapWhereExpression(selectStatement, aExpr.Rexpr, indentLevel+1)
+		}
+	}
+
+	if funcCall := node.GetFuncCall(); funcCall != nil {
+		if constantNode := selectRemapper.remapperSelect.remappedToConstant(funcCall); constantNode != nil {
+			node.Node = constantNode.Node
+		}
+	}
+
+	return selectStatement
 }
 
 func (selectRemapper *SelectRemapper) remapJoinExpressions(selectStatement *pgQuery.SelectStmt, node *pgQuery.Node, indentLevel int) *pgQuery.Node {
