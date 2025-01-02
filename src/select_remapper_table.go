@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
@@ -199,89 +200,90 @@ func (remapper *SelectRemapperTable) icebergSchemaTableExists(schemaTable Iceber
 	return false
 }
 
-var PG_INHERITS_COLUMNS = []string{
-	"inhrelid",
-	"inhparent",
-	"inhseqno",
-	"inhdetachpending",
+
+var PG_INHERITS_COLUMNS = []ColumnDef{
+    {Name: "inhrelid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "inhparent", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "inhseqno", TypeOID: uint32(pgtype.Int4OID), Value: ""},
+    {Name: "inhdetachpending", TypeOID: uint32(pgtype.BoolOID), Value: ""},
 }
 
-var PG_SHDESCRIPTION_COLUMNS = []string{
-	"objoid",
-	"classoid",
-	"description",
+var PG_SHDESCRIPTION_COLUMNS = []ColumnDef{
+    {Name: "objoid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "classoid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "description", TypeOID: uint32(pgtype.TextOID), Value: ""},
 }
 
-var PG_STATIO_USER_TABLES_COLUMNS = []string{
-	"relid",
-	"schemaname",
-	"relname",
-	"heap_blks_read",
-	"heap_blks_hit",
-	"idx_blks_read",
-	"idx_blks_hit",
-	"toast_blks_read",
-	"toast_blks_hit",
-	"tidx_blks_read",
-	"tidx_blks_hit",
+var PG_STATIO_USER_TABLES_COLUMNS = []ColumnDef{
+    {Name: "relid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "schemaname", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "relname", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "heap_blks_read", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "heap_blks_hit", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "idx_blks_read", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "idx_blks_hit", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "toast_blks_read", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "toast_blks_hit", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "tidx_blks_read", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "tidx_blks_hit", TypeOID: uint32(pgtype.Int8OID), Value: ""},
 }
 
-var PG_REPLICATION_SLOTS_COLUMNS = []string{
-	"slot_name",
-	"plugin",
-	"slot_type",
-	"datoid",
-	"database",
-	"temporary",
-	"active",
-	"active_pid",
-	"xmin",
-	"catalog_xmin",
-	"restart_lsn",
-	"confirmed_flush_lsn",
-	"wal_status",
-	"safe_wal_size",
-	"two_phase",
-	"conflicting",
+var PG_REPLICATION_SLOTS_COLUMNS = []ColumnDef{
+    {Name: "slot_name", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "plugin", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "slot_type", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "datoid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "database", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "temporary", TypeOID: uint32(pgtype.BoolOID), Value: ""},
+    {Name: "active", TypeOID: uint32(pgtype.BoolOID), Value: ""},
+    {Name: "active_pid", TypeOID: uint32(pgtype.Int4OID), Value: ""},
+    {Name: "xmin", TypeOID: uint32(pgtype.XIDOID), Value: ""},
+    {Name: "catalog_xmin", TypeOID: uint32(pgtype.XIDOID), Value: ""},
+    {Name: "restart_lsn", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "confirmed_flush_lsn", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "wal_status", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "safe_wal_size", TypeOID: uint32(pgtype.Int8OID), Value: ""},
+    {Name: "two_phase", TypeOID: uint32(pgtype.BoolOID), Value: ""},
+    {Name: "conflicting", TypeOID: uint32(pgtype.BoolOID), Value: ""},
 }
 
-var PG_STAT_GSSAPI_COLUMNS = []string{
-	"pid",
-	"gss_authenticated",
-	"principal",
-	"encrypted",
-	"credentials_delegated",
+var PG_STAT_GSSAPI_COLUMNS = []ColumnDef{
+    {Name: "pid", TypeOID: uint32(pgtype.Int4OID), Value: ""},
+    {Name: "gss_authenticated", TypeOID: uint32(pgtype.BoolOID), Value: ""},
+    {Name: "principal", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "encrypted", TypeOID: uint32(pgtype.BoolOID), Value: ""},
+    {Name: "credentials_delegated", TypeOID: uint32(pgtype.BoolOID), Value: ""},
 }
 
-var PG_AUTH_MEMBERS_COLUMNS = []string{
-	"oid",
-	"roleid",
-	"member",
-	"grantor",
-	"admin_option",
-	"inherit_option",
-	"set_option",
+var PG_AUTH_MEMBERS_COLUMNS = []ColumnDef{
+    {Name: "oid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "roleid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "member", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "grantor", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "admin_option", TypeOID: uint32(pgtype.BoolOID), Value: ""},
+    {Name: "inherit_option", TypeOID: uint32(pgtype.BoolOID), Value: ""},
+    {Name: "set_option", TypeOID: uint32(pgtype.BoolOID), Value: ""},
 }
 
-var PG_STAT_ACTIVITY_COLUMNS = []string{
-	"datid",
-	"datname",
-	"pid",
-	"usesysid",
-	"usename",
-	"application_name",
-	"client_addr",
-	"client_hostname",
-	"client_port",
-	"backend_start",
-	"xact_start",
-	"query_start",
-	"state_change",
-	"wait_event_type",
-	"wait_event",
-	"state",
-	"backend_xid",
-	"backend_xmin",
-	"query",
-	"backend_type",
+var PG_STAT_ACTIVITY_COLUMNS = []ColumnDef{
+    {Name: "datid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "datname", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "pid", TypeOID: uint32(pgtype.Int4OID), Value: ""},
+    {Name: "usesysid", TypeOID: uint32(pgtype.OIDOID), Value: ""},
+    {Name: "usename", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "application_name", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "client_addr", TypeOID: uint32(pgtype.InetOID), Value: ""},
+    {Name: "client_hostname", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "client_port", TypeOID: uint32(pgtype.Int4OID), Value: ""},
+    {Name: "backend_start", TypeOID: uint32(pgtype.TimestamptzOID), Value: ""},
+    {Name: "xact_start", TypeOID: uint32(pgtype.TimestamptzOID), Value: ""},
+    {Name: "query_start", TypeOID: uint32(pgtype.TimestamptzOID), Value: ""},
+    {Name: "state_change", TypeOID: uint32(pgtype.TimestamptzOID), Value: ""},
+    {Name: "wait_event_type", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "wait_event", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "state", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "backend_xid", TypeOID: uint32(pgtype.XIDOID), Value: ""},
+    {Name: "backend_xmin", TypeOID: uint32(pgtype.XIDOID), Value: ""},
+    {Name: "query", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "backend_type", TypeOID: uint32(pgtype.TextOID), Value: ""},
 }

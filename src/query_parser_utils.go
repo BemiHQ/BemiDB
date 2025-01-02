@@ -2,9 +2,16 @@ package main
 
 import (
 	"strconv"
-
+	"github.com/jackc/pgx/v5/pgtype"
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
+
+// Add a new struct to track column metadata
+type ColumnDef struct {
+	Name    string
+	TypeOID uint32
+	Value   string
+}
 
 type QueryParserUtils struct {
 	config *Config
@@ -14,28 +21,30 @@ func NewQueryParserUtils(config *Config) *QueryParserUtils {
 	return &QueryParserUtils{config: config}
 }
 
-func (utils *QueryParserUtils) MakeSubselectWithRowsNode(tableName string, columns []string, rowsValues [][]string, alias string) *pgQuery.Node {
+func (utils *QueryParserUtils) MakeSubselectWithRowsNode(tableName string, columnDefs []ColumnDef, alias string) *pgQuery.Node {
 	parserType := NewQueryParserType(utils.config)
 
-	columnNodes := make([]*pgQuery.Node, len(columns))
-	for i, column := range columns {
-		columnNodes[i] = pgQuery.MakeStrNode(column)
+	columnNodes := make([]*pgQuery.Node, len(columnDefs))
+	for i, col := range columnDefs {
+		columnNodes[i] = pgQuery.MakeStrNode(col.Name)
 	}
 
 	selectStmt := &pgQuery.SelectStmt{}
 
-	for _, row := range rowsValues {
-		var rowList []*pgQuery.Node
-		for _, val := range row {
-			constNode := pgQuery.MakeAConstStrNode(val, 0)
-			if _, err := strconv.ParseInt(val, 10, 64); err == nil {
-				constNode = parserType.MakeCaseTypeCastNode(constNode, "int8")
-			}
-			rowList = append(rowList, constNode)
+	// Create a single row from the column values
+	var rowList []*pgQuery.Node
+	for _, col := range columnDefs {
+		constNode := pgQuery.MakeAConstStrNode(col.Value, 0)
+		if col.TypeOID == uint32(pgtype.OIDOID) {
+			constNode = parserType.MakeCaseTypeCastNode(constNode, "oid")
+		} else if _, err := strconv.ParseInt(col.Value, 10, 64); err == nil {
+			constNode = parserType.MakeCaseTypeCastNode(constNode, "int8")
 		}
-		selectStmt.ValuesLists = append(selectStmt.ValuesLists,
-			&pgQuery.Node{Node: &pgQuery.Node_List{List: &pgQuery.List{Items: rowList}}})
+		rowList = append(rowList, constNode)
 	}
+
+	selectStmt.ValuesLists = append(selectStmt.ValuesLists,
+		&pgQuery.Node{Node: &pgQuery.Node_List{List: &pgQuery.List{Items: rowList}}})
 
 	if alias == "" {
 		alias = tableName
@@ -58,14 +67,14 @@ func (utils *QueryParserUtils) MakeSubselectWithRowsNode(tableName string, colum
 	}
 }
 
-func (utils *QueryParserUtils) MakeSubselectWithoutRowsNode(tableName string, columns []string, alias string) *pgQuery.Node {
+func (utils *QueryParserUtils) MakeSubselectWithoutRowsNode(tableName string, columns []ColumnDef, alias string) *pgQuery.Node {
 	columnNodes := make([]*pgQuery.Node, len(columns))
-	for i, column := range columns {
-		columnNodes[i] = pgQuery.MakeStrNode(column)
+	for i, col := range columns {
+		columnNodes[i] = pgQuery.MakeStrNode(col.Name)
 	}
 
 	targetList := make([]*pgQuery.Node, len(columns))
-	for i, _ := range columns {
+	for i := range columns {
 		targetList[i] = pgQuery.MakeResTargetNodeWithVal(
 			utils.MakeAConstBoolNode(false),
 			0,

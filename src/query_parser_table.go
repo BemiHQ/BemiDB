@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/jackc/pgx/v5/pgtype" // Add this import
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
@@ -38,85 +39,85 @@ func (parser *QueryParserTable) NodeToQuerySchemaTable(node *pgQuery.Node) Query
 	}
 }
 
-func (parser *QueryParserTable) MakeEmptyTableNode(tableName string, columns []string, alias string) *pgQuery.Node {
+func (parser *QueryParserTable) MakeEmptyTableNode(tableName string, columns []ColumnDef, alias string) *pgQuery.Node {
 	return parser.utils.MakeSubselectWithoutRowsNode(tableName, columns, alias)
 }
 
 // pg_catalog.pg_shadow -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgShadowNode(user string, encryptedPassword string, alias string) *pgQuery.Node {
-	columns := PG_SHADOW_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_SHADOW_VALUE_BY_COLUMN.Values()
-
-	var rowsValues [][]string
-
-	rowValues := make([]string, len(staticRowValues))
-	copy(rowValues, staticRowValues)
-	for i, column := range columns {
-		switch column {
-		case "usename":
-			rowValues[i] = user
-		case "passwd":
-			rowValues[i] = encryptedPassword
-		}
+	columnDefs := []ColumnDef{
+		{Name: "usename", TypeOID: uint32(pgtype.TextOID), Value: user},
+		{Name: "usesysid", TypeOID: uint32(pgtype.OIDOID), Value: "10"},
+		{Name: "usecreatedb", TypeOID: uint32(pgtype.BoolOID), Value: "FALSE"},
+		{Name: "usesuper", TypeOID: uint32(pgtype.BoolOID), Value: "FALSE"},
+		{Name: "userepl", TypeOID: uint32(pgtype.BoolOID), Value: "TRUE"},
+		{Name: "usebypassrls", TypeOID: uint32(pgtype.BoolOID), Value: "FALSE"},
+		{Name: "passwd", TypeOID: uint32(pgtype.TextOID), Value: encryptedPassword},
+		{Name: "valuntil", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "useconfig", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
 	}
-	rowsValues = append(rowsValues, rowValues)
-
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_SHADOW, columns, rowsValues, alias)
+	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_SHADOW, columnDefs, alias)
 }
 
 // pg_catalog.pg_roles -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgRolesNode(user string, alias string) *pgQuery.Node {
-	columns := PG_ROLES_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_ROLES_VALUE_BY_COLUMN.Values()
+	columns := make([]ColumnDef, len(PG_ROLES_COLUMNS))
+	copy(columns, PG_ROLES_COLUMNS)
 
-	var rowsValues [][]string
-	rowValues := make([]string, len(staticRowValues))
-	copy(rowValues, staticRowValues)
-
-	for i, column := range columns {
-		if column == "rolname" {
-			rowValues[i] = user
+	for i, col := range columns {
+		if col.Name == "rolname" {
+			columns[i].Value = user
+			break
 		}
 	}
-	rowsValues = append(rowsValues, rowValues)
 
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_ROLES, columns, rowsValues, alias)
+	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_ROLES, columns, alias)
 }
 
 // pg_catalog.pg_extension -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgExtensionNode(alias string) *pgQuery.Node {
-	columns := PG_EXTENSION_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_EXTENSION_VALUE_BY_COLUMN.Values()
-	rowsValues := [][]string{staticRowValues}
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_EXTENSION, columns, rowsValues, alias)
+	columnDefs := []ColumnDef{
+		{Name: "oid", TypeOID: uint32(pgtype.OIDOID), Value: "13823"},
+		{Name: "extname", TypeOID: uint32(pgtype.TextOID), Value: "plpgsql"},
+		{Name: "extowner", TypeOID: uint32(pgtype.OIDOID), Value: "10"},
+		{Name: "extnamespace", TypeOID: uint32(pgtype.OIDOID), Value: "11"},
+		{Name: "extrelocatable", TypeOID: uint32(pgtype.BoolOID), Value: "false"},
+		{Name: "extversion", TypeOID: uint32(pgtype.TextOID), Value: "1.0"},
+		{Name: "extconfig", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "extcondition", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+	}
+	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_EXTENSION, columnDefs, alias)
 }
 
 // pg_catalog.pg_database -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgDatabaseNode(database string, alias string) *pgQuery.Node {
-	columns := PG_DATABASE_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_DATABASE_VALUE_BY_COLUMN.Values()
+	columns := make([]ColumnDef, len(PG_DATABASE_COLUMNS))
+	copy(columns, PG_DATABASE_COLUMNS)
 
-	var rowsValues [][]string
-	rowValues := make([]string, len(staticRowValues))
-	copy(rowValues, staticRowValues)
-	for i, column := range columns {
-		if column == "datname" {
-			rowValues[i] = database
+	for i, col := range columns {
+		if col.Name == "datname" {
+			columns[i].Value = database
+			break
 		}
 	}
-	rowsValues = append(rowsValues, rowValues)
 
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_DATABASE, columns, rowsValues, alias)
+	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_DATABASE, columns, alias)
 }
 
 // pg_catalog.pg_user -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgUserNode(user string, alias string) *pgQuery.Node {
-	columns := PG_USER_VALUE_BY_COLUMN.Keys()
-	rowValues := PG_USER_VALUE_BY_COLUMN.Values()
-
-	rowValues[0] = user
-
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_USER, columns, [][]string{rowValues}, alias)
+	columnDefs := []ColumnDef{
+		{Name: "usename", TypeOID: uint32(pgtype.TextOID), Value: user},
+		{Name: "usesysid", TypeOID: uint32(pgtype.OIDOID), Value: "10"},
+		{Name: "usecreatedb", TypeOID: uint32(pgtype.BoolOID), Value: "t"},
+		{Name: "usesuper", TypeOID: uint32(pgtype.BoolOID), Value: "t"},
+		{Name: "userepl", TypeOID: uint32(pgtype.BoolOID), Value: "t"},
+		{Name: "usebypassrls", TypeOID: uint32(pgtype.BoolOID), Value: "t"},
+		{Name: "passwd", TypeOID: uint32(pgtype.TextOID), Value: ""},
+		{Name: "valuntil", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "useconfig", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+	}
+	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_USER, columnDefs, alias)
 }
 
 // System pg_* tables
@@ -192,9 +193,7 @@ func (parser *QueryParserTable) IsPgGetKeywordsFunction(node *pgQuery.Node) bool
 
 // pg_catalog.pg_get_keywords() -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgGetKeywordsNode(node *pgQuery.Node) *pgQuery.Node {
-	columns := []string{"word", "catcode", "barelabel", "catdesc", "baredesc"}
-
-	var rows [][]string
+	var columnDefs []ColumnDef
 	for _, kw := range DUCKDB_KEYWORDS {
 		catcode := "U"
 		catdesc := "unreserved"
@@ -211,14 +210,13 @@ func (parser *QueryParserTable) MakePgGetKeywordsNode(node *pgQuery.Node) *pgQue
 			catdesc = "unreserved (cannot be function or type name)"
 		}
 
-		row := []string{
-			kw.word,
-			catcode,
-			"t",
-			catdesc,
-			"can be bare label",
-		}
-		rows = append(rows, row)
+		columnDefs = append(columnDefs, []ColumnDef{
+			{Name: "word", TypeOID: uint32(pgtype.TextOID), Value: kw.word},
+			{Name: "catcode", TypeOID: uint32(pgtype.TextOID), Value: catcode},
+			{Name: "barelabel", TypeOID: uint32(pgtype.TextOID), Value: "t"},
+			{Name: "catdesc", TypeOID: uint32(pgtype.TextOID), Value: catdesc},
+			{Name: "baredesc", TypeOID: uint32(pgtype.TextOID), Value: "can be bare label"},
+		}...)
 	}
 
 	var alias string
@@ -226,7 +224,7 @@ func (parser *QueryParserTable) MakePgGetKeywordsNode(node *pgQuery.Node) *pgQue
 		alias = node.GetAlias().Aliasname
 	}
 
-	return parser.utils.MakeSubselectWithRowsNode(PG_FUNCTION_PG_GET_KEYWORDS, columns, rows, alias)
+	return parser.utils.MakeSubselectWithRowsNode(PG_FUNCTION_PG_GET_KEYWORDS, columnDefs, alias)
 }
 
 // array_upper(array, 1)
@@ -427,6 +425,10 @@ func (parser *QueryParserTable) IsPgIsInRecoveryFunction(node *pgQuery.Node) boo
 
 // pg_is_in_recovery() -> 'f'::bool
 func (parser *QueryParserTable) MakePgIsInRecoveryNode(node *pgQuery.Node) *pgQuery.Node {
+	columnDefs := []ColumnDef{
+		{Name: "pg_is_in_recovery", TypeOID: uint32(pgtype.BoolOID), Value: "f"},
+	}
+
 	var alias string
 	if node.GetAlias() != nil {
 		alias = node.GetAlias().Aliasname
@@ -434,8 +436,7 @@ func (parser *QueryParserTable) MakePgIsInRecoveryNode(node *pgQuery.Node) *pgQu
 
 	return parser.utils.MakeSubselectWithRowsNode(
 		PG_FUNCTION_PG_IS_IN_RECOVERY,
-		[]string{"pg_is_in_recovery"},
-		[][]string{{"f"}},
+		columnDefs,
 		alias,
 	)
 }
@@ -631,6 +632,42 @@ var PG_USER_VALUE_BY_COLUMN = NewOrderedMap([][]string{
 	{"valuntil", "NULL"},
 	{"useconfig", "NULL"},
 })
+
+var PG_DATABASE_COLUMNS = []ColumnDef{
+    {Name: "oid", TypeOID: uint32(pgtype.OIDOID), Value: "16388"},
+    {Name: "datname", TypeOID: uint32(pgtype.TextOID), Value: "bemidb"},
+    {Name: "datdba", TypeOID: uint32(pgtype.OIDOID), Value: "10"},
+    {Name: "encoding", TypeOID: uint32(pgtype.Int8OID), Value: "6"},
+    {Name: "datlocprovider", TypeOID: uint32(pgtype.TextOID), Value: "c"},
+    {Name: "datistemplate", TypeOID: uint32(pgtype.BoolOID), Value: "false"},
+    {Name: "datallowconn", TypeOID: uint32(pgtype.BoolOID), Value: "true"},
+		{Name: "datconnlimit", TypeOID: uint32(pgtype.Int8OID), Value: "-1"},
+		{Name: "datfrozenxid", TypeOID: uint32(pgtype.Int8OID), Value: "722"},
+		{Name: "datminmxid", TypeOID: uint32(pgtype.Int8OID), Value: "1"},
+		{Name: "dattablespace", TypeOID: uint32(pgtype.Int8OID), Value: "1663"},
+		{Name: "datcollate", TypeOID: uint32(pgtype.TextOID), Value: "en_US.UTF-8"},
+		{Name: "datctype", TypeOID: uint32(pgtype.TextOID), Value: "en_US.UTF-8"},
+		{Name: "daticulocale", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "daticurules", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "datcollversion", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "datacl", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+}
+
+var PG_ROLES_COLUMNS = []ColumnDef{
+    {Name: "oid", TypeOID: uint32(pgtype.OIDOID), Value: "10"},
+    {Name: "rolname", TypeOID: uint32(pgtype.TextOID), Value: ""},
+    {Name: "rolsuper", TypeOID: uint32(pgtype.BoolOID), Value: "true"},
+		{Name: "rolinherit", TypeOID: uint32(pgtype.BoolOID), Value: "true"},
+		{Name: "rolcreaterole", TypeOID: uint32(pgtype.BoolOID), Value: "true"},
+		{Name: "rolcreatedb", TypeOID: uint32(pgtype.BoolOID), Value: "true"},
+		{Name: "rolcanlogin", TypeOID: uint32(pgtype.BoolOID), Value: "true"},
+		{Name: "rolreplication", TypeOID: uint32(pgtype.BoolOID), Value: "false"},
+		{Name: "rolconnlimit", TypeOID: uint32(pgtype.Int8OID), Value: "-1"},
+		{Name: "rolpassword", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "rolvaliduntil", TypeOID: uint32(pgtype.TextOID), Value: "NULL"},
+		{Name: "rolbypassrls", TypeOID: uint32(pgtype.BoolOID), Value: "false"},
+		{Name: "rolconfig", TypeOID: uint32(pgtype.BoolOID), Value: "NULL"},
+}
 
 type DuckDBKeyword struct {
 	word     string
