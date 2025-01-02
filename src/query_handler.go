@@ -170,7 +170,17 @@ func NewQueryHandler(config *Config, duckdb *Duckdb, icebergReader *IcebergReade
 	return queryHandler
 }
 
+func isDatabaseListQuery(query string) bool {
+	normalizedQuery := strings.Join(strings.Fields(query), " ")
+	return strings.Contains(normalizedQuery, "SELECT db.oid as did, db.datname as name, ta.spcname as spcname") &&
+		strings.Contains(normalizedQuery, "FROM pg_catalog.pg_database db")
+}
+
 func (queryHandler *QueryHandler) HandleQuery(originalQuery string) ([]pgproto3.Message, error) {
+	if isDatabaseListQuery(originalQuery) {
+		return queryHandler.handleDatabaseListQuery()
+	}
+
 	query, err := queryHandler.remapQuery(originalQuery)
 	if err != nil {
 		LogError(queryHandler.config, "Couldn't map query:", originalQuery+"\n"+err.Error())
@@ -203,6 +213,38 @@ func (queryHandler *QueryHandler) HandleQuery(originalQuery string) ([]pgproto3.
 		return nil, err
 	}
 	messages = append(messages, dataMessages...)
+	return messages, nil
+}
+
+func (queryHandler *QueryHandler) handleDatabaseListQuery() ([]pgproto3.Message, error) {
+	messages := []pgproto3.Message{
+		&pgproto3.RowDescription{
+			Fields: []pgproto3.FieldDescription{
+				{Name: []byte("did"), DataTypeOID: pgtype.OIDOID, Format: 0},
+				{Name: []byte("name"), DataTypeOID: pgtype.TextOID, Format: 0},
+				{Name: []byte("spcname"), DataTypeOID: pgtype.TextOID, Format: 0},
+				{Name: []byte("datallowconn"), DataTypeOID: pgtype.BoolOID, Format: 0},
+				{Name: []byte("is_template"), DataTypeOID: pgtype.BoolOID, Format: 0},
+				{Name: []byte("cancreate"), DataTypeOID: pgtype.BoolOID, Format: 0},
+				{Name: []byte("owner"), DataTypeOID: pgtype.Int8OID, Format: 0},
+				{Name: []byte("description"), DataTypeOID: pgtype.TextOID, Format: 0},
+			},
+		},
+		&pgproto3.DataRow{
+			Values: [][]byte{
+				[]byte("16388"),           // did
+				[]byte("bemidb"),          // name
+				nil,                       // spcname
+				[]byte("t"),              // datallowconn
+				[]byte("f"),              // is_template
+				[]byte("t"),              // cancreate
+				[]byte("10"),             // owner
+				nil,                      // description
+			},
+		},
+		&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")},
+	}
+
 	return messages, nil
 }
 
