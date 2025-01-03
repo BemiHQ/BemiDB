@@ -173,6 +173,63 @@
           "store_path": "/nix/store/mjjfx6yyaaba5hmv6bga20m8fxrca93l-postgresql-16.4"
         }
       }
+    },
+    "python@latest": {
+      "last_modified": "2024-12-23T21:10:33Z",
+      "plugin_version": "0.0.4",
+      "resolved": "github:NixOS/nixpkgs/de1864217bfa9b5845f465e771e0ecb48b30e02d#python313",
+      "source": "devbox-search",
+      "version": "3.13.1",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/wn0n52lnysbscn702gfp20sx96cryiwp-python3-3.13.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/wn0n52lnysbscn702gfp20sx96cryiwp-python3-3.13.1"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/hskvsfyapfx5sqk5mhcylzbjpxkr51f6-python3-3.13.1",
+              "default": true
+            },
+            {
+              "name": "debug",
+              "path": "/nix/store/w3zkq34pfcwnwh235sqszxn3q0knq75s-python3-3.13.1-debug"
+            }
+          ],
+          "store_path": "/nix/store/hskvsfyapfx5sqk5mhcylzbjpxkr51f6-python3-3.13.1"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/aca752v0zczhjak334ldrgfi669nhccf-python3-3.13.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/aca752v0zczhjak334ldrgfi669nhccf-python3-3.13.1"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/acxvfb890g9jawlxsj7zs8marxxvzrrs-python3-3.13.1",
+              "default": true
+            },
+            {
+              "name": "debug",
+              "path": "/nix/store/wfsagf7s6lf1pclh3a0s5m4lrhh8g6hn-python3-3.13.1-debug"
+            }
+          ],
+          "store_path": "/nix/store/acxvfb890g9jawlxsj7zs8marxxvzrrs-python3-3.13.1"
+        }
+      }
     }
   }
 }
