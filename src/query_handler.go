@@ -424,20 +424,71 @@ func (queryHandler *QueryHandler) remapStatement(stmt *pgQuery.RawStmt) (*pgQuer
 }
 
 func (queryHandler *QueryHandler) generateRowDescription(cols []*sql.ColumnType) *pgproto3.RowDescription {
-	description := pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{}}
+    description := pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{}}
 
-	for _, col := range cols {
-		description.Fields = append(description.Fields, pgproto3.FieldDescription{
-			Name:                 []byte(col.Name()),
-			TableOID:             0,
-			TableAttributeNumber: 0,
-			DataTypeOID:          pgtype.TextOID,
-			DataTypeSize:         -1,
-			TypeModifier:         -1,
-			Format:               0,
-		})
-	}
-	return &description
+    for _, col := range cols {
+        oid, size := queryHandler.duckDBTypeToPgType(col.DatabaseTypeName())
+				if col.Name() == "did" {
+						oid = pgtype.OIDOID
+						size = 4
+				}
+				description.Fields = append(description.Fields, pgproto3.FieldDescription{
+            Name:                 []byte(col.Name()),
+            TableOID:            0,
+            TableAttributeNumber: 0,
+            DataTypeOID:         oid,
+            DataTypeSize:        size,
+            TypeModifier:        -1,
+            Format:             0,
+        })
+    }
+    return &description
+}
+
+func (queryHandler *QueryHandler) duckDBTypeToPgType(duckDBType string) (oid uint32, size int16) {
+    switch duckDBType {
+    case "BOOLEAN":
+        return pgtype.BoolOID, 1
+    case "TINYINT", "SMALLINT":
+        return pgtype.Int2OID, 2
+    case "INTEGER":
+        return pgtype.Int4OID, 4
+    case "BIGINT":
+        return pgtype.Int8OID, 8
+    case "REAL":
+        return pgtype.Float4OID, 4
+    case "DOUBLE":
+        return pgtype.Float8OID, 8
+    case "VARCHAR", "CHAR", "CHARACTER VARYING":
+        return pgtype.VarcharOID, -1
+    case "DATE":
+        return pgtype.DateOID, 4
+    case "TIME":
+        return pgtype.TimeOID, 8
+    case "TIMESTAMP":
+        return pgtype.TimestampOID, 8
+    case "TIMESTAMP WITH TIME ZONE":
+        return pgtype.TimestamptzOID, 8
+    case "INTERVAL":
+        return pgtype.IntervalOID, 16
+    case "DECIMAL", "NUMERIC":
+        return pgtype.NumericOID, -1
+    case "UUID":
+        return pgtype.UUIDOID, 16
+    case "JSON":
+        return pgtype.JSONOID, -1
+    case "JSONB":
+        return pgtype.JSONBOID, -1
+    default:
+        // Check if it's an array type
+        if strings.HasPrefix(duckDBType, "INTEGER[]") {
+            return pgtype.Int4ArrayOID, -1
+        } else if strings.HasPrefix(duckDBType, "VARCHAR[]") {
+            return pgtype.VarcharArrayOID, -1
+        }
+        // Default to text for unknown types
+        return pgtype.TextOID, -1
+    }
 }
 
 func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.ColumnType) (*pgproto3.DataRow, error) {
