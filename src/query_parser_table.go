@@ -38,85 +38,68 @@ func (parser *QueryParserTable) NodeToQuerySchemaTable(node *pgQuery.Node) Query
 	}
 }
 
-func (parser *QueryParserTable) MakeEmptyTableNode(tableName string, columns []string, alias string) *pgQuery.Node {
-	return parser.utils.MakeSubselectWithoutRowsNode(tableName, columns, alias)
+func (parser *QueryParserTable) MakeEmptyTableNode(tableName string, columns []PgColumnDef, alias string) *pgQuery.Node {
+	return parser.utils.MakeSubselectWithTypedRows(tableName, columns, [][]string{}, alias)
 }
 
 // pg_catalog.pg_shadow -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgShadowNode(user string, encryptedPassword string, alias string) *pgQuery.Node {
-	columns := PG_SHADOW_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_SHADOW_VALUE_BY_COLUMN.Values()
-
-	var rowsValues [][]string
-
-	rowValues := make([]string, len(staticRowValues))
-	copy(rowValues, staticRowValues)
-	for i, column := range columns {
-		switch column {
+	values := make([]string, len(PG_SHADOW_COLUMNS))
+	for i, col := range PG_SHADOW_COLUMNS {
+		values[i] = col.Default
+		switch col.Name {
 		case "usename":
-			rowValues[i] = user
+			values[i] = user
 		case "passwd":
-			rowValues[i] = encryptedPassword
+			values[i] = encryptedPassword
 		}
 	}
-	rowsValues = append(rowsValues, rowValues)
-
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_SHADOW, columns, rowsValues, alias)
+	return parser.utils.MakeSubselectWithTypedRows(PG_TABLE_PG_SHADOW, PG_SHADOW_COLUMNS, [][]string{values}, alias)
 }
 
 // pg_catalog.pg_roles -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgRolesNode(user string, alias string) *pgQuery.Node {
-	columns := PG_ROLES_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_ROLES_VALUE_BY_COLUMN.Values()
-
-	var rowsValues [][]string
-	rowValues := make([]string, len(staticRowValues))
-	copy(rowValues, staticRowValues)
-
-	for i, column := range columns {
-		if column == "rolname" {
-			rowValues[i] = user
+	values := make([]string, len(PG_ROLES_COLUMNS))
+	for i, col := range PG_ROLES_COLUMNS {
+		values[i] = col.Default
+		if col.Name == "rolname" {
+			values[i] = user
 		}
 	}
-	rowsValues = append(rowsValues, rowValues)
-
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_ROLES, columns, rowsValues, alias)
+	return parser.utils.MakeSubselectWithTypedRows(PG_TABLE_PG_ROLES, PG_ROLES_COLUMNS, [][]string{values}, alias)
 }
 
 // pg_catalog.pg_extension -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgExtensionNode(alias string) *pgQuery.Node {
-	columns := PG_EXTENSION_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_EXTENSION_VALUE_BY_COLUMN.Values()
-	rowsValues := [][]string{staticRowValues}
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_EXTENSION, columns, rowsValues, alias)
+	values := make([]string, len(PG_EXTENSION_COLUMNS))
+	for i, col := range PG_EXTENSION_COLUMNS {
+		values[i] = col.Default
+	}
+	return parser.utils.MakeSubselectWithTypedRows(PG_TABLE_PG_EXTENSION, PG_EXTENSION_COLUMNS, [][]string{values}, alias)
 }
 
 // pg_catalog.pg_database -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgDatabaseNode(database string, alias string) *pgQuery.Node {
-	columns := PG_DATABASE_VALUE_BY_COLUMN.Keys()
-	staticRowValues := PG_DATABASE_VALUE_BY_COLUMN.Values()
-
-	var rowsValues [][]string
-	rowValues := make([]string, len(staticRowValues))
-	copy(rowValues, staticRowValues)
-	for i, column := range columns {
-		if column == "datname" {
-			rowValues[i] = database
+	values := make([]string, len(PG_DATABASE_COLUMNS))
+	for i, col := range PG_DATABASE_COLUMNS {
+		values[i] = col.Default
+		if col.Name == "datname" {
+			values[i] = database
 		}
 	}
-	rowsValues = append(rowsValues, rowValues)
-
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_DATABASE, columns, rowsValues, alias)
+	return parser.utils.MakeSubselectWithTypedRows(PG_TABLE_PG_DATABASE, PG_DATABASE_COLUMNS, [][]string{values}, alias)
 }
 
 // pg_catalog.pg_user -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgUserNode(user string, alias string) *pgQuery.Node {
-	columns := PG_USER_VALUE_BY_COLUMN.Keys()
-	rowValues := PG_USER_VALUE_BY_COLUMN.Values()
-
-	rowValues[0] = user
-
-	return parser.utils.MakeSubselectWithRowsNode(PG_TABLE_PG_USER, columns, [][]string{rowValues}, alias)
+	values := make([]string, len(PG_USER_COLUMNS))
+	for i, col := range PG_USER_COLUMNS {
+		values[i] = col.Default
+		if col.Name == "usename" {
+			values[i] = user
+		}
+	}
+	return parser.utils.MakeSubselectWithTypedRows(PG_TABLE_PG_USER, PG_USER_COLUMNS, [][]string{values}, alias)
 }
 
 // System pg_* tables
@@ -559,77 +542,6 @@ var PG_SYSTEM_VIEWS = NewSet([]string{
 	"pg_statio_all_sequences",
 	"pg_statio_sys_sequences",
 	"pg_statio_user_sequences",
-})
-
-var PG_SHADOW_VALUE_BY_COLUMN = NewOrderedMap([][]string{
-	{"usename", "bemidb"},
-	{"usesysid", "10"},
-	{"usecreatedb", "FALSE"},
-	{"usesuper", "FALSE"},
-	{"userepl", "TRUE"},
-	{"usebypassrls", "FALSE"},
-	{"passwd", ""},
-	{"valuntil", "NULL"},
-	{"useconfig", "NULL"},
-})
-
-var PG_ROLES_VALUE_BY_COLUMN = NewOrderedMap([][]string{
-	{"oid", "10"},
-	{"rolname", ""},
-	{"rolsuper", "true"},
-	{"rolinherit", "true"},
-	{"rolcreaterole", "true"},
-	{"rolcreatedb", "true"},
-	{"rolcanlogin", "true"},
-	{"rolreplication", "false"},
-	{"rolconnlimit", "-1"},
-	{"rolpassword", "NULL"},
-	{"rolvaliduntil", "NULL"},
-	{"rolbypassrls", "false"},
-	{"rolconfig", "NULL"},
-})
-
-var PG_EXTENSION_VALUE_BY_COLUMN = NewOrderedMap([][]string{
-	{"oid", "13823"},
-	{"extname", "plpgsql"},
-	{"extowner", "10"},
-	{"extnamespace", "11"},
-	{"extrelocatable", "false"},
-	{"extversion", "1.0"},
-	{"extconfig", "NULL"},
-	{"extcondition", "NULL"},
-})
-
-var PG_DATABASE_VALUE_BY_COLUMN = NewOrderedMap([][]string{
-	{"oid", "16388"},
-	{"datname", "bemidb"},
-	{"datdba", "10"},
-	{"encoding", "6"},
-	{"datlocprovider", "c"},
-	{"datistemplate", "FALSE"},
-	{"datallowconn", "TRUE"},
-	{"datconnlimit", "-1"},
-	{"datfrozenxid", "722"},
-	{"datminmxid", "1"},
-	{"dattablespace", "1663"},
-	{"datcollate", "en_US.UTF-8"},
-	{"datctype", "en_US.UTF-8"},
-	{"datlocale", "NULL"},
-	{"daticurules", "NULL"},
-	{"datcollversion", "NULL"},
-	{"datacl", "NULL"},
-})
-
-var PG_USER_VALUE_BY_COLUMN = NewOrderedMap([][]string{
-	{"usename", "bemidb"},
-	{"usesysid", "10"},
-	{"usecreatedb", "t"},
-	{"usesuper", "t"},
-	{"userepl", "t"},
-	{"usebypassrls", "t"},
-	{"passwd", ""},
-	{"valuntil", "NULL"},
-	{"useconfig", "NULL"},
 })
 
 type DuckDBKeyword struct {

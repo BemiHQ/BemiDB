@@ -130,9 +130,9 @@ func (remapper *SelectRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Nod
 		qSchemaTable.Schema = PG_SCHEMA_PUBLIC
 	}
 	schemaTable := qSchemaTable.ToIcebergSchemaTable()
-	if !remapper.icebergSchemaTableExists(schemaTable) {
+	if (!remapper.icebergSchemaTableExists(schemaTable)) {
 		remapper.reloadIceberSchemaTables()
-		if !remapper.icebergSchemaTableExists(schemaTable) {
+		if (!remapper.icebergSchemaTableExists(schemaTable)) {
 			return node // Let it return "Catalog Error: Table with name _ does not exist!"
 		}
 	}
@@ -199,89 +199,3 @@ func (remapper *SelectRemapperTable) icebergSchemaTableExists(schemaTable Iceber
 	return false
 }
 
-var PG_INHERITS_COLUMNS = []string{
-	"inhrelid",
-	"inhparent",
-	"inhseqno",
-	"inhdetachpending",
-}
-
-var PG_SHDESCRIPTION_COLUMNS = []string{
-	"objoid",
-	"classoid",
-	"description",
-}
-
-var PG_STATIO_USER_TABLES_COLUMNS = []string{
-	"relid",
-	"schemaname",
-	"relname",
-	"heap_blks_read",
-	"heap_blks_hit",
-	"idx_blks_read",
-	"idx_blks_hit",
-	"toast_blks_read",
-	"toast_blks_hit",
-	"tidx_blks_read",
-	"tidx_blks_hit",
-}
-
-var PG_REPLICATION_SLOTS_COLUMNS = []string{
-	"slot_name",
-	"plugin",
-	"slot_type",
-	"datoid",
-	"database",
-	"temporary",
-	"active",
-	"active_pid",
-	"xmin",
-	"catalog_xmin",
-	"restart_lsn",
-	"confirmed_flush_lsn",
-	"wal_status",
-	"safe_wal_size",
-	"two_phase",
-	"conflicting",
-}
-
-var PG_STAT_GSSAPI_COLUMNS = []string{
-	"pid",
-	"gss_authenticated",
-	"principal",
-	"encrypted",
-	"credentials_delegated",
-}
-
-var PG_AUTH_MEMBERS_COLUMNS = []string{
-	"oid",
-	"roleid",
-	"member",
-	"grantor",
-	"admin_option",
-	"inherit_option",
-	"set_option",
-}
-
-var PG_STAT_ACTIVITY_COLUMNS = []string{
-	"datid",
-	"datname",
-	"pid",
-	"usesysid",
-	"usename",
-	"application_name",
-	"client_addr",
-	"client_hostname",
-	"client_port",
-	"backend_start",
-	"xact_start",
-	"query_start",
-	"state_change",
-	"wait_event_type",
-	"wait_event",
-	"state",
-	"backend_xid",
-	"backend_xmin",
-	"query",
-	"backend_type",
-}
