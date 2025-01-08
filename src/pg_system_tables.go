@@ -4,166 +4,212 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// TableDefinition represents a system table structure
+type TableDefinition struct {
+	Columns []PgColumnDef
+	HasRows bool // Whether the table should contain any rows
+}
+
 type PgColumnDef struct {
-	Name    string
-	PgType  uint32
-	Default string
+	Name   string
+	PgType uint32
+	Value  *string // nil = NULL, omitted = no rows
 }
 
-var PG_SHADOW_COLUMNS = []PgColumnDef{
-	{"usename", pgtype.NameOID, ""},
-	{"usesysid", pgtype.OIDOID, "10"},
-	{"usecreatedb", pgtype.BoolOID, "FALSE"},
-	{"usesuper", pgtype.BoolOID, "FALSE"},
-	{"userepl", pgtype.BoolOID, "TRUE"},
-	{"usebypassrls", pgtype.BoolOID, "FALSE"},
-	{"passwd", pgtype.TextOID, ""},
-	{"valuntil", pgtype.TimestamptzOID, "NULL"},
-	{"useconfig", pgtype.TextArrayOID, "NULL"},
+func str(s string) *string {
+	return &s
 }
 
-var PG_ROLES_COLUMNS = []PgColumnDef{
-	{"oid", pgtype.OIDOID, "10"},
-	{"rolname", pgtype.NameOID, ""},
-	{"rolsuper", pgtype.BoolOID, "true"},
-	{"rolinherit", pgtype.BoolOID, "true"},
-	{"rolcreaterole", pgtype.BoolOID, "true"},
-	{"rolcreatedb", pgtype.BoolOID, "true"},
-	{"rolcanlogin", pgtype.BoolOID, "true"},
-	{"rolreplication", pgtype.BoolOID, "false"},
-	{"rolconnlimit", pgtype.Int4OID, "-1"},
-	{"rolpassword", pgtype.TextOID, "NULL"},
-	{"rolvaliduntil", pgtype.TimestamptzOID, "NULL"},
-	{"rolbypassrls", pgtype.BoolOID, "false"},
-	{"rolconfig", pgtype.TextArrayOID, "NULL"},
+var PG_SHADOW_TABLE = TableDefinition{
+	HasRows: true,
+	Columns: []PgColumnDef{
+		{"usename", pgtype.NameOID, str("")}, // Will be filled with user
+		{"usesysid", pgtype.OIDOID, str("10")},
+		{"usecreatedb", pgtype.BoolOID, str("FALSE")},
+		{"usesuper", pgtype.BoolOID, str("FALSE")},
+		{"userepl", pgtype.BoolOID, str("TRUE")},
+		{"usebypassrls", pgtype.BoolOID, str("FALSE")},
+		{"passwd", pgtype.TextOID, str("")},
+		{"valuntil", pgtype.TimestamptzOID, nil},
+		{"useconfig", pgtype.TextArrayOID, nil},
+	},
 }
 
-var PG_DATABASE_COLUMNS = []PgColumnDef{
-	{"oid", pgtype.OIDOID, "16388"},
-	{"datname", pgtype.NameOID, ""},
-	{"datdba", pgtype.OIDOID, "10"},
-	{"encoding", pgtype.Int4OID, "6"},
-	{"datlocprovider", pgtype.TextOID, "c"},
-	{"datistemplate", pgtype.BoolOID, "FALSE"},
-	{"datallowconn", pgtype.BoolOID, "TRUE"},
-	{"datconnlimit", pgtype.Int4OID, "-1"},
-	{"datfrozenxid", pgtype.Int8OID, "722"},
-	{"datminmxid", pgtype.Int8OID, "1"},
-	{"dattablespace", pgtype.OIDOID, "1663"},
-	{"datcollate", pgtype.TextOID, "en_US.UTF-8"},
-	{"datctype", pgtype.TextOID, "en_US.UTF-8"},
-	{"datlocale", pgtype.TextOID, "NULL"},
-	{"daticurules", pgtype.TextOID, "NULL"},
-	{"datcollversion", pgtype.TextOID, "NULL"},
-	{"datacl", pgtype.TextArrayOID, "NULL"},
+var PG_INHERITS_TABLE = TableDefinition{
+	HasRows: false, // This table should be empty
+	Columns: []PgColumnDef{
+		{"inhrelid", pgtype.OIDOID, nil},
+		{"inhparent", pgtype.OIDOID, nil},
+		{"inhseqno", pgtype.Int4OID, nil},
+		{"inhdetachpending", pgtype.BoolOID, nil},
+	},
 }
 
-var PG_USER_COLUMNS = []PgColumnDef{
-	{"usename", pgtype.TextOID, ""},
-	{"usesysid", pgtype.OIDOID, "10"},
-	{"usecreatedb", pgtype.BoolOID, "t"},
-	{"usesuper", pgtype.BoolOID, "t"},
-	{"userepl", pgtype.BoolOID, "t"},
-	{"usebypassrls", pgtype.BoolOID, "t"},
-	{"passwd", pgtype.TextOID, ""},
-	{"valuntil", pgtype.TimestamptzOID, "NULL"},
-	{"useconfig", pgtype.TextArrayOID, "NULL"},
+var PG_ROLES_TABLE = TableDefinition{
+	HasRows: true,
+	Columns: []PgColumnDef{
+		{"oid", pgtype.OIDOID, str("10")},
+		{"rolname", pgtype.NameOID, str("")},
+		{"rolsuper", pgtype.BoolOID, str("true")},
+		{"rolinherit", pgtype.BoolOID, str("true")},
+		{"rolcreaterole", pgtype.BoolOID, str("true")},
+		{"rolcreatedb", pgtype.BoolOID, str("true")},
+		{"rolcanlogin", pgtype.BoolOID, str("true")},
+		{"rolreplication", pgtype.BoolOID, str("false")},
+		{"rolconnlimit", pgtype.Int4OID, str("-1")},
+		{"rolpassword", pgtype.TextOID, nil},
+		{"rolvaliduntil", pgtype.TimestamptzOID, nil},
+		{"rolbypassrls", pgtype.BoolOID, str("false")},
+		{"rolconfig", pgtype.TextArrayOID, nil},
+	},
 }
 
-var PG_EXTENSION_COLUMNS = []PgColumnDef{
-	{"oid", pgtype.OIDOID, "13823"},
-	{"extname", pgtype.NameOID, "plpgsql"},
-	{"extowner", pgtype.OIDOID, "10"},
-	{"extnamespace", pgtype.OIDOID, "11"},
-	{"extrelocatable", pgtype.BoolOID, "false"},
-	{"extversion", pgtype.TextOID, "1.0"},
-	{"extconfig", pgtype.OIDArrayOID, "NULL"},
-	{"extcondition", pgtype.TextArrayOID, "NULL"},
+var PG_DATABASE_TABLE = TableDefinition{
+	HasRows: true,
+	Columns: []PgColumnDef{
+		{"oid", pgtype.OIDOID, str("16388")},
+		{"datname", pgtype.NameOID, str("")},
+		{"datdba", pgtype.OIDOID, str("10")},
+		{"encoding", pgtype.Int4OID, str("6")},
+		{"datlocprovider", pgtype.TextOID, str("c")},
+		{"datistemplate", pgtype.BoolOID, str("FALSE")},
+		{"datallowconn", pgtype.BoolOID, str("TRUE")},
+		{"datconnlimit", pgtype.Int4OID, str("-1")},
+		{"datfrozenxid", pgtype.Int8OID, str("722")},
+		{"datminmxid", pgtype.Int8OID, str("1")},
+		{"dattablespace", pgtype.OIDOID, str("1663")},
+		{"datcollate", pgtype.TextOID, str("en_US.UTF-8")},
+		{"datctype", pgtype.TextOID, str("en_US.UTF-8")},
+		{"datlocale", pgtype.TextOID, nil},
+		{"daticurules", pgtype.TextOID, nil},
+		{"datcollversion", pgtype.TextOID, nil},
+		{"datacl", pgtype.TextArrayOID, nil},
+	},
 }
 
-var PG_INHERITS_COLUMNS = []PgColumnDef{
-	{"inhrelid", pgtype.OIDOID, ""},
-	{"inhparent", pgtype.OIDOID, ""},
-	{"inhseqno", pgtype.Int4OID, ""},
-	{"inhdetachpending", pgtype.BoolOID, ""},
+var PG_USER_TABLE = TableDefinition{
+	HasRows: true,
+	Columns: []PgColumnDef{
+		{"usename", pgtype.TextOID, str("")},
+		{"usesysid", pgtype.OIDOID, str("10")},
+		{"usecreatedb", pgtype.BoolOID, str("t")},
+		{"usesuper", pgtype.BoolOID, str("t")},
+		{"userepl", pgtype.BoolOID, str("t")},
+		{"usebypassrls", pgtype.BoolOID, str("t")},
+		{"passwd", pgtype.TextOID, str("")},
+		{"valuntil", pgtype.TimestamptzOID, nil},
+		{"useconfig", pgtype.TextArrayOID, nil},
+	},
 }
 
-var PG_SHDESCRIPTION_COLUMNS = []PgColumnDef{
-	{"objoid", pgtype.OIDOID, ""},
-	{"classoid", pgtype.OIDOID, ""},
-	{"description", pgtype.TextOID, ""},
+var PG_EXTENSION_TABLE = TableDefinition{
+	HasRows: true,
+	Columns: []PgColumnDef{
+		{"oid", pgtype.OIDOID, str("13823")},
+		{"extname", pgtype.NameOID, str("plpgsql")},
+		{"extowner", pgtype.OIDOID, str("10")},
+		{"extnamespace", pgtype.OIDOID, str("11")},
+		{"extrelocatable", pgtype.BoolOID, str("false")},
+		{"extversion", pgtype.TextOID, str("1.0")},
+		{"extconfig", pgtype.OIDArrayOID, nil},
+		{"extcondition", pgtype.TextArrayOID, nil},
+	},
 }
 
-var PG_STATIO_USER_TABLES_COLUMNS = []PgColumnDef{
-	{"relid", pgtype.OIDOID, ""},
-	{"schemaname", pgtype.NameOID, ""},
-	{"relname", pgtype.NameOID, ""},
-	{"heap_blks_read", pgtype.Int8OID, ""},
-	{"heap_blks_hit", pgtype.Int8OID, ""},
-	{"idx_blks_read", pgtype.Int8OID, ""},
-	{"idx_blks_hit", pgtype.Int8OID, ""},
-	{"toast_blks_read", pgtype.Int8OID, ""},
-	{"toast_blks_hit", pgtype.Int8OID, ""},
-	{"tidx_blks_read", pgtype.Int8OID, ""},
-	{"tidx_blks_hit", pgtype.Int8OID, ""},
+var PG_SHDESCRIPTION_TABLE = TableDefinition{
+	HasRows: false,
+	Columns: []PgColumnDef{
+		{"objoid", pgtype.OIDOID, nil},
+		{"classoid", pgtype.OIDOID, nil},
+		{"description", pgtype.TextOID, nil},
+	},
 }
 
-var PG_REPLICATION_SLOTS_COLUMNS = []PgColumnDef{
-	{"slot_name", pgtype.NameOID, ""},
-	{"plugin", pgtype.NameOID, ""},
-	{"slot_type", pgtype.TextOID, ""},
-	{"datoid", pgtype.OIDOID, ""},
-	{"database", pgtype.NameOID, ""},
-	{"temporary", pgtype.BoolOID, ""},
-	{"active", pgtype.BoolOID, ""},
-	{"active_pid", pgtype.Int4OID, ""},
-	{"xmin", pgtype.Int8OID, ""},
-	{"catalog_xmin", pgtype.Int8OID, ""},
-	{"restart_lsn", pgtype.TextOID, ""},
-	{"confirmed_flush_lsn", pgtype.TextOID, ""},
-	{"wal_status", pgtype.TextOID, ""},
-	{"safe_wal_size", pgtype.Int8OID, ""},
-	{"two_phase", pgtype.BoolOID, ""},
-	{"conflicting", pgtype.BoolOID, ""},
+var PG_STATIO_USER_TABLES_TABLE = TableDefinition{
+	HasRows: false,
+	Columns: []PgColumnDef{
+		{"relid", pgtype.OIDOID, nil},
+		{"schemaname", pgtype.NameOID, nil},
+		{"relname", pgtype.NameOID, nil},
+		{"heap_blks_read", pgtype.Int8OID, nil},
+		{"heap_blks_hit", pgtype.Int8OID, nil},
+		{"idx_blks_read", pgtype.Int8OID, nil},
+		{"idx_blks_hit", pgtype.Int8OID, nil},
+		{"toast_blks_read", pgtype.Int8OID, nil},
+		{"toast_blks_hit", pgtype.Int8OID, nil},
+		{"tidx_blks_read", pgtype.Int8OID, nil},
+		{"tidx_blks_hit", pgtype.Int8OID, nil},
+	},
 }
 
-var PG_STAT_GSSAPI_COLUMNS = []PgColumnDef{
-	{"pid", pgtype.Int4OID, ""},
-	{"gss_authenticated", pgtype.BoolOID, ""},
-	{"principal", pgtype.TextOID, ""},
-	{"encrypted", pgtype.BoolOID, ""},
-	{"credentials_delegated", pgtype.BoolOID, ""},
+var PG_REPLICATION_SLOTS_TABLE = TableDefinition{
+	HasRows: false,
+	Columns: []PgColumnDef{
+		{"slot_name", pgtype.NameOID, nil},
+		{"plugin", pgtype.NameOID, nil},
+		{"slot_type", pgtype.TextOID, nil},
+		{"datoid", pgtype.OIDOID, nil},
+		{"database", pgtype.NameOID, nil},
+		{"temporary", pgtype.BoolOID, nil},
+		{"active", pgtype.BoolOID, nil},
+		{"active_pid", pgtype.Int4OID, nil},
+		{"xmin", pgtype.Int8OID, nil},
+		{"catalog_xmin", pgtype.Int8OID, nil},
+		{"restart_lsn", pgtype.TextOID, nil},
+		{"confirmed_flush_lsn", pgtype.TextOID, nil},
+		{"wal_status", pgtype.TextOID, nil},
+		{"safe_wal_size", pgtype.Int8OID, nil},
+		{"two_phase", pgtype.BoolOID, nil},
+		{"conflicting", pgtype.BoolOID, nil},
+	},
 }
 
-var PG_AUTH_MEMBERS_COLUMNS = []PgColumnDef{
-	{"oid", pgtype.OIDOID, ""},
-	{"roleid", pgtype.OIDOID, ""},
-	{"member", pgtype.OIDOID, ""},
-	{"grantor", pgtype.OIDOID, ""},
-	{"admin_option", pgtype.BoolOID, ""},
-	{"inherit_option", pgtype.BoolOID, ""},
-	{"set_option", pgtype.BoolOID, ""},
+var PG_STAT_GSSAPI_TABLE = TableDefinition{
+	HasRows: false,
+	Columns: []PgColumnDef{
+		{"pid", pgtype.Int4OID, nil},
+		{"gss_authenticated", pgtype.BoolOID, nil},
+		{"principal", pgtype.TextOID, nil},
+		{"encrypted", pgtype.BoolOID, nil},
+		{"credentials_delegated", pgtype.BoolOID, nil},
+	},
 }
 
-var PG_STAT_ACTIVITY_COLUMNS = []PgColumnDef{
-	{"datid", pgtype.OIDOID, ""},
-	{"datname", pgtype.NameOID, ""},
-	{"pid", pgtype.Int4OID, ""},
-	{"usesysid", pgtype.OIDOID, ""},
-	{"usename", pgtype.NameOID, ""},
-	{"application_name", pgtype.TextOID, ""},
-	{"client_addr", pgtype.InetOID, ""},
-	{"client_hostname", pgtype.TextOID, ""},
-	{"client_port", pgtype.Int4OID, ""},
-	{"backend_start", pgtype.TimestamptzOID, ""},
-	{"xact_start", pgtype.TimestamptzOID, ""},
-	{"query_start", pgtype.TimestamptzOID, ""},
-	{"state_change", pgtype.TimestamptzOID, ""},
-	{"wait_event_type", pgtype.TextOID, ""},
-	{"wait_event", pgtype.TextOID, ""},
-	{"state", pgtype.TextOID, ""},
-	{"backend_xid", pgtype.Int8OID, ""},
-	{"backend_xmin", pgtype.Int8OID, ""},
-	{"query", pgtype.TextOID, ""},
-	{"backend_type", pgtype.TextOID, ""},
+var PG_AUTH_MEMBERS_TABLE = TableDefinition{
+	HasRows: false,
+	Columns: []PgColumnDef{
+		{"oid", pgtype.OIDOID, nil},
+		{"roleid", pgtype.OIDOID, nil},
+		{"member", pgtype.OIDOID, nil},
+		{"grantor", pgtype.OIDOID, nil},
+		{"admin_option", pgtype.BoolOID, nil},
+		{"inherit_option", pgtype.BoolOID, nil},
+		{"set_option", pgtype.BoolOID, nil},
+	},
+}
+
+var PG_STAT_ACTIVITY_TABLE = TableDefinition{
+	HasRows: false,
+	Columns: []PgColumnDef{
+		{"datid", pgtype.OIDOID, nil},
+		{"datname", pgtype.NameOID, nil},
+		{"pid", pgtype.Int4OID, nil},
+		{"usesysid", pgtype.OIDOID, nil},
+		{"usename", pgtype.NameOID, nil},
+		{"application_name", pgtype.TextOID, nil},
+		{"client_addr", pgtype.InetOID, nil},
+		{"client_hostname", pgtype.TextOID, nil},
+		{"client_port", pgtype.Int4OID, nil},
+		{"backend_start", pgtype.TimestamptzOID, nil},
+		{"xact_start", pgtype.TimestamptzOID, nil},
+		{"query_start", pgtype.TimestamptzOID, nil},
+		{"state_change", pgtype.TimestamptzOID, nil},
+		{"wait_event_type", pgtype.TextOID, nil},
+		{"wait_event", pgtype.TextOID, nil},
+		{"state", pgtype.TextOID, nil},
+		{"backend_xid", pgtype.Int8OID, nil},
+		{"backend_xmin", pgtype.Int8OID, nil},
+		{"query", pgtype.TextOID, nil},
+		{"backend_type", pgtype.TextOID, nil},
+	},
 }

@@ -68,11 +68,11 @@ func (remapper *SelectRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Nod
 			return node
 		case PG_TABLE_PG_INHERITS:
 			// pg_catalog.pg_inherits -> return nothing
-			tableNode := parser.MakeEmptyTableNode(PG_TABLE_PG_INHERITS, PG_INHERITS_COLUMNS, qSchemaTable.Alias)
+			tableNode := parser.MakeEmptyTableNode(PG_TABLE_PG_INHERITS, PG_INHERITS_TABLE, qSchemaTable.Alias)
 			return remapper.overrideTable(node, tableNode)
 		case PG_TABLE_PG_SHDESCRIPTION:
 			// pg_catalog.pg_shdescription -> return nothing
-			tableNode := parser.MakeEmptyTableNode(PG_TABLE_PG_SHDESCRIPTION, PG_SHDESCRIPTION_COLUMNS, qSchemaTable.Alias)
+			tableNode := parser.MakeEmptyTableNode(PG_TABLE_PG_SHDESCRIPTION, PG_SHDESCRIPTION_TABLE, qSchemaTable.Alias)
 			return remapper.overrideTable(node, tableNode)
 		case PG_TABLE_PG_STATIO_USER_TABLES:
 			// pg_catalog.pg_statio_user_tables -> return nothing

@@ -162,18 +162,18 @@ func pgtypeOIDToTypeName(oid uint32) string {
 	}
 }
 
-func (utils *QueryParserUtils) MakeSubselectWithoutRowsNode(tableName string, columns []string, alias string) *pgQuery.Node {
+// Update to return a subselect with empty VALUES list
+func (utils *QueryParserUtils) MakeSubselectWithoutRowsNode(tableName string, columns []PgColumnDef, alias string) *pgQuery.Node {
+	parserType := NewQueryParserType(utils.config)
 	columnNodes := make([]*pgQuery.Node, len(columns))
-	for i, column := range columns {
-		columnNodes[i] = pgQuery.MakeStrNode(column)
+	for i, col := range columns {
+		columnNodes[i] = pgQuery.MakeStrNode(col.Name)
 	}
 
-	targetList := make([]*pgQuery.Node, len(columns))
-	for i, _ := range columns {
-		targetList[i] = pgQuery.MakeResTargetNodeWithVal(
-			utils.MakeAConstBoolNode(false),
-			0,
-		)
+	// Create empty VALUES list - this will return no rows while preserving column types
+	selectStmt := &pgQuery.SelectStmt{
+		ValuesLists: []*pgQuery.Node{}, // Empty list = no rows
+		// No WHERE clause needed since there are no rows
 	}
 
 	if alias == "" {
@@ -185,10 +185,7 @@ func (utils *QueryParserUtils) MakeSubselectWithoutRowsNode(tableName string, co
 			RangeSubselect: &pgQuery.RangeSubselect{
 				Subquery: &pgQuery.Node{
 					Node: &pgQuery.Node_SelectStmt{
-						SelectStmt: &pgQuery.SelectStmt{
-							TargetList:  targetList,
-							WhereClause: utils.MakeAConstBoolNode(false),
-						},
+						SelectStmt: selectStmt,
 					},
 				},
 				Alias: &pgQuery.Alias{

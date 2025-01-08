@@ -42,6 +42,22 @@ func (parser *QueryParserTable) MakeEmptyTableNode(tableName string, columns []P
 	return parser.utils.MakeSubselectWithTypedRows(tableName, columns, [][]string{}, alias)
 }
 
+func (parser *QueryParserTable) MakeEmptyTableNode(tableName string, table TableDefinition, alias string) *pgQuery.Node {
+    if (!table.HasRows) {
+        return parser.utils.MakeSubselectWithoutRowsNode(tableName, table.Columns, alias)
+    }
+    // For tables that should have rows but with null/default values
+    values := make([]string, len(table.Columns))
+    for i, col := range table.Columns {
+        if col.Default == nil {
+            values[i] = "NULL"
+        } else {
+            values[i] = *col.Default
+        }
+    }
+    return parser.utils.MakeSubselectWithTypedRows(tableName, table.Columns, [][]string{values}, alias)
+}
+
 // pg_catalog.pg_shadow -> VALUES(values...) t(columns...)
 func (parser *QueryParserTable) MakePgShadowNode(user string, encryptedPassword string, alias string) *pgQuery.Node {
 	values := make([]string, len(PG_SHADOW_COLUMNS))
