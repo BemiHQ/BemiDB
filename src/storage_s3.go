@@ -16,6 +16,8 @@ import (
 	"github.com/xitongsys/parquet-go-source/s3v2"
 )
 
+var AWS_CREDENTIALS_TYPE = []string{AWS_CREDENTIALS_TYPE_STATIC, AWS_CREDENTIALS_TYPE_DEFAULT}
+
 type StorageS3 struct {
 	s3Client    *s3.Client
 	config      *Config
@@ -23,22 +25,29 @@ type StorageS3 struct {
 }
 
 func NewS3Storage(config *Config) *StorageS3 {
-	awsCredentials := credentials.NewStaticCredentialsProvider(
-		config.Aws.AccessKeyId,
-		config.Aws.SecretAccessKey,
-		"",
-	)
-
 	var logMode aws.ClientLogMode
 	// if config.LogLevel == LOG_LEVEL_DEBUG {
 	// 	logMode = aws.LogRequest | aws.LogResponse
 	// }
 
+	var awsConfigOptions = []func(*awsConfig.LoadOptions) error{
+		awsConfig.WithRegion(config.Aws.Region),
+		awsConfig.WithClientLogMode(logMode),
+	}
+
+	if config.Aws.CredentialsType == AWS_CREDENTIALS_TYPE_STATIC {
+		awsCredentials := credentials.NewStaticCredentialsProvider(
+			config.Aws.AccessKeyId,
+			config.Aws.SecretAccessKey,
+			"",
+		)
+
+		awsConfigOptions = append(awsConfigOptions, awsConfig.WithCredentialsProvider(awsCredentials))
+	}
+
 	loadedAwsConfig, err := awsConfig.LoadDefaultConfig(
 		context.Background(),
-		awsConfig.WithRegion(config.Aws.Region),
-		awsConfig.WithCredentialsProvider(awsCredentials),
-		awsConfig.WithClientLogMode(logMode),
+		awsConfigOptions...,
 	)
 	PanicIfError(err)
 
