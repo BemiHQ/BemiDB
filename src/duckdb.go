@@ -45,15 +45,26 @@ func NewDuckdb(config *Config) *Duckdb {
 
 	switch config.StorageType {
 	case STORAGE_TYPE_S3:
-		query := "CREATE SECRET aws_s3_secret (TYPE S3, KEY_ID '$accessKeyId', SECRET '$secretAccessKey', REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
-		_, err = duckdb.ExecContext(ctx, query, map[string]string{
-			"accessKeyId":     config.Aws.AccessKeyId,
-			"secretAccessKey": config.Aws.SecretAccessKey,
-			"region":          config.Aws.Region,
-			"endpoint":        config.Aws.S3Endpoint,
-			"s3Bucket":        "s3://" + config.Aws.S3Bucket,
-		})
-		PanicIfError(err)
+		switch config.Aws.CredentialsType {
+		case AWS_CREDENTIALS_TYPE_STATIC:
+			query := "CREATE SECRET aws_s3_secret (TYPE S3, KEY_ID '$accessKeyId', SECRET '$secretAccessKey', REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
+			_, err = duckdb.ExecContext(ctx, query, map[string]string{
+				"accessKeyId":     config.Aws.AccessKeyId,
+				"secretAccessKey": config.Aws.SecretAccessKey,
+				"region":          config.Aws.Region,
+				"endpoint":        config.Aws.S3Endpoint,
+				"s3Bucket":        "s3://" + config.Aws.S3Bucket,
+			})
+			PanicIfError(err)
+		case AWS_CREDENTIALS_TYPE_DEFAULT:
+			query := "CREATE SECRET aws_s3_secret (TYPE S3, PROVIDER CREDENTIAL_CHAIN, REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
+			_, err = duckdb.ExecContext(ctx, query, map[string]string{
+				"region":   config.Aws.Region,
+				"endpoint": config.Aws.S3Endpoint,
+				"s3Bucket": "s3://" + config.Aws.S3Bucket,
+			})
+			PanicIfError(err)
+		}
 
 		if config.LogLevel == LOG_LEVEL_TRACE {
 			_, err = duckdb.ExecContext(ctx, "SET enable_http_logging=true", nil)
