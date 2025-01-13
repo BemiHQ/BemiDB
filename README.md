@@ -209,16 +209,17 @@ psql postgres://localhost:54321/bemidb -c \
 
 #### Other common options
 
-| CLI argument              | Environment variable    | Default value                   | Description                                          |
-|---------------------------|-------------------------|---------------------------------|------------------------------------------------------|
-| `--storage-type`          | `BEMIDB_STORAGE_TYPE`   | `LOCAL`                         | Storage type: `LOCAL` or `S3`                        |
-| `--storage-path`          | `BEMIDB_STORAGE_PATH`   | `iceberg`                       | Path to the storage folder                           |
-| `--log-level`             | `BEMIDB_LOG_LEVEL`      | `INFO`                          | Log level: `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE` |
-| `--aws-s3-endpoint`       | `AWS_S3_ENDPOINT`       | `s3.amazonaws.com`              | AWS S3 endpoint                                      |
-| `--aws-region`            | `AWS_REGION`            | Required with `S3` storage type | AWS region                                           |
-| `--aws-s3-bucket`         | `AWS_S3_BUCKET`         | Required with `S3` storage type | AWS S3 bucket name                                   |
-| `--aws-access-key-id`     | `AWS_ACCESS_KEY_ID`     | Required with `S3` storage type | AWS access key ID                                    |
-| `--aws-secret-access-key` | `AWS_SECRET_ACCESS_KEY` | Required with `S3` storage type | AWS secret access key                                |
+| CLI argument              | Environment variable    | Default value                                                     | Description                                          |
+|---------------------------|-------------------------|-------------------------------------------------------------------|------------------------------------------------------|
+| `--storage-type`          | `BEMIDB_STORAGE_TYPE`   | `LOCAL`                                                           | Storage type: `LOCAL` or `S3`                        |
+| `--storage-path`          | `BEMIDB_STORAGE_PATH`   | `iceberg`                                                         | Path to the storage folder                           |
+| `--log-level`             | `BEMIDB_LOG_LEVEL`      | `INFO`                                                            | Log level: `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE` |
+| `--aws-s3-endpoint`       | `AWS_S3_ENDPOINT`       | `s3.amazonaws.com`                                                | AWS S3 endpoint                                      |
+| `--aws-region`            | `AWS_REGION`            | Required with `S3` storage type                                   | AWS region                                           |
+| `--aws-s3-bucket`         | `AWS_S3_BUCKET`         | Required with `S3` storage type                                   | AWS S3 bucket name                                   |
+| `--aws-credentials-type`  | `AWS_CREDENTIALS_TYPE`  | `STATIC`                                                          | AWS credentials type: `STATIC`, `DEFAULT`.           |
+| `--aws-access-key-id`     | `AWS_ACCESS_KEY_ID`     | Required with `S3` storage type and aws credentials type `STATIC` | AWS access key ID                                    |
+| `--aws-secret-access-key` | `AWS_SECRET_ACCESS_KEY` | Required with `S3` storage type and aws credentials type `STATIC` | AWS secret access key                                |
 
 Note that CLI arguments take precedence over environment variables. I.e. you can override the environment variables with CLI arguments.
 
