@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -22,6 +27,12 @@ type Syncer struct {
 	icebergReader *IcebergReader
 }
 
+type TelemetryData struct {
+	DbHost     string `json:"dbHost"`
+	OsName     string `json:"osName"`
+	DbConnHash string `json:"dbConnHash"`
+}
+
 func NewSyncer(config *Config) *Syncer {
 	if config.Pg.DatabaseUrl == "" {
 		panic("Missing PostgreSQL database URL")
@@ -35,6 +46,7 @@ func NewSyncer(config *Config) *Syncer {
 func (syncer *Syncer) SyncFromPostgres() {
 	ctx := context.Background()
 	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
+	syncer.sendTelemetry(databaseUrl)
 
 	conn, err := pgx.Connect(ctx, databaseUrl)
 	PanicIfError(err)
@@ -321,4 +333,30 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 			syncer.icebergWriter.DeleteSchemaTable(icebergSchemaTable)
 		}
 	}
+}
+
+func (syncer *Syncer) sendTelemetry(databaseUrl string) {
+	dbUrl, err := url.Parse(databaseUrl)
+	if err != nil {
+		return
+	}
+
+	hostname := dbUrl.Hostname()
+	if IsLocalHost(hostname) {
+		return
+	}
+
+	data := TelemetryData{
+		DbHost:     hostname,
+		OsName:     runtime.GOOS,
+		DbConnHash: StringToSha256Hash(databaseUrl),
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	client := http.Client{Timeout: 5 * time.Second}
+	_, _ = client.Post("http://api.bemidb.com/api/telemetry", "application/json", bytes.NewBuffer(jsonData))
 }

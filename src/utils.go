@@ -6,10 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"golang.org/x/crypto/pbkdf2"
 	"os"
 	"strconv"
 	"unicode"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 func PanicIfError(err error, message ...string) {
@@ -73,6 +74,19 @@ func StringContainsUpper(str string) bool {
 		if unicode.IsUpper(char) {
 			return true
 		}
+	}
+	return false
+}
+
+func StringToSha256Hash(input string) string {
+	sum := sha256Hash([]byte(input))
+	return fmt.Sprintf("%x", sum)
+}
+
+func IsLocalHost(hostname string) bool {
+	switch hostname {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+		return true
 	}
 	return false
 }
