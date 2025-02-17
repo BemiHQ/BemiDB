@@ -330,9 +330,6 @@ const (
 )
 
 func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) {
-	err := icebergWriter.storage.DeleteSchemaTable(schemaTable)
-	PanicIfError(err)
-
 	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
 
 	parquetFile, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
