@@ -1050,6 +1050,25 @@ func TestHandleParseQuery(t *testing.T) {
 			t.Errorf("Expected the prepared statement to have a statement")
 		}
 	})
+
+	t.Run("Handles PARSE extended query step if query is empty", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+		message := &pgproto3.Parse{Query: ""}
+
+		messages, preparedStatement, err := queryHandler.HandleParseQuery(message)
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.ParseComplete{},
+		})
+
+		if preparedStatement.Query != "" {
+			t.Errorf("Expected the prepared statement query to be empty, got %v", preparedStatement.Query)
+		}
+		if preparedStatement.Statement != nil {
+			t.Errorf("Expected the prepared statement not to have a statement, got %v", preparedStatement.Statement)
+		}
+	})
 }
 
 func TestHandleBindQuery(t *testing.T) {

@@ -267,7 +267,7 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 		ParameterOIDs: message.ParameterOIDs,
 	}
 	if len(queryStatements) == 0 {
-		return []pgproto3.Message{&pgproto3.EmptyQueryResponse{}}, preparedStatement, nil
+		return []pgproto3.Message{&pgproto3.ParseComplete{}}, preparedStatement, nil
 	}
 
 	query := queryStatements[0]
