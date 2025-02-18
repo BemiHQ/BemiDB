@@ -27,12 +27,6 @@ type Syncer struct {
 	icebergReader *IcebergReader
 }
 
-type TelemetryData struct {
-	DbHost     string `json:"dbHost"`
-	OsName     string `json:"osName"`
-	DbConnHash string `json:"dbConnHash"`
-}
-
 func NewSyncer(config *Config) *Syncer {
 	if config.Pg.DatabaseUrl == "" {
 		panic("Missing PostgreSQL database URL")
@@ -46,7 +40,7 @@ func NewSyncer(config *Config) *Syncer {
 func (syncer *Syncer) SyncFromPostgres() {
 	ctx := context.Background()
 	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
-	syncer.sendTelemetry(databaseUrl)
+	syncer.sendAnonymousAnalytics(databaseUrl)
 
 	conn, err := pgx.Connect(ctx, databaseUrl)
 	PanicIfError(err)
@@ -335,17 +329,15 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 	}
 }
 
-func (syncer *Syncer) isLocalHost(hostname string) bool {
-	switch hostname {
-	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
-		return true
-	}
-	return false
+type AnonymousAnalyticsData struct {
+	DbHost  string `json:"dbHost"`
+	OsName  string `json:"osName"`
+	Version string `json:"version"`
 }
 
-func (syncer *Syncer) sendTelemetry(databaseUrl string) {
-	if syncer.config.DisableAnalytics {
-		LogInfo(syncer.config, "Telemetry is disabled")
+func (syncer *Syncer) sendAnonymousAnalytics(databaseUrl string) {
+	if syncer.config.DisableAnonymousAnalytics {
+		LogInfo(syncer.config, "Anonymous analytics is disabled")
 		return
 	}
 
@@ -355,14 +347,15 @@ func (syncer *Syncer) sendTelemetry(databaseUrl string) {
 	}
 
 	hostname := dbUrl.Hostname()
-	if syncer.isLocalHost(hostname) {
+	switch hostname {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
 		return
 	}
 
-	data := TelemetryData{
-		DbHost:     hostname,
-		OsName:     runtime.GOOS,
-		DbConnHash: StringToSha256Hash(databaseUrl),
+	data := AnonymousAnalyticsData{
+		DbHost:  hostname,
+		OsName:  runtime.GOOS + "-" + runtime.GOARCH,
+		Version: syncer.config.Version,
 	}
 
 	jsonData, err := json.Marshal(data)
@@ -371,5 +364,5 @@ func (syncer *Syncer) sendTelemetry(databaseUrl string) {
 	}
 
 	client := http.Client{Timeout: 5 * time.Second}
-	_, _ = client.Post("http://api.bemidb.com/api/analytics", "application/json", bytes.NewBuffer(jsonData))
+	_, _ = client.Post("https://api.bemidb.com/api/analytics", "application/json", bytes.NewBuffer(jsonData))
 }

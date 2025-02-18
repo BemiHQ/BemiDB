@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	VERSION = "0.32.4"
+
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
 	ENV_USER              = "BEMIDB_USER"
@@ -69,18 +71,19 @@ type PgConfig struct {
 }
 
 type Config struct {
-	Host              string
-	Port              string
-	Database          string
-	User              string
-	EncryptedPassword string
-	InitSqlFilepath   string
-	LogLevel          string
-	StorageType       string
-	StoragePath       string
-	Aws               AwsConfig
-	Pg                PgConfig
-	DisableAnalytics  bool
+	Host                      string
+	Port                      string
+	Database                  string
+	User                      string
+	EncryptedPassword         string
+	InitSqlFilepath           string
+	LogLevel                  string
+	StorageType               string
+	StoragePath               string
+	Aws                       AwsConfig
+	Pg                        PgConfig
+	DisableAnonymousAnalytics bool
+	Version                   string
 }
 
 type configParseValues struct {
@@ -91,7 +94,7 @@ type configParseValues struct {
 	pgExcludeTables  string
 }
 
-var _config Config
+var _config = Config{Version: VERSION}
 var _configParseValues configParseValues
 
 func init() {
@@ -120,7 +123,7 @@ func registerFlags() {
 	flag.StringVar(&_config.Aws.S3Bucket, "aws-s3-bucket", os.Getenv(ENV_AWS_S3_BUCKET), "AWS S3 bucket name")
 	flag.StringVar(&_config.Aws.AccessKeyId, "aws-access-key-id", os.Getenv(ENV_AWS_ACCESS_KEY_ID), "AWS access key ID")
 	flag.StringVar(&_config.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
-	flag.BoolVar(&_config.DisableAnalytics, "disable-anonymous-analytics", os.Getenv(ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
+	flag.BoolVar(&_config.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
 }
 
 func parseFlags() {

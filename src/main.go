@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-const VERSION = "0.32.3"
-
 func main() {
 	config := LoadConfig()
 
