@@ -147,7 +147,12 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 			postgres.writeMessages(
 				&pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE},
 			)
-			return nil
+
+			// If Bind step completed, it means that sync is the last message in the extended query protocol, we can exit handleExtendedQuery
+			// Otherwise, wait for Bind/Describe/Execute/Sync. For example, psycopg sends an extra Sync after Parse
+			if preparedStatement.Bound {
+				return nil
+			}
 		}
 	}
 }

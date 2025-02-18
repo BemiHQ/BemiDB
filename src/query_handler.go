@@ -33,14 +33,20 @@ type QueryHandler struct {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 type PreparedStatement struct {
+	// Parse
 	Name          string
 	OriginalQuery string
 	Query         string
 	Statement     *sql.Stmt
 	ParameterOIDs []uint32
-	Variables     []interface{}
-	Portal        string
-	Rows          *sql.Rows
+
+	// Bind
+	Bound     bool
+	Variables []interface{}
+	Portal    string
+
+	// Describe or Execute
+	Rows *sql.Rows
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -313,6 +319,7 @@ func (queryHandler *QueryHandler) HandleBindQuery(message *pgproto3.Bind, prepar
 	}
 
 	LogDebug(queryHandler.config, "Bound variables:", variables)
+	preparedStatement.Bound = true
 	preparedStatement.Variables = variables
 	preparedStatement.Portal = message.DestinationPortal
 
@@ -335,11 +342,7 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 		}
 	}
 
-	if preparedStatement.Query == "" {
-		return []pgproto3.Message{&pgproto3.NoData{}}, preparedStatement, nil
-	}
-
-	if len(preparedStatement.ParameterOIDs) > 0 && len(preparedStatement.ParameterOIDs) != len(preparedStatement.Variables) { // Parse passed the parameters, but Bind didn't happen after
+	if preparedStatement.Query == "" || !preparedStatement.Bound { // Empty query or Parse->[No Bind]->Describe
 		return []pgproto3.Message{&pgproto3.NoData{}}, preparedStatement, nil
 	}
 
@@ -367,7 +370,7 @@ func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, 
 		return []pgproto3.Message{&pgproto3.EmptyQueryResponse{}}, nil
 	}
 
-	if preparedStatement.Rows == nil { // If Describe step didn't have Bind step before
+	if preparedStatement.Rows == nil { // Parse->[No Bind]->Describe->Execute or Parse->Bind->[No Describe]->Execute
 		rows, err := preparedStatement.Statement.QueryContext(context.Background(), preparedStatement.Variables...)
 		if err != nil {
 			LogError(queryHandler.config, "Couldn't execute prepared statement via DuckDB:", preparedStatement.Query+"\n"+err.Error())
