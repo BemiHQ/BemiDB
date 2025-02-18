@@ -434,12 +434,13 @@ func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQue
 	}
 
 	commandTag := FALLBACK_SQL_QUERY
+	upperOriginalQueryStatement := strings.ToUpper(originalQueryStatement)
 	switch {
-	case strings.HasPrefix(originalQueryStatement, "SET "):
+	case strings.HasPrefix(upperOriginalQueryStatement, "SET "):
 		commandTag = "SET"
-	case strings.HasPrefix(originalQueryStatement, "SHOW "):
+	case strings.HasPrefix(upperOriginalQueryStatement, "SHOW "):
 		commandTag = "SHOW"
-	case strings.HasPrefix(originalQueryStatement, "DISCARD ALL"):
+	case strings.HasPrefix(upperOriginalQueryStatement, "DISCARD ALL"):
 		commandTag = "DISCARD ALL"
 	}
 

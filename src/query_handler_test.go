@@ -1004,7 +1004,7 @@ func TestHandleQuery(t *testing.T) {
 		queryHandler := initQueryHandler()
 		queryHandler.HandleQuery("SET timezone = 'UTC'")
 
-		messages, err := queryHandler.HandleQuery("SHOW timezone")
+		messages, err := queryHandler.HandleQuery("show timezone")
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
