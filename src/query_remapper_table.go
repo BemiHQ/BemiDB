@@ -7,7 +7,7 @@ import (
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
-var REDUNDANT_PG_NAMESPACE_OIDS = []int64{0, 1148, 1253, 1264, 1265, 1266, 1267}
+var MAX_REDUNDANT_PG_NAMESPACE_OID = 1265
 
 type QueryRemapperTable struct {
 	parserTable         *ParserTable
@@ -206,13 +206,13 @@ func (remapper *QueryRemapperTable) RemapWhereClauseForTable(qSchemaTable QueryS
 	if remapper.isTableFromPgCatalog(qSchemaTable) {
 		switch qSchemaTable.Table {
 
-		// FROM pg_catalog.pg_namespace -> FROM pg_catalog.pg_namespace WHERE oid NOT IN (3 'main' schema oids, 2 'pg_catalog' and 2 'information_schema' duplicate oids)
+		// FROM pg_catalog.pg_namespace -> FROM pg_catalog.pg_namespace WHERE oid > 1265
 		case PG_TABLE_PG_NAMESPACE:
 			alias := qSchemaTable.Alias
 			if alias == "" {
 				alias = PG_TABLE_PG_NAMESPACE
 			}
-			withoutDuckdbOidsWhereCondition := remapper.parserWhere.MakeNotInExpressionNode("oid", REDUNDANT_PG_NAMESPACE_OIDS, alias)
+			withoutDuckdbOidsWhereCondition := remapper.parserWhere.MakeIntEqualityExpressionNode("oid", ">", MAX_REDUNDANT_PG_NAMESPACE_OID, alias)
 			remapper.parserWhere.AppendWhereCondition(selectStatement, withoutDuckdbOidsWhereCondition)
 
 		// FROM pg_catalog.pg_statio_user_tables -> FROM pg_catalog.pg_statio_user_tables WHERE false

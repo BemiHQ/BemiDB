@@ -17,23 +17,18 @@ func (parser *ParserWhere) FunctionCall(whereNode *pgQuery.Node) *pgQuery.FuncCa
 	return whereNode.GetFuncCall()
 }
 
-// WHERE column NOT IN (values)
-func (parser *ParserWhere) MakeNotInExpressionNode(column string, values []int64, alias string) *pgQuery.Node {
+// WHERE column OPERATOR(>, <, ...) value
+func (parser *ParserWhere) MakeIntEqualityExpressionNode(column string, operator string, value int, alias string) *pgQuery.Node {
 	columnRefNodes := []*pgQuery.Node{pgQuery.MakeStrNode(column)}
 	if alias != "" {
 		columnRefNodes = []*pgQuery.Node{pgQuery.MakeStrNode(alias), pgQuery.MakeStrNode(column)}
 	}
 
-	valuesNodes := make([]*pgQuery.Node, len(values))
-	for i, value := range values {
-		valuesNodes[i] = pgQuery.MakeAConstIntNode(value, 0)
-	}
-
 	return pgQuery.MakeAExprNode(
-		pgQuery.A_Expr_Kind_AEXPR_IN,
-		[]*pgQuery.Node{pgQuery.MakeStrNode("<>")},
+		pgQuery.A_Expr_Kind_AEXPR_OP,
+		[]*pgQuery.Node{pgQuery.MakeStrNode(operator)},
 		pgQuery.MakeColumnRefNode(columnRefNodes, 0),
-		pgQuery.MakeListNode(valuesNodes),
+		pgQuery.MakeAConstIntNode(int64(value), 0),
 		0,
 	)
 }
