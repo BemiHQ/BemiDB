@@ -126,13 +126,13 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 
 	// JOIN
 	if len(selectStatement.FromClause) > 0 && selectStatement.FromClause[0].GetJoinExpr() != nil {
-		selectStatement.FromClause[0] = remapper.remapJoinExpressions(selectStatement, selectStatement.FromClause[0], indentLevel+1) // recursive
+		selectStatement.FromClause[0] = remapper.remapJoinExpressions(selectStatement, selectStatement.FromClause[0], indentLevel+1) // recursion
 	}
 
 	// WHERE
 	if selectStatement.WhereClause != nil {
-		selectStatement.WhereClause = remapper.remapTypeCastsInNode(selectStatement.WhereClause)                    // recursive
-		selectStatement = remapper.remapWhereExpressions(selectStatement, selectStatement.WhereClause, indentLevel) // recursive
+		selectStatement.WhereClause = remapper.remapTypeCastsInNode(selectStatement.WhereClause)                    // recursion
+		selectStatement = remapper.remapWhereExpressions(selectStatement, selectStatement.WhereClause, indentLevel) // recursion
 	}
 
 	// WITH
@@ -162,90 +162,79 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 				remapper.remapSelectStatement(subSelectStatement, indentLevel+1) // self-recursion
 			} else if fromNode.GetRangeFunction() != nil {
 				// FROM PG_FUNCTION()
-				selectStatement.FromClause[i] = remapper.remapTableFunction(fromNode, indentLevel) // recursive
+				selectStatement.FromClause[i] = remapper.remapTableFunction(fromNode, indentLevel) // recursion
 			}
 		}
 	}
 
 	// SELECT
-	selectStatement = remapper.remapSelect(selectStatement, indentLevel) // recursive
+	selectStatement = remapper.remapSelect(selectStatement, indentLevel) // recursion
 
 	return selectStatement
 }
 
-func (remapper *QueryRemapper) remapCaseExpressions(selectStatement *pgQuery.SelectStmt, indentLevel int) *pgQuery.SelectStmt {
-	for _, target := range selectStatement.TargetList {
-		if caseExpr := target.GetResTarget().Val.GetCaseExpr(); caseExpr != nil {
-
-			remapper.ensureConsistentCaseTypes(caseExpr)
-
-			for _, when := range caseExpr.Args {
-				if whenClause := when.GetCaseWhen(); whenClause != nil {
-					if whenClause.Expr != nil {
-						if aExpr := whenClause.Expr.GetAExpr(); aExpr != nil {
-							if aExpr.Kind == pgQuery.A_Expr_Kind_AEXPR_OP_ANY {
-								whenClause.Expr = remapper.remapperSelect.parserSelect.ConvertAnyToIn(aExpr)
-							}
-							if subLink := aExpr.Lexpr.GetSubLink(); subLink != nil {
-								remapper.traceTreeTraversal("CASE WHEN left", indentLevel+1)
-								subSelect := subLink.Subselect.GetSelectStmt()
-								remapper.remapSelectStatement(subSelect, indentLevel+1)
-							}
-							if subLink := aExpr.Rexpr.GetSubLink(); subLink != nil {
-								remapper.traceTreeTraversal("CASE WHEN right", indentLevel+1)
-								subSelect := subLink.Subselect.GetSelectStmt()
-								remapper.remapSelectStatement(subSelect, indentLevel+1)
-							}
-						}
+// CASE ...
+func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, indentLevel int) *pgQuery.CaseExpr {
+	for _, when := range caseExpr.Args {
+		if whenClause := when.GetCaseWhen(); whenClause != nil {
+			// WHEN ...
+			if whenClause.Expr != nil {
+				if aExpr := whenClause.Expr.GetAExpr(); aExpr != nil {
+					if aExpr.Kind == pgQuery.A_Expr_Kind_AEXPR_OP_ANY {
+						whenClause.Expr = remapper.remapperSelect.parserSelect.ConvertAnyToIn(aExpr)
 					}
-
-					if whenClause.Result != nil {
-						if subLink := whenClause.Result.GetSubLink(); subLink != nil {
-							remapper.traceTreeTraversal("CASE THEN", indentLevel+1)
-							subSelect := subLink.Subselect.GetSelectStmt()
-							remapper.remapSelectStatement(subSelect, indentLevel+1)
-						}
-						if funcCall := whenClause.Result.GetFuncCall(); funcCall != nil {
-							remapper.traceTreeTraversal("CASE THEN function", indentLevel+1)
-							whenClause.Result = remapper.remapperSelect.RemapFunctionToConstant(funcCall)
-						}
+					if subLink := aExpr.Lexpr.GetSubLink(); subLink != nil {
+						remapper.traceTreeTraversal("CASE WHEN left", indentLevel+1)
+						subSelect := subLink.Subselect.GetSelectStmt()
+						remapper.remapSelectStatement(subSelect, indentLevel+1)
+					}
+					if subLink := aExpr.Rexpr.GetSubLink(); subLink != nil {
+						remapper.traceTreeTraversal("CASE WHEN right", indentLevel+1)
+						subSelect := subLink.Subselect.GetSelectStmt()
+						remapper.remapSelectStatement(subSelect, indentLevel+1)
 					}
 				}
 			}
 
-			if caseExpr.Defresult != nil {
-				if subLink := caseExpr.Defresult.GetSubLink(); subLink != nil {
-					remapper.traceTreeTraversal("CASE ELSE", indentLevel+1)
+			// THEN ...
+			if whenClause.Result != nil {
+				typeName := remapper.parserTypeCast.inferNodeType(whenClause.Result)
+				if typeName != "" {
+					whenClause.Result = remapper.parserTypeCast.MakeCaseTypeCastNode(whenClause.Result, typeName)
+				}
+
+				if subLink := whenClause.Result.GetSubLink(); subLink != nil {
+					remapper.traceTreeTraversal("CASE THEN", indentLevel+1)
 					subSelect := subLink.Subselect.GetSelectStmt()
 					remapper.remapSelectStatement(subSelect, indentLevel+1)
 				}
-				if funcCall := caseExpr.Defresult.GetFuncCall(); funcCall != nil {
-					remapper.traceTreeTraversal("CASE ELSE function", indentLevel+1)
-					caseExpr.Defresult = remapper.remapperSelect.RemapFunctionToConstant(funcCall)
+				if funcCall := whenClause.Result.GetFuncCall(); funcCall != nil {
+					remapper.traceTreeTraversal("CASE THEN function", indentLevel+1)
+					whenClause.Result = remapper.remapperSelect.RemapFunctionToConstant(funcCall)
 				}
 			}
 		}
 	}
-	return selectStatement
-}
 
-func (remapper *QueryRemapper) ensureConsistentCaseTypes(caseExpr *pgQuery.CaseExpr) {
-	if len(caseExpr.Args) > 0 {
-		if when := caseExpr.Args[0].GetCaseWhen(); when != nil && when.Result != nil {
-			if typeName := remapper.parserTypeCast.inferNodeType(when.Result); typeName != "" {
-				// WHEN
-				for i := 1; i < len(caseExpr.Args); i++ {
-					if whenClause := caseExpr.Args[i].GetCaseWhen(); whenClause != nil && whenClause.Result != nil {
-						whenClause.Result = remapper.parserTypeCast.MakeCaseTypeCastNode(whenClause.Result, typeName)
-					}
-				}
-				// ELSE
-				if caseExpr.Defresult != nil {
-					caseExpr.Defresult = remapper.parserTypeCast.MakeCaseTypeCastNode(caseExpr.Defresult, typeName)
-				}
-			}
+	// ELSE ...
+	if caseExpr.Defresult != nil {
+		typeName := remapper.parserTypeCast.inferNodeType(caseExpr.Defresult)
+		if typeName != "" {
+			caseExpr.Defresult = remapper.parserTypeCast.MakeCaseTypeCastNode(caseExpr.Defresult, typeName)
+		}
+
+		if subLink := caseExpr.Defresult.GetSubLink(); subLink != nil {
+			remapper.traceTreeTraversal("CASE ELSE", indentLevel+1)
+			subSelect := subLink.Subselect.GetSelectStmt()
+			remapper.remapSelectStatement(subSelect, indentLevel+1)
+		}
+		if funcCall := caseExpr.Defresult.GetFuncCall(); funcCall != nil {
+			remapper.traceTreeTraversal("CASE ELSE function", indentLevel+1)
+			caseExpr.Defresult = remapper.remapperSelect.RemapFunctionToConstant(funcCall)
 		}
 	}
+
+	return caseExpr
 }
 
 // FROM PG_FUNCTION()
@@ -263,7 +252,7 @@ func (remapper *QueryRemapper) remapTableFunction(fromNode *pgQuery.Node, indent
 			if funcCallNode == nil {
 				continue
 			}
-			remapper.remapTableFunctionArgs(funcCallNode, indentLevel+1) // recursive
+			remapper.remapTableFunctionArgs(funcCallNode, indentLevel+1) // recursion
 		}
 	}
 
@@ -281,7 +270,7 @@ func (remapper *QueryRemapper) remapTableFunctionArgs(funcCallNode *pgQuery.Func
 		}
 
 		nestedFunctionCall = remapper.remapperTable.RemapNestedTableFunction(nestedFunctionCall)
-		nestedFunctionCall = remapper.remapTableFunctionArgs(nestedFunctionCall, indentLevel+1) // recursive
+		nestedFunctionCall = remapper.remapTableFunctionArgs(nestedFunctionCall, indentLevel+1) // recursion
 
 		funcCallNode.Args[i].Node = &pgQuery.Node_FuncCall{FuncCall: nestedFunctionCall}
 	}
@@ -423,7 +412,7 @@ func (remapper *QueryRemapper) remapWhereExpressions(selectStatement *pgQuery.Se
 	subLink := node.GetSubLink()
 	if subLink != nil {
 		subSelect := subLink.Subselect.GetSelectStmt()
-		remapper.remapSelectStatement(subSelect, indentLevel+1) // recursive
+		remapper.remapSelectStatement(subSelect, indentLevel+1) // recursion
 	}
 
 	aExpr := node.GetAExpr()
@@ -449,12 +438,13 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 	for targetNodeIdx, targetNode := range selectStatement.TargetList {
 		if targetNode.GetResTarget().Val.GetCaseExpr() != nil {
 			// CASE
-			remapper.remapCaseExpressions(selectStatement, indentLevel) // recursive
+			caseExpression := targetNode.GetResTarget().Val.GetCaseExpr()
+			remapper.remapCaseExpression(caseExpression, indentLevel) // recursion
 		} else if targetNode.GetResTarget().Val.GetSubLink() != nil {
 			// Nested SELECT
 			subLink := targetNode.GetResTarget().Val.GetSubLink()
 			subSelect := subLink.Subselect.GetSelectStmt()
-			remapper.remapSelectStatement(subSelect, indentLevel+1) // recursive
+			remapper.remapSelectStatement(subSelect, indentLevel+1) // recursion
 
 			// DuckDB doesn't work with ORDER BY in ARRAY subqueries:
 			//   SELECT ARRAY(SELECT 1 FROM pg_enum ORDER BY enumsortorder)
@@ -471,11 +461,11 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 				if arg.GetSubLink() != nil {
 					// Nested SELECT
 					subSelect := arg.GetSubLink().Subselect.GetSelectStmt()
-					remapper.remapSelectStatement(subSelect, indentLevel+1) // recursive
+					remapper.remapSelectStatement(subSelect, indentLevel+1) // recursion
 				}
 			}
 		} else {
-			targetNode.GetResTarget().Val = remapper.remapTypeCastsInNode(targetNode.GetResTarget().Val) // recursive
+			targetNode.GetResTarget().Val = remapper.remapTypeCastsInNode(targetNode.GetResTarget().Val) // recursion
 		}
 
 		targetNode = remapper.remapperSelect.RemapSelect(targetNode)
@@ -486,7 +476,7 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 	if len(selectStatement.ValuesLists) > 0 {
 		for i, valuesList := range selectStatement.ValuesLists {
 			for j, value := range valuesList.GetList().Items {
-				selectStatement.ValuesLists[i].GetList().Items[j] = remapper.remapTypeCastsInNode(value) // recursive
+				selectStatement.ValuesLists[i].GetList().Items[j] = remapper.remapTypeCastsInNode(value) // recursion
 			}
 		}
 	}

@@ -54,7 +54,7 @@ func (remapper *QueryRemapperSelect) RemapSelect(targetNode *pgQuery.Node) *pgQu
 		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
 	}
 
-	remapper.remapNestedFunctionCalls(functionCall) // recursive
+	remapper.remapNestedFunctionCalls(functionCall) // recursion
 
 	return targetNode
 }
@@ -147,7 +147,7 @@ func (remapper *QueryRemapperSelect) remapNestedFunctionCalls(functionCall *pgQu
 			remapper.parserFunction.OverrideFunctionCallArg(functionCall, i, constantNode)
 		}
 
-		remapper.remapNestedFunctionCalls(nestedFunctionCall)
+		remapper.remapNestedFunctionCalls(nestedFunctionCall) // self-recursion
 	}
 
 	return functionCall
