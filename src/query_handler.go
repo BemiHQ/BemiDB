@@ -696,7 +696,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 			}
 		case *sql.NullBool:
 			if value.Valid {
-				values = append(values, []byte(fmt.Sprintf("%v", value.Bool)))
+				values = append(values, []byte(fmt.Sprintf("%v", value.Bool)[0:1]))
 			} else {
 				values = append(values, nil)
 			}

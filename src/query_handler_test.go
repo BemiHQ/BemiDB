@@ -75,7 +75,7 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT * from pg_is_in_recovery()": {
 			"description": {"pg_is_in_recovery"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"false"},
+			"values":      {"f"},
 		},
 		"SELECT row_to_json(t) FROM (SELECT usename, passwd FROM pg_shadow WHERE usename='bemidb') t": {
 			"description": {"row_to_json"},
@@ -157,7 +157,7 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT * FROM pg_catalog.pg_user": {
 			"description": {"usename", "usesysid", "usecreatedb", "usesuper", "userepl", "usebypassrls", "passwd", "valuntil", "useconfig"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {"bemidb", "10", "true", "true", "true", "true", "", "", ""},
+			"values":      {"bemidb", "10", "t", "t", "t", "t", "", "", ""},
 		},
 		"SELECT datid FROM pg_catalog.pg_stat_activity": {
 			"description": {"datid"},
@@ -236,7 +236,7 @@ func TestHandleQuery(t *testing.T) {
 				Uint32ToString(pgtype.BoolOID),
 				Uint32ToString(pgtype.Int4OID),
 			},
-			"values": {"10", "bemidb", "true", "true", "true", "true", "true", "false", "-1", "", "", "false", ""},
+			"values": {"10", "bemidb", "t", "t", "t", "t", "t", "f", "-1", "", "", "f", ""},
 		},
 		"SELECT * FROM pg_catalog.pg_inherits": {
 			"description": {"inhrelid", "inhparent", "inhseqno", "inhdetachpending"},
@@ -318,12 +318,12 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT bool_column FROM public.test_table WHERE bool_column = TRUE": {
 			"description": {"bool_column"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"true"},
+			"values":      {"t"},
 		},
 		"SELECT bool_column FROM public.test_table WHERE bool_column = FALSE": {
 			"description": {"bool_column"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"false"},
+			"values":      {"f"},
 		},
 		"SELECT bpchar_column FROM public.test_table WHERE bool_column = TRUE": {
 			"description": {"bpchar_column"},
@@ -685,12 +685,12 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT '\"public\".\"test_table\"'::regclass::oid > 1270 AS oid": {
 			"description": {"oid"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"true"},
+			"values":      {"t"},
 		},
 		"SELECT attrelid > 1270 AS attrelid FROM pg_attribute WHERE attrelid = '\"public\".\"test_table\"'::regclass LIMIT 1": {
 			"description": {"attrelid"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"true"},
+			"values":      {"t"},
 		},
 		"SELECT COUNT(*) AS count FROM pg_attribute WHERE attrelid = '\"public\".\"test_table\"'::regclass": {
 			"description": {"count"},
@@ -830,7 +830,7 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT CASE WHEN nsp.nspname = ANY('{information_schema}') THEN false ELSE true END AS db_support FROM pg_catalog.pg_namespace nsp WHERE nsp.oid = 1268::OID;": {
 			"description": {"db_support"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"true"},
+			"values":      {"t"},
 		},
 
 		// WHERE pg functions
@@ -938,7 +938,7 @@ func TestHandleQuery(t *testing.T) {
 				Uint32ToString(pgtype.Int8OID),
 				Uint32ToString(pgtype.TextOID),
 			},
-			"values": {"16388", "bemidb", "", "true", "false", "true", "10", ""},
+			"values": {"16388", "bemidb", "", "t", "f", "t", "10", ""},
 		},
 	}
 
