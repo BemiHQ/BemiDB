@@ -6,23 +6,6 @@ import (
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
-var REMAPPED_CONSTANT_BY_PG_FUNCTION_NAME = map[string]string{
-	"version":                            "PostgreSQL " + PG_VERSION + ", compiled by Bemi",
-	"pg_get_userbyid":                    "bemidb",
-	"pg_get_function_identity_arguments": "",
-	"pg_total_relation_size":             "0",
-	"pg_table_size":                      "0",
-	"pg_indexes_size":                    "0",
-	"pg_get_partkeydef":                  "",
-	"pg_tablespace_location":             "",
-	"pg_encoding_to_char":                "UTF8",
-	"pg_backend_pid":                     "0",
-	"pg_is_in_recovery":                  "f",
-	"current_setting":                    "",
-	"aclexplode":                         "",
-	"pg_get_indexdef":                    "",
-}
-
 type ParserFunction struct {
 	config *Config
 	utils  *ParserUtils
@@ -30,16 +13,6 @@ type ParserFunction struct {
 
 func NewParserFunction(config *Config) *ParserFunction {
 	return &ParserFunction{config: config, utils: NewParserUtils(config)}
-}
-
-func (parser *ParserFunction) RemapToConstant(functionCall *pgQuery.FuncCall) *pgQuery.Node {
-	schemaFunction := parser.SchemaFunction(functionCall)
-	constant, ok := REMAPPED_CONSTANT_BY_PG_FUNCTION_NAME[schemaFunction.Function]
-	if ok {
-		return pgQuery.MakeAConstStrNode(constant, 0)
-	}
-
-	return nil
 }
 
 func (parser *ParserFunction) FunctionCall(targetNode *pgQuery.Node) *pgQuery.FuncCall {
@@ -149,4 +122,8 @@ func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall
 
 func (parser *ParserFunction) OverrideFunctionCallArg(functionCall *pgQuery.FuncCall, index int, node *pgQuery.Node) {
 	functionCall.Args[index] = node
+}
+
+func (parser *ParserFunction) MakeConstantNode(constantDefinition ConstantDefinition) *pgQuery.Node {
+	return parser.utils.MakeTypedConstNode(constantDefinition.Value, constantDefinition.Type)
 }

@@ -5,16 +5,16 @@ import (
 )
 
 type QueryRemapperWhere struct {
-	parserWhere    *ParserWhere
-	parserFunction *ParserFunction
-	config         *Config
+	remapperFunction *QueryRemapperFunction
+	parserWhere      *ParserWhere
+	config           *Config
 }
 
 func NewQueryRemapperWhere(config *Config) *QueryRemapperWhere {
 	return &QueryRemapperWhere{
-		parserWhere:    NewParserWhere(config),
-		parserFunction: NewParserFunction(config),
-		config:         config,
+		remapperFunction: NewQueryRemapperFunction(config),
+		parserWhere:      NewParserWhere(config),
+		config:           config,
 	}
 }
 
@@ -23,7 +23,9 @@ func (remapper *QueryRemapperWhere) RemapWhereExpressions(selectStatement *pgQue
 	if functionCall == nil {
 		return selectStatement
 	}
-	constantNode := remapper.parserFunction.RemapToConstant(functionCall)
+
+	// PG_FUNCTION(...) -> CONSTANT
+	_, constantNode := remapper.remapperFunction.RemapPgFunctionCallToConstantNode(functionCall)
 	if constantNode == nil {
 		return selectStatement
 	}

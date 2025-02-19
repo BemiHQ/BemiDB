@@ -29,6 +29,7 @@ type QueryRemapper struct {
 	parserTypeCast   *ParserTypeCast
 	remapperTable    *QueryRemapperTable
 	remapperTypeCast *QueryRemapperTypeCast
+	remapperFunction *QueryRemapperFunction
 	remapperWhere    *QueryRemapperWhere
 	remapperSelect   *QueryRemapperSelect
 	remapperShow     *QueryRemapperShow
@@ -42,6 +43,7 @@ func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdb *Duck
 		parserTypeCast:   NewParserTypeCast(config),
 		remapperTable:    NewQueryRemapperTable(config, icebergReader, duckdb),
 		remapperTypeCast: NewQueryRemapperTypeCast(config),
+		remapperFunction: NewQueryRemapperFunction(config),
 		remapperWhere:    NewQueryRemapperWhere(config),
 		remapperSelect:   NewQueryRemapperSelect(config),
 		remapperShow:     NewQueryRemapperShow(config),
@@ -210,7 +212,7 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 				}
 				if funcCall := whenClause.Result.GetFuncCall(); funcCall != nil {
 					remapper.traceTreeTraversal("CASE THEN function", indentLevel+1)
-					whenClause.Result = remapper.remapperSelect.RemapFunctionToConstant(funcCall)
+					_, whenClause.Result = remapper.remapperFunction.RemapPgFunctionCallToConstantNode(funcCall)
 				}
 			}
 		}
@@ -230,7 +232,7 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 		}
 		if funcCall := caseExpr.Defresult.GetFuncCall(); funcCall != nil {
 			remapper.traceTreeTraversal("CASE ELSE function", indentLevel+1)
-			caseExpr.Defresult = remapper.remapperSelect.RemapFunctionToConstant(funcCall)
+			_, caseExpr.Defresult = remapper.remapperFunction.RemapPgFunctionCallToConstantNode(funcCall)
 		}
 	}
 

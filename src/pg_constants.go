@@ -54,6 +54,11 @@ type TableDefinition struct {
 	Values  []string
 }
 
+type ConstantDefinition struct {
+	Value string
+	Type  string
+}
+
 var PG_INHERITS_DEFINITION = TableDefinition{
 	Columns: []ColumnDefinition{
 		{"inhrelid", "oid"},
