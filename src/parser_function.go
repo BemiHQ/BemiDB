@@ -46,19 +46,6 @@ func (parser *ParserFunction) SchemaFunction(functionCall *pgQuery.FuncCall) PgS
 	return parser.utils.SchemaFunction(functionCall)
 }
 
-// quote_ident(str) -> concat("\""+str+"\"")
-func (parser *ParserFunction) RemapQuoteIdentToConcat(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	functionCall.Funcname[0] = pgQuery.MakeStrNode("concat")
-	argConstant := functionCall.Args[0].GetAConst()
-	if argConstant != nil {
-		str := argConstant.GetSval().Sval
-		str = "\"" + str + "\""
-		functionCall.Args[0] = pgQuery.MakeAConstStrNode(str, 0)
-	}
-
-	return functionCall
-}
-
 func (parser *ParserFunction) RemoveThirdArgument(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	if len(functionCall.Args) > 2 {
 		functionCall.Args = functionCall.Args[:2]
@@ -93,12 +80,9 @@ func (parser *ParserFunction) RemapInderectionToFunctionCall(targetNode *pgQuery
 	return targetNode
 }
 
-// array_to_string() -> main.array_to_string()
-func (parser *ParserFunction) RemapArrayToString(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	functionCall.Funcname = []*pgQuery.Node{
-		pgQuery.MakeStrNode("main"),
-		pgQuery.MakeStrNode("array_to_string"),
-	}
+// pg_catalog.func() -> main.func()
+func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
+	functionCall.Funcname[0] = pgQuery.MakeStrNode("main")
 	return functionCall
 }
 
@@ -118,12 +102,4 @@ func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall
 	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("printf")}
 	functionCall.Args[0] = pgQuery.MakeAConstStrNode(format, 0)
 	return functionCall
-}
-
-func (parser *ParserFunction) OverrideFunctionCallArg(functionCall *pgQuery.FuncCall, index int, node *pgQuery.Node) {
-	functionCall.Args[index] = node
-}
-
-func (parser *ParserFunction) MakeConstantNode(constantDefinition ConstantDefinition) *pgQuery.Node {
-	return parser.utils.MakeTypedConstNode(constantDefinition.Value, constantDefinition.Type)
 }

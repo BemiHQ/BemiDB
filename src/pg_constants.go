@@ -12,7 +12,6 @@ const (
 	PG_FUNCTION_PG_GET_KEYWORDS      = "pg_get_keywords"
 	PG_FUNCTION_PG_IS_IN_RECOVERY    = "pg_is_in_recovery"
 	PG_FUNCTION_PG_SHOW_ALL_SETTINGS = "pg_show_all_settings"
-	PG_FUNCTION_QUOTE_INDENT         = "quote_ident"
 	PG_FUNCTION_ROW_TO_JSON          = "row_to_json"
 	PG_FUNCTION_ACLEXPLODE           = "aclexplode"
 	PG_FUNCTION_PG_GET_VIEWDEF       = "pg_get_viewdef"

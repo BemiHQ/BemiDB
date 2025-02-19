@@ -34,16 +34,8 @@ func (remapper *QueryRemapperSelect) RemapSelect(targetNode *pgQuery.Node) *pgQu
 		return targetNode
 	}
 
-	// PG_FUNCTION(...) -> CONSTANT
-	schemaFunction, constantNode := remapper.remapperFunction.RemapPgFunctionCallToConstantNode(functionCall)
-	if schemaFunction != nil {
-		remapper.parserSelect.OverrideTargetValue(targetNode, constantNode)
-		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
-		return targetNode
-	}
-
 	// FUNCTION(...args) -> ANOTHER_FUNCTION(...other_args) or FUNCTION(...other_args)
-	schemaFunction = remapper.remapperFunction.RemapFunctionCallDynamically(functionCall)
+	schemaFunction := remapper.remapperFunction.RemapFunctionCallDynamically(functionCall)
 	if schemaFunction != nil {
 		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
 		return targetNode

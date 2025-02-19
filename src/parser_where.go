@@ -13,10 +13,6 @@ func NewParserWhere(config *Config) *ParserWhere {
 	return &ParserWhere{config: config, utils: NewParserUtils(config)}
 }
 
-func (parser *ParserWhere) FunctionCall(whereNode *pgQuery.Node) *pgQuery.FuncCall {
-	return whereNode.GetFuncCall()
-}
-
 // WHERE column OPERATOR(>, <, ...) value
 func (parser *ParserWhere) MakeIntEqualityExpressionNode(column string, operator string, value int, alias string) *pgQuery.Node {
 	columnRefNodes := []*pgQuery.Node{pgQuery.MakeStrNode(column)}

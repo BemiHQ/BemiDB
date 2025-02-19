@@ -30,7 +30,6 @@ type QueryRemapper struct {
 	remapperTable    *QueryRemapperTable
 	remapperTypeCast *QueryRemapperTypeCast
 	remapperFunction *QueryRemapperFunction
-	remapperWhere    *QueryRemapperWhere
 	remapperSelect   *QueryRemapperSelect
 	remapperShow     *QueryRemapperShow
 	icebergReader    *IcebergReader
@@ -44,7 +43,6 @@ func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdb *Duck
 		remapperTable:    NewQueryRemapperTable(config, icebergReader, duckdb),
 		remapperTypeCast: NewQueryRemapperTypeCast(config),
 		remapperFunction: NewQueryRemapperFunction(config),
-		remapperWhere:    NewQueryRemapperWhere(config),
 		remapperSelect:   NewQueryRemapperSelect(config),
 		remapperShow:     NewQueryRemapperShow(config),
 		icebergReader:    icebergReader,
@@ -210,10 +208,6 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 					subSelect := subLink.Subselect.GetSelectStmt()
 					remapper.remapSelectStatement(subSelect, indentLevel+1)
 				}
-				if funcCall := whenClause.Result.GetFuncCall(); funcCall != nil {
-					remapper.traceTreeTraversal("CASE THEN function", indentLevel+1)
-					_, whenClause.Result = remapper.remapperFunction.RemapPgFunctionCallToConstantNode(funcCall)
-				}
 			}
 		}
 	}
@@ -229,10 +223,6 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 			remapper.traceTreeTraversal("CASE ELSE", indentLevel+1)
 			subSelect := subLink.Subselect.GetSelectStmt()
 			remapper.remapSelectStatement(subSelect, indentLevel+1)
-		}
-		if funcCall := caseExpr.Defresult.GetFuncCall(); funcCall != nil {
-			remapper.traceTreeTraversal("CASE ELSE function", indentLevel+1)
-			_, caseExpr.Defresult = remapper.remapperFunction.RemapPgFunctionCallToConstantNode(funcCall)
 		}
 	}
 
@@ -364,7 +354,7 @@ func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.Sel
 		// WHERE
 		remapper.traceTreeTraversal("WHERE right", indentLevel+1)
 		qSchemaTable := remapper.remapperTable.NodeToQuerySchemaTable(rightJoinNode)
-		selectStatement = remapper.remapperTable.RemapWhereClauseForTable(qSchemaTable, selectStatement)
+		remapper.remapperTable.RemapWhereClauseForTable(qSchemaTable, selectStatement)
 		// TABLE
 		remapper.traceTreeTraversal("TABLE right", indentLevel+1)
 		rightJoinNode = remapper.remapperTable.RemapTable(rightJoinNode)
@@ -426,8 +416,6 @@ func (remapper *QueryRemapper) remapWhereExpressions(selectStatement *pgQuery.Se
 			selectStatement = remapper.remapWhereExpressions(selectStatement, aExpr.Rexpr, indentLevel+1) // self-recursion
 		}
 	}
-
-	selectStatement = remapper.remapperWhere.RemapWhereExpressions(selectStatement, node)
 
 	return selectStatement
 }

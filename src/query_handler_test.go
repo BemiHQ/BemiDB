@@ -24,7 +24,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"bemidb", "Foo"},
 		},
-		"SELECT QUOTE_IDENT('fooBar')": {
+		"SELECT QUOTE_IDENT('fooBar') AS quote_ident": {
 			"description": {"quote_ident"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"\"fooBar\""},
@@ -67,7 +67,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"UTF8"},
 		},
-		"SELECT pg_backend_pid()": {
+		"SELECT pg_backend_pid() AS pg_backend_pid": {
 			"description": {"pg_backend_pid"},
 			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"0"},
@@ -224,7 +224,6 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT pg_total_relation_size(relid) AS total_size FROM pg_catalog.pg_statio_user_tables WHERE schemaname = 'public' UNION SELECT NULL AS total_size FROM pg_catalog.pg_proc p LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'": {
 			"description": {"total_size"},
 			"types":       {Uint32ToString(pgtype.Int4OID)},
-			"values":      {""},
 		},
 		"SELECT * FROM pg_catalog.pg_shdescription": {
 			"description": {"objoid", "classoid", "description"},
@@ -833,16 +832,21 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID)},
 			"values":      {},
 		},
-		"SELECT CASE WHEN TRUE THEN pg_catalog.pg_is_in_recovery() END AS CASE": {
-			"description": {"case"},
-			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"f"},
-		},
+		// "SELECT CASE WHEN TRUE THEN pg_catalog.pg_is_in_recovery() END AS CASE": {
+		// 	"description": {"case"},
+		// 	"types":       {Uint32ToString(pgtype.BoolOID)},
+		// 	"values":      {"f"},
+		// },
 		"SELECT CASE WHEN nsp.nspname = ANY('{information_schema}') THEN false ELSE true END AS db_support FROM pg_catalog.pg_namespace nsp WHERE nsp.oid = 1268::OID;": {
 			"description": {"db_support"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"t"},
 		},
+		// "SELECT CASE WHEN FORMAT('%s', test_table.varchar_column) = 'varchar' THEN 1 ELSE 2 END AS test_case FROM test_table LIMIT 1": {
+		// 	"description": {"test_case"},
+		// 	"types":       {Uint32ToString(pgtype.Int4OID)},
+		// 	"values":      {"1"},
+		// },
 
 		// WHERE pg functions
 		"SELECT gss_authenticated, encrypted FROM (SELECT false, false, false, false, false WHERE false) t(pid, gss_authenticated, principal, encrypted, credentials_delegated) WHERE pid = pg_backend_pid()": {

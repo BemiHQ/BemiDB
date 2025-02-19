@@ -1,22 +1,33 @@
 package main
 
 import (
+	"regexp"
+
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
-var REMAPPED_CONSTANT_BY_PG_FUNCTION_NAME = map[string]ConstantDefinition{
-	"pg_get_userbyid":                    {"bemidb", "text"},
-	"pg_encoding_to_char":                {"UTF8", "text"},
-	"pg_get_function_identity_arguments": {"", "text"},
-	"pg_get_partkeydef":                  {"", "text"},
-	"pg_tablespace_location":             {"", "text"},
-	"pg_get_indexdef":                    {"", "text"},
-	"pg_total_relation_size":             {"0", "int4"},
-	"pg_table_size":                      {"0", "int4"},
-	"pg_indexes_size":                    {"0", "int4"},
-	"pg_backend_pid":                     {"0", "int4"},
-	"pg_is_in_recovery":                  {"f", "bool"},
+var CREATE_CUSTOM_MACRO_QUERIES = []string{
+	"CREATE MACRO current_setting(setting_name) AS '', (setting_name, missing_ok) AS ''",
+	"CREATE MACRO pg_backend_pid() AS 0",
+	"CREATE MACRO pg_encoding_to_char(encoding_int) AS 'UTF8'",
+	"CREATE MACRO pg_get_function_identity_arguments(func_oid) AS ''",
+	"CREATE MACRO pg_get_indexdef(index_oid) AS '', (index_oid, column_int) AS '', (index_oid, column_int, pretty_bool) AS ''",
+	"CREATE MACRO pg_get_partkeydef(table_oid) AS ''",
+	"CREATE MACRO pg_get_userbyid(role_id) AS 'bemidb'",
+	"CREATE MACRO pg_indexes_size(regclass) AS 0",
+	"CREATE MACRO pg_is_in_recovery() AS false",
+	"CREATE MACRO pg_table_size(regclass) AS 0",
+	"CREATE MACRO pg_tablespace_location(tablespace_oid) AS ''",
+	"CREATE MACRO pg_total_relation_size(regclass) AS 0",
+	"CREATE MACRO quote_ident(text) AS '\"' || text || '\"'",
+	"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
+	"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
 }
+var CUSTOM_MACRO_PG_FUNCTION_NAMES = extractMacroNames(CREATE_CUSTOM_MACRO_QUERIES)
+
+var BUILTIN_DUCKDB_PG_FUNCTION_NAMES = NewSet([]string{
+	"array_to_string",
+})
 
 type QueryRemapperFunction struct {
 	parserFunction *ParserFunction
@@ -30,32 +41,18 @@ func NewQueryRemapperFunction(config *Config) *QueryRemapperFunction {
 	}
 }
 
-// PG_FUNCTION(...) -> CONSTANT
-func (remapper *QueryRemapperFunction) RemapPgFunctionCallToConstantNode(functionCall *pgQuery.FuncCall) (*PgSchemaFunction, *pgQuery.Node) {
-	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
-	constantDefinion, ok := REMAPPED_CONSTANT_BY_PG_FUNCTION_NAME[schemaFunction.Function]
-	if ok {
-		return &schemaFunction, remapper.parserFunction.MakeConstantNode(constantDefinion)
-	}
-
-	return nil, nil
-}
-
 // FUNCTION(...args) -> ANOTHER_FUNCTION(...other_args) or FUNCTION(...other_args)
 func (remapper *QueryRemapperFunction) RemapFunctionCallDynamically(functionCall *pgQuery.FuncCall) *PgSchemaFunction {
 	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
 
+	if schemaFunction.Schema == PG_SCHEMA_PG_CATALOG &&
+		(CUSTOM_MACRO_PG_FUNCTION_NAMES.Contains(schemaFunction.Function) ||
+			BUILTIN_DUCKDB_PG_FUNCTION_NAMES.Contains(schemaFunction.Function)) {
+		remapper.parserFunction.RemapSchemaToMain(functionCall)
+		return &schemaFunction
+	}
+
 	switch schemaFunction.Function {
-
-	// quote_ident(str) -> concat("\""+str+"\"")
-	case PG_FUNCTION_QUOTE_INDENT:
-		remapper.parserFunction.RemapQuoteIdentToConcat(functionCall)
-		return &schemaFunction
-
-	// array_to_string(array, separator) -> main.array_to_string(array, separator)
-	case PG_FUNCTION_ARRAY_TO_STRING:
-		remapper.parserFunction.RemapArrayToString(functionCall)
-		return &schemaFunction
 
 	// row_to_json(col) -> to_json(col)
 	case PG_FUNCTION_ROW_TO_JSON:
@@ -96,7 +93,7 @@ func (remapper *QueryRemapperFunction) RemapNestedFunctionCalls(functionCall *pg
 		return
 	}
 
-	for i, nestedFunctionCall := range nestedFunctionCalls {
+	for _, nestedFunctionCall := range nestedFunctionCalls {
 		if nestedFunctionCall == nil {
 			continue
 		}
@@ -106,16 +103,24 @@ func (remapper *QueryRemapperFunction) RemapNestedFunctionCalls(functionCall *pg
 			continue
 		}
 
-		_, constantNode := remapper.RemapPgFunctionCallToConstantNode(nestedFunctionCall)
-		if constantNode != nil {
-			remapper.parserFunction.OverrideFunctionCallArg(functionCall, i, constantNode)
-			continue
-		}
-
 		remapper.RemapNestedFunctionCalls(nestedFunctionCall) // self-recursion
 	}
 }
 
 func (remapper *QueryRemapperFunction) functionFromPgCatalog(schemaFunction PgSchemaFunction) bool {
 	return schemaFunction.Schema == PG_SCHEMA_PG_CATALOG || schemaFunction.Schema == ""
+}
+
+func extractMacroNames(macros []string) Set[string] {
+	names := make(Set[string])
+	re := regexp.MustCompile(`CREATE MACRO (\w+)\(`)
+
+	for _, macro := range macros {
+		matches := re.FindStringSubmatch(macro)
+		if len(matches) > 1 {
+			names.Add(matches[1])
+		}
+	}
+
+	return names
 }

@@ -6,12 +6,13 @@ import (
 	"database/sql"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	_ "github.com/marcboeker/go-duckdb"
 )
 
-var DEFAULT_BOOT_QUERIES = []string{
+var DEFAULT_BOOT_QUERIES = slices.Concat([]string{
 	// Set up Iceberg
 	"INSTALL iceberg",
 	"LOAD iceberg",
@@ -19,16 +20,16 @@ var DEFAULT_BOOT_QUERIES = []string{
 	// Set up schemas
 	"SELECT oid FROM pg_catalog.pg_namespace",
 	"CREATE SCHEMA public",
-	"USE public",
 
 	// Configure DuckDB
-	"SET scalar_subquery_error_on_multiple_rows=false",
+	"SET scalar_subquery_error_on_multiple_rows=false"},
 
-	// Create macros
-	"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
-	"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
-	"CREATE MACRO current_setting(setting_name) AS '', (setting_name, missing_ok) AS ''",
-}
+	// Create pg-compatible functions
+	CREATE_CUSTOM_MACRO_QUERIES,
+
+	// Use public schema
+	[]string{"USE public"},
+)
 
 type Duckdb struct {
 	db     *sql.DB
