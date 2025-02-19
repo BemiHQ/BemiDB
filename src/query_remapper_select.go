@@ -30,23 +30,14 @@ func (remapper *QueryRemapperSelect) RemapSelect(targetNode *pgQuery.Node) *pgQu
 		return newTargetNode
 	}
 
-	// PG_FUNCTION()
+	// FUNCTION()
 	functionCall := remapper.parserFunction.FunctionCall(targetNode)
 	if functionCall == nil {
 		return targetNode
 	}
-
 	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
 
-	// set_config(setting_name, new_value, is_local) -> new_value
-	if schemaFunction.Function == PG_FUNCTION_SET_CONFIG {
-		valueNode := remapper.parserFunction.SetConfigValueNode(targetNode, functionCall)
-		remapper.parserSelect.OverrideTargetValue(targetNode, valueNode)
-		remapper.parserSelect.SetDefaultTargetName(targetNode, PG_FUNCTION_SET_CONFIG)
-		return targetNode
-	}
-
-	renamedNameFunction := remapper.remappedFunctionName(functionCall)
+	renamedNameFunction := remapper.swappedFunction(functionCall)
 	if renamedNameFunction != nil {
 		functionCall = renamedNameFunction
 		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
@@ -92,26 +83,30 @@ func (remapper *QueryRemapperSelect) remappedInderectionFunctionCall(targetNode 
 	}
 }
 
-func (remapper *QueryRemapperSelect) remappedFunctionName(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
+func (remapper *QueryRemapperSelect) swappedFunction(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
 
-	switch {
+	switch schemaFunction.Function {
 
 	// quote_ident(str) -> concat("\""+str+"\"")
-	case schemaFunction.Function == PG_FUNCTION_QUOTE_INDENT:
+	case PG_FUNCTION_QUOTE_INDENT:
 		return remapper.parserFunction.RemapQuoteIdentToConcat(functionCall)
 
 	// array_to_string(array, separator) -> main.array_to_string(array, separator)
-	case schemaFunction.Function == PG_FUNCTION_ARRAY_TO_STRING:
+	case PG_FUNCTION_ARRAY_TO_STRING:
 		return remapper.parserFunction.RemapArrayToString(functionCall)
 
 	// row_to_json(col) -> to_json(col)
-	case schemaFunction.Function == PG_FUNCTION_ROW_TO_JSON:
+	case PG_FUNCTION_ROW_TO_JSON:
 		return remapper.parserFunction.RemapRowToJson(functionCall)
 
 	// aclexplode(acl) -> json
-	case schemaFunction.Function == PG_FUNCTION_ACLEXPLODE:
+	case PG_FUNCTION_ACLEXPLODE:
 		return remapper.parserFunction.RemapAclExplode(functionCall)
+
+	// format('%s', str) -> printf('%1$s', str)
+	case PG_FUNCTION_FORMAT:
+		return remapper.parserFunction.RemapFormatToPrintf(functionCall)
 
 	default:
 		return nil
@@ -142,7 +137,7 @@ func (remapper *QueryRemapperSelect) remapNestedFunctionCalls(functionCall *pgQu
 			continue
 		}
 
-		renamedFunctionCall := remapper.remappedFunctionName(nestedFunctionCall)
+		renamedFunctionCall := remapper.swappedFunction(nestedFunctionCall)
 		if renamedFunctionCall != nil {
 			nestedFunctionCall = renamedFunctionCall
 		}

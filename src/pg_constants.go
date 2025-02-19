@@ -14,9 +14,9 @@ const (
 	PG_FUNCTION_PG_SHOW_ALL_SETTINGS = "pg_show_all_settings"
 	PG_FUNCTION_QUOTE_INDENT         = "quote_ident"
 	PG_FUNCTION_ROW_TO_JSON          = "row_to_json"
-	PG_FUNCTION_SET_CONFIG           = "set_config"
 	PG_FUNCTION_ACLEXPLODE           = "aclexplode"
 	PG_FUNCTION_PG_GET_VIEWDEF       = "pg_get_viewdef"
+	PG_FUNCTION_FORMAT               = "format"
 
 	PG_TABLE_PG_ATTRIBUTE          = "pg_attribute"
 	PG_TABLE_PG_AUTH_MEMBERS       = "pg_auth_members"

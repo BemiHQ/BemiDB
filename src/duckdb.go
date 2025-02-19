@@ -12,12 +12,20 @@ import (
 )
 
 var DEFAULT_BOOT_QUERIES = []string{
+	// Set up Iceberg
 	"INSTALL iceberg",
 	"LOAD iceberg",
+
+	// Set up schemas
 	"SELECT oid FROM pg_catalog.pg_namespace",
 	"CREATE SCHEMA public",
 	"USE public",
+
+	// Configure DuckDB
 	"SET scalar_subquery_error_on_multiple_rows=false",
+
+	// Create macros
+	"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
 }
 
 type Duckdb struct {

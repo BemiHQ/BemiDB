@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
@@ -100,15 +102,6 @@ func (parser *ParserFunction) RemoveSecondArgument(functionCall *pgQuery.FuncCal
 	return functionCall
 }
 
-// set_config(setting_name, new_value, is_local) -> new_value
-func (parser *ParserFunction) SetConfigValueNode(targetNode *pgQuery.Node, functionCall *pgQuery.FuncCall) *pgQuery.Node {
-	valueNode := functionCall.Args[1]
-	settingName := functionCall.Args[0].GetAConst().GetSval().Sval
-	LogWarn(parser.config, "Unsupported set_config", settingName, ":", functionCall)
-
-	return valueNode
-}
-
 // row_to_json() -> to_json()
 func (parser *ParserFunction) RemapRowToJson(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("to_json")}
@@ -139,6 +132,18 @@ func (parser *ParserFunction) RemapArrayToString(functionCall *pgQuery.FuncCall)
 // aclexplode() -> json()
 func (parser *ParserFunction) RemapAclExplode(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("json")}
+	return functionCall
+}
+
+// format('%s', str) -> printf('%1$s', str)
+func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
+	format := functionCall.Args[0].GetAConst().GetSval().Sval
+	for i := range functionCall.Args[1:] {
+		format = strings.Replace(format, "%s", "%"+IntToString(i+1)+"$s", 1)
+	}
+
+	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("printf")}
+	functionCall.Args[0] = pgQuery.MakeAConstStrNode(format, 0)
 	return functionCall
 }
 

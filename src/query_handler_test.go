@@ -57,7 +57,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
 		},
-		"SELECT set_config('bytea_output', 'hex', false)": {
+		"SELECT set_config('bytea_output', 'hex', false) AS set_config": {
 			"description": {"set_config"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"hex"},
@@ -116,6 +116,16 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"grantee", "grantor", "is_grantable", "privilege_type"},
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"", "", "", ""},
+		},
+		"SELECT format('Hello %s, %s, %1$s', 'World', 'Earth') AS str": {
+			"description": {"str"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"Hello World, Earth, World"},
+		},
+		"SELECT format('%s', \"test_table\".\"varchar_column\") AS str FROM test_table LIMIT 1": {
+			"description": {"str"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"varchar"},
 		},
 
 		// PG system tables
@@ -214,6 +224,7 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT pg_total_relation_size(relid) AS total_size FROM pg_catalog.pg_statio_user_tables WHERE schemaname = 'public' UNION SELECT NULL AS total_size FROM pg_catalog.pg_proc p LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'": {
 			"description": {"total_size"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {""},
 		},
 		"SELECT * FROM pg_catalog.pg_shdescription": {
 			"description": {"objoid", "classoid", "description"},
