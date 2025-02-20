@@ -184,12 +184,12 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 						whenClause.Expr = remapper.remapperSelect.parserSelect.ConvertAnyToIn(aExpr)
 					}
 					if subLink := aExpr.Lexpr.GetSubLink(); subLink != nil {
-						remapper.traceTreeTraversal("CASE WHEN left", indentLevel+1)
+						remapper.traceTreeTraversal("CASE->WHEN left", indentLevel+1)
 						subSelect := subLink.Subselect.GetSelectStmt()
 						remapper.remapSelectStatement(subSelect, indentLevel+1)
 					}
 					if subLink := aExpr.Rexpr.GetSubLink(); subLink != nil {
-						remapper.traceTreeTraversal("CASE WHEN right", indentLevel+1)
+						remapper.traceTreeTraversal("CASE->WHEN right", indentLevel+1)
 						subSelect := subLink.Subselect.GetSelectStmt()
 						remapper.remapSelectStatement(subSelect, indentLevel+1)
 					}
@@ -202,11 +202,15 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 				if typeName != "" {
 					whenClause.Result = remapper.parserTypeCast.MakeCaseTypeCastNode(whenClause.Result, typeName)
 				}
-
 				if subLink := whenClause.Result.GetSubLink(); subLink != nil {
-					remapper.traceTreeTraversal("CASE THEN", indentLevel+1)
+					remapper.traceTreeTraversal("CASE->THEN", indentLevel+1)
 					subSelect := subLink.Subselect.GetSelectStmt()
 					remapper.remapSelectStatement(subSelect, indentLevel+1)
+				}
+				if functionCall := whenClause.Result.GetFuncCall(); functionCall != nil {
+					remapper.traceTreeTraversal("CASE->THEN function", indentLevel+1)
+					remapper.remapperFunction.RemapFunctionCall(functionCall)
+					remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
 				}
 			}
 		}
@@ -220,7 +224,7 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 		}
 
 		if subLink := caseExpr.Defresult.GetSubLink(); subLink != nil {
-			remapper.traceTreeTraversal("CASE ELSE", indentLevel+1)
+			remapper.traceTreeTraversal("CASE->ELSE", indentLevel+1)
 			subSelect := subLink.Subselect.GetSelectStmt()
 			remapper.remapSelectStatement(subSelect, indentLevel+1)
 		}
