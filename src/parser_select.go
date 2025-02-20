@@ -23,7 +23,7 @@ func (parser *ParserSelect) SetDefaultTargetName(targetNode *pgQuery.Node, name 
 }
 
 // = ANY({schema_information}) -> IN (schema_information)
-func (parser *ParserSelect) ConvertAnyToIn(aExpr *pgQuery.A_Expr) *pgQuery.Node {
+func (parser *ParserSelect) ConvertRightAnyToIn(aExpr *pgQuery.A_Expr) *pgQuery.Node {
 	arrayStr := aExpr.Rexpr.GetAConst().GetSval().Sval
 	arrayStr = strings.Trim(arrayStr, "{}")
 	values := strings.Split(arrayStr, ",")

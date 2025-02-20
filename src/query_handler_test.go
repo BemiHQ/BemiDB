@@ -39,7 +39,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"nulls_last"},
 		},
-		"SELECT pg_catalog.pg_get_partkeydef(c.oid) FROM pg_catalog.pg_class c LIMIT 1": {
+		"SELECT pg_catalog.pg_get_partkeydef(c.oid) AS pg_get_partkeydef FROM pg_catalog.pg_class c LIMIT 1": {
 			"description": {"pg_get_partkeydef"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
@@ -65,7 +65,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"hex"},
 		},
-		"SELECT pg_catalog.pg_encoding_to_char(6)": {
+		"SELECT pg_catalog.pg_encoding_to_char(6) AS pg_encoding_to_char": {
 			"description": {"pg_encoding_to_char"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"UTF8"},
@@ -308,26 +308,32 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"2"},
 		},
-		"SELECT x.bit_column FROM public.test_table x WHERE x.bit_column IS NOT NULL": {
-			"description": {"bit_column"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+		"SELECT COUNT(DISTINCT public.test_table.id) AS count FROM public.test_table": {
+			"description": {"count"},
+			"types":       {Uint32ToString(pgtype.Int8OID)},
+			"values":      {"2"},
+		},
+		"SELECT x.id FROM public.test_table x WHERE x.id = 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"1"},
 		},
-		"SELECT public.test_table.bit_column FROM public.test_table WHERE public.test_table.bit_column IS NOT NULL": {
-			"description": {"bit_column"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+		"SELECT public.test_table.id FROM public.test_table WHERE public.test_table.id = 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"1"},
 		},
 		"SELECT test_schema.simple_table.id FROM test_schema.simple_table": {
 			"description": {"id"},
 			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
-		"SELECT bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
-			"description": {"bit_column"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+		"SELECT test_table.id FROM public.test_table WHERE id = 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"1"},
 		},
-		"SELECT test_table.bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
+		// Column types
+		"SELECT bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
 			"description": {"bit_column"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"1"},

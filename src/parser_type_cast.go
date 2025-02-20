@@ -43,13 +43,6 @@ func (parser *ParserTypeCast) ArgStringValue(typeCast *pgQuery.TypeCast) string 
 	return typeCast.Arg.GetAConst().GetSval().Sval
 }
 
-func (parser *ParserTypeCast) MakeCaseTypeCastNode(arg *pgQuery.Node, typeName string) *pgQuery.Node {
-	if existingType := parser.inferNodeType(arg); existingType == typeName {
-		return arg
-	}
-	return parser.utils.MakeTypeCastNode(arg, typeName)
-}
-
 func (parser *ParserTypeCast) MakeListValueFromArray(node *pgQuery.Node) *pgQuery.Node {
 	arrayStr := node.GetAConst().GetSval().Sval
 	arrayStr = strings.Trim(arrayStr, "{}")
@@ -161,22 +154,4 @@ func (parser *ParserTypeCast) MakeSubselectOidBySchemaTableArg(argumentNode *pgQ
 		},
 	}
 
-}
-
-func (parser *ParserTypeCast) inferNodeType(node *pgQuery.Node) string {
-	if typeCast := node.GetTypeCast(); typeCast != nil {
-		return typeCast.TypeName.Names[0].GetString_().Sval
-	}
-
-	if aConst := node.GetAConst(); aConst != nil {
-		switch {
-		case aConst.GetBoolval() != nil:
-			return "boolean"
-		case aConst.GetIval() != nil:
-			return "int8"
-		case aConst.GetSval() != nil:
-			return "text"
-		}
-	}
-	return ""
 }

@@ -132,7 +132,7 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	// WHERE
 	if selectStatement.WhereClause != nil {
 		remapper.traceTreeTraversal("WHERE statements", indentLevel)
-		selectStatement.WhereClause = remapper.remapExpressions(selectStatement.WhereClause, indentLevel) // recursion
+		selectStatement.WhereClause = remapper.remappedExpressions(selectStatement.WhereClause, indentLevel) // recursion
 	}
 
 	// WITH
@@ -171,84 +171,6 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	selectStatement = remapper.remapSelect(selectStatement, indentLevel) // recursion
 
 	return selectStatement
-}
-
-// CASE ...
-func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, indentLevel int) *pgQuery.CaseExpr {
-	for _, when := range caseExpr.Args {
-		if whenClause := when.GetCaseWhen(); whenClause != nil {
-			// WHEN ...
-			if whenClause.Expr != nil {
-				if aExpr := whenClause.Expr.GetAExpr(); aExpr != nil {
-					if aExpr.Kind == pgQuery.A_Expr_Kind_AEXPR_OP_ANY {
-						whenClause.Expr = remapper.remapperSelect.parserSelect.ConvertAnyToIn(aExpr)
-					}
-
-					if subLink := aExpr.Lexpr.GetSubLink(); subLink != nil {
-						remapper.traceTreeTraversal("CASE->WHEN left", indentLevel+1)
-						subSelect := subLink.Subselect.GetSelectStmt()
-						remapper.remapSelectStatement(subSelect, indentLevel+1)
-					}
-					if functionCall := aExpr.Lexpr.GetFuncCall(); functionCall != nil {
-						remapper.traceTreeTraversal("CASE->WHEN left function", indentLevel+1)
-						remapper.remapperFunction.RemapFunctionCall(functionCall)
-						remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
-					}
-
-					if subLink := aExpr.Rexpr.GetSubLink(); subLink != nil {
-						remapper.traceTreeTraversal("CASE->WHEN right", indentLevel+1)
-						subSelect := subLink.Subselect.GetSelectStmt()
-						remapper.remapSelectStatement(subSelect, indentLevel+1)
-					}
-					if functionCall := aExpr.Rexpr.GetFuncCall(); functionCall != nil {
-						remapper.traceTreeTraversal("CASE->WHEN right function", indentLevel+1)
-						remapper.remapperFunction.RemapFunctionCall(functionCall)
-						remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
-					}
-				}
-			}
-
-			// THEN ...
-			if whenClause.Result != nil {
-				whenClause.Result = remapper.remapperExpression.RemappedExpression(whenClause.Result)
-				typeName := remapper.parserTypeCast.inferNodeType(whenClause.Result)
-				if typeName != "" {
-					whenClause.Result = remapper.parserTypeCast.MakeCaseTypeCastNode(whenClause.Result, typeName)
-				}
-				if subLink := whenClause.Result.GetSubLink(); subLink != nil {
-					remapper.traceTreeTraversal("CASE->THEN", indentLevel+1)
-					subSelect := subLink.Subselect.GetSelectStmt()
-					remapper.remapSelectStatement(subSelect, indentLevel+1)
-				}
-				if functionCall := whenClause.Result.GetFuncCall(); functionCall != nil {
-					remapper.traceTreeTraversal("CASE->THEN function", indentLevel+1)
-					remapper.remapperFunction.RemapFunctionCall(functionCall)
-					remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
-				}
-			}
-		}
-	}
-
-	// ELSE ...
-	if caseExpr.Defresult != nil {
-		caseExpr.Defresult = remapper.remapperExpression.RemappedExpression(caseExpr.Defresult)
-		typeName := remapper.parserTypeCast.inferNodeType(caseExpr.Defresult)
-		if typeName != "" {
-			caseExpr.Defresult = remapper.parserTypeCast.MakeCaseTypeCastNode(caseExpr.Defresult, typeName)
-		}
-		if subLink := caseExpr.Defresult.GetSubLink(); subLink != nil {
-			remapper.traceTreeTraversal("CASE->ELSE", indentLevel+1)
-			subSelect := subLink.Subselect.GetSelectStmt()
-			remapper.remapSelectStatement(subSelect, indentLevel+1)
-		}
-		if functionCall := caseExpr.Defresult.GetFuncCall(); functionCall != nil {
-			remapper.traceTreeTraversal("CASE->ELSE function", indentLevel+1)
-			remapper.remapperFunction.RemapFunctionCall(functionCall)
-			remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
-		}
-	}
-
-	return caseExpr
 }
 
 // FROM PG_FUNCTION()
@@ -331,7 +253,7 @@ func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.Sel
 
 	if quals := node.GetJoinExpr().Quals; quals != nil {
 		remapper.traceTreeTraversal("JOIN on", indentLevel)
-		node.GetJoinExpr().Quals = remapper.remapExpressions(quals, indentLevel) // recursion
+		node.GetJoinExpr().Quals = remapper.remappedExpressions(quals, indentLevel) // recursion
 
 		// DuckDB doesn't support non-INNER JOINs with ON clauses that reference columns from outer tables:
 		//   SELECT (
@@ -356,7 +278,7 @@ func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.Sel
 	return node
 }
 
-func (remapper *QueryRemapper) remapExpressions(node *pgQuery.Node, indentLevel int) *pgQuery.Node {
+func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, indentLevel int) *pgQuery.Node {
 	// CASE
 	caseExpression := node.GetCaseExpr()
 	if caseExpression != nil {
@@ -367,7 +289,7 @@ func (remapper *QueryRemapper) remapExpressions(node *pgQuery.Node, indentLevel 
 	boolExpr := node.GetBoolExpr()
 	if boolExpr != nil {
 		for i, arg := range boolExpr.Args {
-			boolExpr.Args[i] = remapper.remapExpressions(arg, indentLevel+1) // self-recursion
+			boolExpr.Args[i] = remapper.remappedExpressions(arg, indentLevel+1) // self-recursion
 		}
 	}
 
@@ -393,18 +315,21 @@ func (remapper *QueryRemapper) remapExpressions(node *pgQuery.Node, indentLevel 
 	// Comparison
 	aExpr := node.GetAExpr()
 	if aExpr != nil {
+		if aExpr.Kind == pgQuery.A_Expr_Kind_AEXPR_OP_ANY {
+			node = remapper.remapperSelect.parserSelect.ConvertRightAnyToIn(aExpr)
+		}
 		if aExpr.Lexpr != nil {
-			aExpr.Lexpr = remapper.remapExpressions(aExpr.Lexpr, indentLevel+1) // self-recursion
+			aExpr.Lexpr = remapper.remappedExpressions(aExpr.Lexpr, indentLevel+1) // self-recursion
 		}
 		if aExpr.Rexpr != nil {
-			aExpr.Rexpr = remapper.remapExpressions(aExpr.Rexpr, indentLevel+1) // self-recursion
+			aExpr.Rexpr = remapper.remappedExpressions(aExpr.Rexpr, indentLevel+1) // self-recursion
 		}
 	}
 
 	// IS NULL
 	nullTest := node.GetNullTest()
 	if nullTest != nil {
-		nullTest.Arg = remapper.remapExpressions(nullTest.Arg, indentLevel+1) // recursion
+		nullTest.Arg = remapper.remappedExpressions(nullTest.Arg, indentLevel+1) // self-recursion
 	}
 
 	// IN
@@ -417,7 +342,42 @@ func (remapper *QueryRemapper) remapExpressions(node *pgQuery.Node, indentLevel 
 		}
 	}
 
+	// FUNCTION(...)
+	functionCall := node.GetFuncCall()
+	if functionCall != nil {
+		remapper.remapperFunction.RemapFunctionCall(functionCall)
+		remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
+
+		for i, arg := range functionCall.Args {
+			if arg != nil {
+				functionCall.Args[i] = remapper.remappedExpressions(arg, indentLevel+1) // self-recursion
+			}
+		}
+	}
+
 	return remapper.remapperExpression.RemappedExpression(node)
+}
+
+// CASE ...
+func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, indentLevel int) {
+	for _, when := range caseExpr.Args {
+		if whenClause := when.GetCaseWhen(); whenClause != nil {
+			// WHEN ...
+			if whenClause.Expr != nil {
+				whenClause.Expr = remapper.remappedExpressions(whenClause.Expr, indentLevel+1) // recursion
+			}
+
+			// THEN ...
+			if whenClause.Result != nil {
+				whenClause.Result = remapper.remappedExpressions(whenClause.Result, indentLevel+1) // recursion
+			}
+		}
+	}
+
+	// ELSE ...
+	if caseExpr.Defresult != nil {
+		caseExpr.Defresult = remapper.remappedExpressions(caseExpr.Defresult, indentLevel+1) // recursion
+	}
 }
 
 // SELECT ...
@@ -428,7 +388,7 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 	for targetNodeIdx, targetNode := range selectStatement.TargetList {
 		valNode := targetNode.GetResTarget().Val
 		if valNode != nil {
-			targetNode.GetResTarget().Val = remapper.remapExpressions(valNode, indentLevel) // recursion
+			targetNode.GetResTarget().Val = remapper.remappedExpressions(valNode, indentLevel) // recursion
 		}
 
 		// Nested SELECT
