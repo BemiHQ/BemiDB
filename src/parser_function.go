@@ -28,10 +28,6 @@ func (parser *ParserFunction) InderectionFunctionCall(targetNode *pgQuery.Node) 
 	return nil
 }
 
-func (parser *ParserFunction) InderectionColumnName(targetNode *pgQuery.Node) string {
-	return targetNode.GetResTarget().Val.GetAIndirection().Indirection[0].GetString_().Sval
-}
-
 func (parser *ParserFunction) NestedFunctionCalls(functionCall *pgQuery.FuncCall) []*pgQuery.FuncCall {
 	nestedFunctionCalls := []*pgQuery.FuncCall{}
 
@@ -46,21 +42,15 @@ func (parser *ParserFunction) SchemaFunction(functionCall *pgQuery.FuncCall) PgS
 	return parser.utils.SchemaFunction(functionCall)
 }
 
-// information_schema._pg_expandarray(array) -> unnest(anyarray)
-func (parser *ParserFunction) RemapPgExpandArray(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("unnest")}
-	return functionCall
-}
-
-// (...).n -> func() AS n
-func (parser *ParserFunction) RemapInderectionToFunctionCall(targetNode *pgQuery.Node, functionCall *pgQuery.FuncCall) *pgQuery.Node {
-	targetNode.GetResTarget().Val = &pgQuery.Node{Node: &pgQuery.Node_FuncCall{FuncCall: functionCall}}
-	return targetNode
-}
-
 // pg_catalog.func() -> main.func()
 func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	functionCall.Funcname[0] = pgQuery.MakeStrNode("main")
+	switch len(functionCall.Funcname) {
+	case 1:
+		functionCall.Funcname = append([]*pgQuery.Node{pgQuery.MakeStrNode("main")}, functionCall.Funcname...)
+	case 2:
+		functionCall.Funcname[0] = pgQuery.MakeStrNode("main")
+	}
+
 	return functionCall
 }
 

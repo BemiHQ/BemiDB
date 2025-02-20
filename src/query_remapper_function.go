@@ -6,7 +6,7 @@ import (
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
-var CREATE_CUSTOM_MACRO_QUERIES = []string{
+var CREATE_PG_CATALOG_MACRO_QUERIES = []string{
 	"CREATE MACRO aclexplode(aclitem_array) AS json(aclitem_array)",
 	"CREATE MACRO current_setting(setting_name) AS '', (setting_name, missing_ok) AS ''",
 	"CREATE MACRO pg_backend_pid() AS 0",
@@ -27,7 +27,12 @@ var CREATE_CUSTOM_MACRO_QUERIES = []string{
 	"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
 	"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
 }
-var CUSTOM_MACRO_PG_FUNCTION_NAMES = extractMacroNames(CREATE_CUSTOM_MACRO_QUERIES)
+var PG_CATALOG_MACRO_FUNCTION_NAMES = extractMacroNames(CREATE_PG_CATALOG_MACRO_QUERIES)
+
+var CREATE_INFORMATION_SCHEMA_MACRO_QUERIES = []string{
+	"CREATE MACRO _pg_expandarray(arr) AS STRUCT_PACK(x := unnest(arr), n := unnest(generate_series(1, array_length(arr))))",
+}
+var PG_INFORMATION_SCHEMA_MACRO_FUNCTION_NAMES = extractMacroNames(CREATE_INFORMATION_SCHEMA_MACRO_QUERIES)
 
 var BUILTIN_DUCKDB_PG_FUNCTION_NAMES = NewSet([]string{
 	"array_to_string",
@@ -49,17 +54,25 @@ func NewQueryRemapperFunction(config *Config) *QueryRemapperFunction {
 func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.FuncCall) *PgSchemaFunction {
 	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
 
-	if schemaFunction.Schema == PG_SCHEMA_PG_CATALOG &&
-		(CUSTOM_MACRO_PG_FUNCTION_NAMES.Contains(schemaFunction.Function) ||
-			BUILTIN_DUCKDB_PG_FUNCTION_NAMES.Contains(schemaFunction.Function)) {
-		remapper.parserFunction.RemapSchemaToMain(functionCall)
-		return &schemaFunction
+	// Pre-defined macro functions
+	switch schemaFunction.Schema {
+	// pg_catalog.func() -> main.func()
+	case PG_SCHEMA_PG_CATALOG, "":
+		if PG_CATALOG_MACRO_FUNCTION_NAMES.Contains(schemaFunction.Function) || BUILTIN_DUCKDB_PG_FUNCTION_NAMES.Contains(schemaFunction.Function) {
+			remapper.parserFunction.RemapSchemaToMain(functionCall)
+			return &schemaFunction
+		}
+	// information_schema.func() -> main.func()
+	case PG_SCHEMA_INFORMATION_SCHEMA:
+		if PG_INFORMATION_SCHEMA_MACRO_FUNCTION_NAMES.Contains(schemaFunction.Function) {
+			remapper.parserFunction.RemapSchemaToMain(functionCall)
+			return &schemaFunction
+		}
 	}
 
-	switch schemaFunction.Function {
-
+	switch {
 	// format('%s %1$s', str) -> printf('%1$s %1$s', str)
-	case PG_FUNCTION_FORMAT:
+	case schemaFunction.Function == PG_FUNCTION_FORMAT:
 		remapper.parserFunction.RemapFormatToPrintf(functionCall)
 		return &schemaFunction
 	}

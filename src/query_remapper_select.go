@@ -22,16 +22,12 @@ func NewQueryRemapperSelect(config *Config) *QueryRemapperSelect {
 
 // SELECT ...
 func (remapper *QueryRemapperSelect) RemapSelect(targetNode *pgQuery.Node) *pgQuery.Node {
-	// FUNCTION().value
-	newTargetNode := remapper.remappedInderectionFunctionCall(targetNode)
-	if newTargetNode != nil {
-		return newTargetNode
-	}
-
-	// FUNCTION()
-	functionCall := remapper.parserFunction.FunctionCall(targetNode)
+	functionCall := remapper.parserFunction.InderectionFunctionCall(targetNode)
 	if functionCall == nil {
-		return targetNode
+		functionCall = remapper.parserFunction.FunctionCall(targetNode)
+		if functionCall == nil {
+			return targetNode
+		}
 	}
 
 	// FUNCTION(...) -> ANOTHER_FUNCTION(...)
@@ -45,28 +41,4 @@ func (remapper *QueryRemapperSelect) RemapSelect(targetNode *pgQuery.Node) *pgQu
 	remapper.remapperFunction.RemapNestedFunctionCalls(functionCall)
 
 	return targetNode
-}
-
-func (remapper *QueryRemapperSelect) remappedInderectionFunctionCall(targetNode *pgQuery.Node) *pgQuery.Node {
-	parser := remapper.parserFunction
-
-	functionCall := parser.InderectionFunctionCall(targetNode)
-	if functionCall == nil {
-		return nil
-	}
-
-	schemaFunction := parser.SchemaFunction(functionCall)
-
-	switch {
-
-	// (information_schema._pg_expandarray(array)).n -> unnest(anyarray) AS n
-	case schemaFunction.Schema == PG_SCHEMA_INFORMATION_SCHEMA && schemaFunction.Function == PG_FUNCTION_PG_EXPANDARRAY:
-		inderectionColumnName := parser.InderectionColumnName(targetNode)
-		newTargetNode := parser.RemapInderectionToFunctionCall(targetNode, parser.RemapPgExpandArray(functionCall))
-		remapper.parserSelect.SetDefaultTargetName(newTargetNode, inderectionColumnName)
-		return newTargetNode
-
-	default:
-		return nil
-	}
 }

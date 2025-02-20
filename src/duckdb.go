@@ -25,7 +25,8 @@ var DEFAULT_BOOT_QUERIES = slices.Concat([]string{
 	"SET scalar_subquery_error_on_multiple_rows=false"},
 
 	// Create pg-compatible functions
-	CREATE_CUSTOM_MACRO_QUERIES,
+	CREATE_PG_CATALOG_MACRO_QUERIES,
+	CREATE_INFORMATION_SCHEMA_MACRO_QUERIES,
 
 	// Use public schema
 	[]string{"USE public"},

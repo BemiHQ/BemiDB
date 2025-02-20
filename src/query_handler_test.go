@@ -782,10 +782,15 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"1"},
 		},
-		"SELECT (information_schema._pg_expandarray(ARRAY[1])).n": {
-			"description": {"n"},
-			"types":       {Uint32ToString(pgtype.Int4OID)},
+		"SELECT (information_schema._pg_expandarray(ARRAY[10])).n AS index": {
+			"description": {"index"},
+			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"1"},
+		},
+		"SELECT (information_schema._pg_expandarray(ARRAY[10])).x AS value": {
+			"description": {"value"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"10"},
 		},
 
 		// Transformed JOIN's
