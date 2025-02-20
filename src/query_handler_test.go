@@ -847,11 +847,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"t"},
 		},
-		// "SELECT CASE WHEN FORMAT('%s', test_table.varchar_column) = 'varchar' THEN 1 ELSE 2 END AS test_case FROM test_table LIMIT 1": {
-		// 	"description": {"test_case"},
-		// 	"types":       {Uint32ToString(pgtype.Int4OID)},
-		// 	"values":      {"1"},
-		// },
+		"SELECT CASE WHEN FORMAT('%s', test_table.varchar_column) = 'varchar' THEN 1 ELSE 2 END AS test_case FROM test_table LIMIT 1": {
+			"description": {"test_case"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
+		},
 
 		// WHERE pg functions
 		"SELECT gss_authenticated, encrypted FROM (SELECT false, false, false, false, false WHERE false) t(pid, gss_authenticated, principal, encrypted, credentials_delegated) WHERE pid = pg_backend_pid()": {

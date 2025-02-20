@@ -183,15 +183,27 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 					if aExpr.Kind == pgQuery.A_Expr_Kind_AEXPR_OP_ANY {
 						whenClause.Expr = remapper.remapperSelect.parserSelect.ConvertAnyToIn(aExpr)
 					}
+
 					if subLink := aExpr.Lexpr.GetSubLink(); subLink != nil {
 						remapper.traceTreeTraversal("CASE->WHEN left", indentLevel+1)
 						subSelect := subLink.Subselect.GetSelectStmt()
 						remapper.remapSelectStatement(subSelect, indentLevel+1)
 					}
+					if functionCall := aExpr.Lexpr.GetFuncCall(); functionCall != nil {
+						remapper.traceTreeTraversal("CASE->WHEN left function", indentLevel+1)
+						remapper.remapperFunction.RemapFunctionCall(functionCall)
+						remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
+					}
+
 					if subLink := aExpr.Rexpr.GetSubLink(); subLink != nil {
 						remapper.traceTreeTraversal("CASE->WHEN right", indentLevel+1)
 						subSelect := subLink.Subselect.GetSelectStmt()
 						remapper.remapSelectStatement(subSelect, indentLevel+1)
+					}
+					if functionCall := aExpr.Rexpr.GetFuncCall(); functionCall != nil {
+						remapper.traceTreeTraversal("CASE->WHEN right function", indentLevel+1)
+						remapper.remapperFunction.RemapFunctionCall(functionCall)
+						remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
 					}
 				}
 			}
