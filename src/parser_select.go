@@ -14,10 +14,6 @@ func NewParserSelect(config *Config) *ParserSelect {
 	return &ParserSelect{config: config}
 }
 
-func (parser *ParserSelect) OverrideTargetValue(targetNode *pgQuery.Node, node *pgQuery.Node) {
-	targetNode.GetResTarget().Val = node
-}
-
 func (parser *ParserSelect) SetDefaultTargetName(targetNode *pgQuery.Node, name string) {
 	target := targetNode.GetResTarget()
 

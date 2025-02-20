@@ -403,11 +403,6 @@ func (parser *ParserTable) MakeArrayUpperNode(funcCallNode *pgQuery.FuncCall) *p
 	).GetFuncCall()
 }
 
-func (parser *ParserTable) RemoveOrderBy(selectStatement *pgQuery.SelectStmt) *pgQuery.SelectStmt {
-	selectStatement.SortClause = nil
-	return selectStatement
-}
-
 type DuckDBKeyword struct {
 	word     string
 	category string

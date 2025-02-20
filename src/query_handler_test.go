@@ -14,17 +14,17 @@ import (
 func TestHandleQuery(t *testing.T) {
 	var responsesByQuery = map[string]map[string][]string{
 		// PG functions
-		"SELECT VERSION()": {
+		"SELECT VERSION() AS version": {
 			"description": {"version"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {"PostgreSQL 17.0, compiled by Bemi"},
+			"values":      {"PostgreSQL 17.0, compiled by BemiDB"},
 		},
 		"SELECT pg_catalog.pg_get_userbyid(p.proowner) AS owner, 'Foo' AS foo FROM pg_catalog.pg_proc p LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace LIMIT 1": {
 			"description": {"owner", "foo"},
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"bemidb", "Foo"},
 		},
-		"SELECT QUOTE_IDENT('fooBar')": {
+		"SELECT QUOTE_IDENT('fooBar') AS quote_ident": {
 			"description": {"quote_ident"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"\"fooBar\""},
@@ -67,9 +67,9 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"UTF8"},
 		},
-		"SELECT pg_backend_pid()": {
+		"SELECT pg_backend_pid() AS pg_backend_pid": {
 			"description": {"pg_backend_pid"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"0"},
 		},
 		"SELECT * from pg_is_in_recovery()": {
@@ -77,12 +77,12 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"f"},
 		},
-		"SELECT row_to_json(t) FROM (SELECT usename, passwd FROM pg_shadow WHERE usename='bemidb') t": {
+		"SELECT row_to_json(t) AS row_to_json FROM (SELECT usename, passwd FROM pg_shadow WHERE usename='bemidb') t": {
 			"description": {"row_to_json"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {`{"usename":"bemidb","passwd":"bemidb-encrypted"}`},
 		},
-		"SELECT current_setting('default_tablespace')": {
+		"SELECT current_setting('default_tablespace') AS current_setting": {
 			"description": {"current_setting"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
@@ -219,12 +219,11 @@ func TestHandleQuery(t *testing.T) {
 		},
 		"SELECT pg_total_relation_size(relid) AS total_size FROM pg_catalog.pg_statio_user_tables WHERE schemaname = 'public'": {
 			"description": {"total_size"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
 		"SELECT pg_total_relation_size(relid) AS total_size FROM pg_catalog.pg_statio_user_tables WHERE schemaname = 'public' UNION SELECT NULL AS total_size FROM pg_catalog.pg_proc p LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'": {
 			"description": {"total_size"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {""},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
 		"SELECT * FROM pg_catalog.pg_shdescription": {
 			"description": {"objoid", "classoid", "description"},
@@ -835,13 +834,23 @@ func TestHandleQuery(t *testing.T) {
 		},
 		"SELECT CASE WHEN TRUE THEN pg_catalog.pg_is_in_recovery() END AS CASE": {
 			"description": {"case"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {"f"},
+		},
+		"SELECT CASE WHEN FALSE THEN true ELSE pg_catalog.pg_is_in_recovery() END AS CASE": {
+			"description": {"case"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"f"},
 		},
 		"SELECT CASE WHEN nsp.nspname = ANY('{information_schema}') THEN false ELSE true END AS db_support FROM pg_catalog.pg_namespace nsp WHERE nsp.oid = 1268::OID;": {
 			"description": {"db_support"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"t"},
+		},
+		"SELECT CASE WHEN FORMAT('%s', test_table.varchar_column) = 'varchar' THEN 1 ELSE 2 END AS test_case FROM test_table LIMIT 1": {
+			"description": {"test_case"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
 		},
 
 		// WHERE pg functions

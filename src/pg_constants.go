@@ -5,17 +5,11 @@ const (
 	PG_SCHEMA_PG_CATALOG         = "pg_catalog"
 	PG_SCHEMA_PUBLIC             = "public"
 
-	PG_FUNCTION_ARRAY_TO_STRING      = "array_to_string"
 	PG_FUNCTION_ARRAY_UPPER          = "array_upper"
 	PG_FUNCTION_PG_EXPANDARRAY       = "_pg_expandarray"
-	PG_FUNCTION_PG_GET_EXPR          = "pg_get_expr"
 	PG_FUNCTION_PG_GET_KEYWORDS      = "pg_get_keywords"
 	PG_FUNCTION_PG_IS_IN_RECOVERY    = "pg_is_in_recovery"
 	PG_FUNCTION_PG_SHOW_ALL_SETTINGS = "pg_show_all_settings"
-	PG_FUNCTION_QUOTE_INDENT         = "quote_ident"
-	PG_FUNCTION_ROW_TO_JSON          = "row_to_json"
-	PG_FUNCTION_ACLEXPLODE           = "aclexplode"
-	PG_FUNCTION_PG_GET_VIEWDEF       = "pg_get_viewdef"
 	PG_FUNCTION_FORMAT               = "format"
 
 	PG_TABLE_PG_ATTRIBUTE          = "pg_attribute"
@@ -52,6 +46,11 @@ type ColumnDefinition struct {
 type TableDefinition struct {
 	Columns []ColumnDefinition
 	Values  []string
+}
+
+type ConstantDefinition struct {
+	Value string
+	Type  string
 }
 
 var PG_INHERITS_DEFINITION = TableDefinition{

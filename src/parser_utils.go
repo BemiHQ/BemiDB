@@ -43,7 +43,7 @@ func (utils *ParserUtils) MakeSubselectWithRowsNode(tableName string, tableDef T
 		var rowList []*pgQuery.Node
 		for i, val := range row {
 			colType := tableDef.Columns[i].Type
-			constNode := utils.makeTypedConstNode(val, colType)
+			constNode := utils.MakeTypedConstNode(val, colType)
 			rowList = append(rowList, constNode)
 		}
 		selectStmt.ValuesLists = append(selectStmt.ValuesLists,
@@ -154,7 +154,7 @@ func (utils *ParserUtils) MakeAConstBoolNode(val bool) *pgQuery.Node {
 	}
 }
 
-func (utils *ParserUtils) makeTypedConstNode(val string, pgType string) *pgQuery.Node {
+func (utils *ParserUtils) MakeTypedConstNode(val string, pgType string) *pgQuery.Node {
 	if val == "NULL" {
 		return &pgQuery.Node{
 			Node: &pgQuery.Node_AConst{
