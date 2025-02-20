@@ -21,7 +21,7 @@ func NewQueryRemapperSelect(config *Config) *QueryRemapperSelect {
 }
 
 // SELECT ...
-func (remapper *QueryRemapperSelect) RemapSelect(targetNode *pgQuery.Node) *pgQuery.Node {
+func (remapper *QueryRemapperSelect) RemapSelectFunctions(targetNode *pgQuery.Node) *pgQuery.Node {
 	functionCall := remapper.parserFunction.InderectionFunctionCall(targetNode)
 	if functionCall == nil {
 		functionCall = remapper.parserFunction.FunctionCall(targetNode)

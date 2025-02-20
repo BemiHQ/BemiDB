@@ -20,7 +20,7 @@ func NewQueryRemapperTypeCast(config *Config) *QueryRemapperTypeCast {
 }
 
 // value::type or CAST(value AS type)
-func (remapper *QueryRemapperTypeCast) RemapTypeCast(node *pgQuery.Node) *pgQuery.Node {
+func (remapper *QueryRemapperTypeCast) RemappedTypeCast(node *pgQuery.Node) *pgQuery.Node {
 	typeCast := remapper.parserTypeCast.TypeCast(node)
 	if typeCast == nil {
 		return node
