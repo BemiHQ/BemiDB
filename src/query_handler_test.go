@@ -903,6 +903,18 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int4ArrayOID)},
 			"values":      {"{}"},
 		},
+		"SELECT test_table.id FROM public.test_table ORDER BY public.test_table.id DESC LIMIT 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"2"},
+		},
+
+		// GROUP BY
+		"SELECT MAX(id) AS max FROM public.test_table GROUP BY public.test_table.id LIMIT 1": {
+			"description": {"max"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
+		},
 
 		// Table alias
 		"SELECT pg_shadow.usename FROM pg_shadow": {

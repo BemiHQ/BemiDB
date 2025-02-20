@@ -69,8 +69,9 @@ func (remapper *QueryRemapper) RemapStatements(statements []*pgQuery.RawStmt) ([
 
 		// SELECT
 		case node.GetSelectStmt() != nil:
-			remappedSelect := remapper.remapSelectStatement(stmt.Stmt.GetSelectStmt(), 1)
-			stmt.Stmt = &pgQuery.Node{Node: &pgQuery.Node_SelectStmt{SelectStmt: remappedSelect}}
+			selectStatement := node.GetSelectStmt()
+			remapper.remapSelectStatement(selectStatement, 1)
+			stmt.Stmt = &pgQuery.Node{Node: &pgQuery.Node_SelectStmt{SelectStmt: selectStatement}}
 			statements[i] = stmt
 
 		// SET
@@ -112,7 +113,7 @@ func (remapper *QueryRemapper) remapSetStatement(stmt *pgQuery.RawStmt) *pgQuery
 	return FALLBACK_SET_QUERY_TREE.Stmts[0]
 }
 
-func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.SelectStmt, indentLevel int) *pgQuery.SelectStmt {
+func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.SelectStmt, indentLevel int) {
 	// UNION
 	if selectStatement.FromClause == nil && selectStatement.Larg != nil && selectStatement.Rarg != nil {
 		remapper.traceTreeTraversal("UNION left", indentLevel)
@@ -167,10 +168,24 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 		}
 	}
 
+	// ORDER BY
+	if selectStatement.SortClause != nil {
+		remapper.traceTreeTraversal("ORDER BY statements", indentLevel)
+		for _, sortNode := range selectStatement.SortClause {
+			sortNode.GetSortBy().Node = remapper.remappedExpressions(sortNode.GetSortBy().Node, indentLevel) // recursion
+		}
+	}
+
+	// GROUP BY
+	if selectStatement.GroupClause != nil {
+		remapper.traceTreeTraversal("GROUP BY statements", indentLevel)
+		for i, groupNode := range selectStatement.GroupClause {
+			selectStatement.GroupClause[i] = remapper.remappedExpressions(groupNode, indentLevel) // recursion
+		}
+	}
+
 	// SELECT
 	selectStatement = remapper.remapSelect(selectStatement, indentLevel) // recursion
-
-	return selectStatement
 }
 
 // FROM PG_FUNCTION()
