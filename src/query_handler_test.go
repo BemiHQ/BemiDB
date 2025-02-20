@@ -77,7 +77,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"f"},
 		},
-		"SELECT row_to_json(t) FROM (SELECT usename, passwd FROM pg_shadow WHERE usename='bemidb') t": {
+		"SELECT row_to_json(t) AS row_to_json FROM (SELECT usename, passwd FROM pg_shadow WHERE usename='bemidb') t": {
 			"description": {"row_to_json"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {`{"usename":"bemidb","passwd":"bemidb-encrypted"}`},

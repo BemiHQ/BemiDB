@@ -7,19 +7,23 @@ import (
 )
 
 var CREATE_CUSTOM_MACRO_QUERIES = []string{
+	"CREATE MACRO aclexplode(aclitem_array) AS json(aclitem_array)",
 	"CREATE MACRO current_setting(setting_name) AS '', (setting_name, missing_ok) AS ''",
 	"CREATE MACRO pg_backend_pid() AS 0",
 	"CREATE MACRO pg_encoding_to_char(encoding_int) AS 'UTF8'",
+	"CREATE MACRO pg_get_expr(pg_node_tree, relation_oid, pretty_bool) AS pg_catalog.pg_get_expr(pg_node_tree, relation_oid)",
 	"CREATE MACRO pg_get_function_identity_arguments(func_oid) AS ''",
 	"CREATE MACRO pg_get_indexdef(index_oid) AS '', (index_oid, column_int) AS '', (index_oid, column_int, pretty_bool) AS ''",
 	"CREATE MACRO pg_get_partkeydef(table_oid) AS ''",
 	"CREATE MACRO pg_get_userbyid(role_id) AS 'bemidb'",
+	"CREATE MACRO pg_get_viewdef(view_oid, pretty_bool) AS pg_catalog.pg_get_viewdef(view_oid)",
 	"CREATE MACRO pg_indexes_size(regclass) AS 0",
 	"CREATE MACRO pg_is_in_recovery() AS false",
 	"CREATE MACRO pg_table_size(regclass) AS 0",
 	"CREATE MACRO pg_tablespace_location(tablespace_oid) AS ''",
 	"CREATE MACRO pg_total_relation_size(regclass) AS 0",
 	"CREATE MACRO quote_ident(text) AS '\"' || text || '\"'",
+	"CREATE MACRO row_to_json(record) AS to_json(record), (record, pretty_bool) AS to_json(record)",
 	"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
 	"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
 }
@@ -41,8 +45,8 @@ func NewQueryRemapperFunction(config *Config) *QueryRemapperFunction {
 	}
 }
 
-// FUNCTION(...args) -> ANOTHER_FUNCTION(...other_args) or FUNCTION(...other_args)
-func (remapper *QueryRemapperFunction) RemapFunctionCallDynamically(functionCall *pgQuery.FuncCall) *PgSchemaFunction {
+// FUNCTION(...) -> ANOTHER_FUNCTION(...)
+func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.FuncCall) *PgSchemaFunction {
 	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
 
 	if schemaFunction.Schema == PG_SCHEMA_PG_CATALOG &&
@@ -54,34 +58,10 @@ func (remapper *QueryRemapperFunction) RemapFunctionCallDynamically(functionCall
 
 	switch schemaFunction.Function {
 
-	// row_to_json(col) -> to_json(col)
-	case PG_FUNCTION_ROW_TO_JSON:
-		remapper.parserFunction.RemapRowToJson(functionCall)
-		return &schemaFunction
-
-	// aclexplode(acl) -> json
-	case PG_FUNCTION_ACLEXPLODE:
-		remapper.parserFunction.RemapAclExplode(functionCall)
-		return &schemaFunction
-
-	// format('%s', str) -> printf('%1$s', str)
+	// format('%s %1$s', str) -> printf('%1$s %1$s', str)
 	case PG_FUNCTION_FORMAT:
 		remapper.parserFunction.RemapFormatToPrintf(functionCall)
 		return &schemaFunction
-
-	// pg_catalog.pg_get_expr(pg_node_tree, relation_oid, pretty_bool) -> pg_catalog.pg_get_expr(pg_node_tree, relation_oid)
-	case PG_FUNCTION_PG_GET_EXPR:
-		if remapper.functionFromPgCatalog(schemaFunction) {
-			remapper.parserFunction.RemoveThirdArgument(functionCall)
-			return &schemaFunction
-		}
-
-	// pg_catalog.pg_get_viewdef(view_oid, pretty_bool) -> pg_catalog.pg_get_viewdef(view_oid)
-	case PG_FUNCTION_PG_GET_VIEWDEF:
-		if remapper.functionFromPgCatalog(schemaFunction) {
-			remapper.parserFunction.RemoveSecondArgument(functionCall)
-			return &schemaFunction
-		}
 	}
 
 	return nil
@@ -98,17 +78,13 @@ func (remapper *QueryRemapperFunction) RemapNestedFunctionCalls(functionCall *pg
 			continue
 		}
 
-		schemaFunction := remapper.RemapFunctionCallDynamically(nestedFunctionCall)
+		schemaFunction := remapper.RemapFunctionCall(nestedFunctionCall)
 		if schemaFunction != nil {
 			continue
 		}
 
 		remapper.RemapNestedFunctionCalls(nestedFunctionCall) // self-recursion
 	}
-}
-
-func (remapper *QueryRemapperFunction) functionFromPgCatalog(schemaFunction PgSchemaFunction) bool {
-	return schemaFunction.Schema == PG_SCHEMA_PG_CATALOG || schemaFunction.Schema == ""
 }
 
 func extractMacroNames(macros []string) Set[string] {

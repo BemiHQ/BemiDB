@@ -46,28 +46,6 @@ func (parser *ParserFunction) SchemaFunction(functionCall *pgQuery.FuncCall) PgS
 	return parser.utils.SchemaFunction(functionCall)
 }
 
-func (parser *ParserFunction) RemoveThirdArgument(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	if len(functionCall.Args) > 2 {
-		functionCall.Args = functionCall.Args[:2]
-	}
-
-	return functionCall
-}
-
-func (parser *ParserFunction) RemoveSecondArgument(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	if len(functionCall.Args) > 1 {
-		functionCall.Args = functionCall.Args[:1]
-	}
-
-	return functionCall
-}
-
-// row_to_json() -> to_json()
-func (parser *ParserFunction) RemapRowToJson(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("to_json")}
-	return functionCall
-}
-
 // information_schema._pg_expandarray(array) -> unnest(anyarray)
 func (parser *ParserFunction) RemapPgExpandArray(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("unnest")}
@@ -86,13 +64,7 @@ func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) 
 	return functionCall
 }
 
-// aclexplode() -> json()
-func (parser *ParserFunction) RemapAclExplode(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("json")}
-	return functionCall
-}
-
-// format('%s', str) -> printf('%1$s', str)
+// format('%s %1$s', str) -> printf('%1$s %1$s', str)
 func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	format := functionCall.Args[0].GetAConst().GetSval().Sval
 	for i := range functionCall.Args[1:] {
