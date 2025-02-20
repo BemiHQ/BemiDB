@@ -313,6 +313,15 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"1"},
 		},
+		"SELECT public.test_table.bit_column FROM public.test_table WHERE public.test_table.bit_column IS NOT NULL": {
+			"description": {"bit_column"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"1"},
+		},
+		"SELECT test_schema.simple_table.id FROM test_schema.simple_table": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+		},
 		"SELECT bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
 			"description": {"bit_column"},
 			"types":       {Uint32ToString(pgtype.TextOID)},

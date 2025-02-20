@@ -26,28 +26,28 @@ var FALLBACK_QUERY_TREE, _ = pgQuery.Parse(FALLBACK_SQL_QUERY)
 var FALLBACK_SET_QUERY_TREE, _ = pgQuery.Parse("SET schema TO public")
 
 type QueryRemapper struct {
-	parserTypeCast   *ParserTypeCast
-	remapperTable    *QueryRemapperTable
-	remapperTypeCast *QueryRemapperTypeCast
-	remapperFunction *QueryRemapperFunction
-	remapperSelect   *QueryRemapperSelect
-	remapperShow     *QueryRemapperShow
-	icebergReader    *IcebergReader
-	duckdb           *Duckdb
-	config           *Config
+	parserTypeCast     *ParserTypeCast
+	remapperTable      *QueryRemapperTable
+	remapperExpression *QueryRemapperExpression
+	remapperFunction   *QueryRemapperFunction
+	remapperSelect     *QueryRemapperSelect
+	remapperShow       *QueryRemapperShow
+	icebergReader      *IcebergReader
+	duckdb             *Duckdb
+	config             *Config
 }
 
 func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdb *Duckdb) *QueryRemapper {
 	return &QueryRemapper{
-		parserTypeCast:   NewParserTypeCast(config),
-		remapperTable:    NewQueryRemapperTable(config, icebergReader, duckdb),
-		remapperTypeCast: NewQueryRemapperTypeCast(config),
-		remapperFunction: NewQueryRemapperFunction(config),
-		remapperSelect:   NewQueryRemapperSelect(config),
-		remapperShow:     NewQueryRemapperShow(config),
-		icebergReader:    icebergReader,
-		duckdb:           duckdb,
-		config:           config,
+		parserTypeCast:     NewParserTypeCast(config),
+		remapperTable:      NewQueryRemapperTable(config, icebergReader, duckdb),
+		remapperExpression: NewQueryRemapperExpression(config),
+		remapperFunction:   NewQueryRemapperFunction(config),
+		remapperSelect:     NewQueryRemapperSelect(config),
+		remapperShow:       NewQueryRemapperShow(config),
+		icebergReader:      icebergReader,
+		duckdb:             duckdb,
+		config:             config,
 	}
 }
 
@@ -210,7 +210,7 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 
 			// THEN ...
 			if whenClause.Result != nil {
-				whenClause.Result = remapper.remapperTypeCast.RemappedTypeCast(whenClause.Result)
+				whenClause.Result = remapper.remapperExpression.RemappedExpression(whenClause.Result)
 				typeName := remapper.parserTypeCast.inferNodeType(whenClause.Result)
 				if typeName != "" {
 					whenClause.Result = remapper.parserTypeCast.MakeCaseTypeCastNode(whenClause.Result, typeName)
@@ -231,7 +231,7 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 
 	// ELSE ...
 	if caseExpr.Defresult != nil {
-		caseExpr.Defresult = remapper.remapperTypeCast.RemappedTypeCast(caseExpr.Defresult)
+		caseExpr.Defresult = remapper.remapperExpression.RemappedExpression(caseExpr.Defresult)
 		typeName := remapper.parserTypeCast.inferNodeType(caseExpr.Defresult)
 		if typeName != "" {
 			caseExpr.Defresult = remapper.parserTypeCast.MakeCaseTypeCastNode(caseExpr.Defresult, typeName)
@@ -401,17 +401,23 @@ func (remapper *QueryRemapper) remapExpressions(node *pgQuery.Node, indentLevel 
 		}
 	}
 
+	// IS NULL
+	nullTest := node.GetNullTest()
+	if nullTest != nil {
+		nullTest.Arg = remapper.remapExpressions(nullTest.Arg, indentLevel+1) // recursion
+	}
+
 	// IN
-	if node.GetList() != nil {
-		list := node.GetList()
+	list := node.GetList()
+	if list != nil {
 		for i, item := range list.Items {
 			if item != nil {
-				list.Items[i] = remapper.remapperTypeCast.RemappedTypeCast(item)
+				list.Items[i] = remapper.remapperExpression.RemappedExpression(item)
 			}
 		}
 	}
 
-	return remapper.remapperTypeCast.RemappedTypeCast(node)
+	return remapper.remapperExpression.RemappedExpression(node)
 }
 
 // SELECT ...
@@ -449,7 +455,7 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 		for i, valuesList := range selectStatement.ValuesLists {
 			for j, value := range valuesList.GetList().Items {
 				if value != nil {
-					selectStatement.ValuesLists[i].GetList().Items[j] = remapper.remapperTypeCast.RemappedTypeCast(value)
+					selectStatement.ValuesLists[i].GetList().Items[j] = remapper.remapperExpression.RemappedExpression(value)
 				}
 			}
 		}

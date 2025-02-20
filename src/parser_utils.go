@@ -117,7 +117,11 @@ func (utils *ParserUtils) MakeSubselectWithoutRowsNode(tableName string, tableDe
 func (utils *ParserUtils) MakeSubselectFromNode(qSchemaTable QuerySchemaTable, targetList []*pgQuery.Node, fromNode *pgQuery.Node) *pgQuery.Node {
 	alias := qSchemaTable.Alias
 	if alias == "" {
-		alias = qSchemaTable.Table
+		if qSchemaTable.Schema == PG_SCHEMA_PUBLIC || qSchemaTable.Schema == "" {
+			alias = qSchemaTable.Table
+		} else {
+			alias = qSchemaTable.Schema + "_" + qSchemaTable.Table
+		}
 	}
 
 	return &pgQuery.Node{

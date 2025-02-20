@@ -146,16 +146,16 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 		}
 	}
 
-	// iceberg.table -> FROM iceberg_scan('iceberg/schema/table/metadata/v1.metadata.json', skip_schema_inference = true) iceberg.table
+	// public.table -> FROM iceberg_scan('path', skip_schema_inference = true) table
+	// schema.table -> FROM iceberg_scan('path', skip_schema_inference = true) schema_table
 	schemaTable := qSchemaTable.ToIcebergSchemaTable()
-	// Reload Iceberg tables if not found
-	if !remapper.icebergSchemaTables.Contains(schemaTable) {
+	if !remapper.icebergSchemaTables.Contains(schemaTable) { // Reload Iceberg tables if not found
 		remapper.reloadIceberSchemaTables()
 		if !remapper.icebergSchemaTables.Contains(schemaTable) {
 			return node // Let it return "Catalog Error: Table with name _ does not exist!"
 		}
 	}
-	icebergPath := remapper.icebergReader.MetadataFilePath(schemaTable)
+	icebergPath := remapper.icebergReader.MetadataFilePath(schemaTable) // iceberg/schema/table/metadata/v1.metadata.json
 	return parser.MakeIcebergTableNode(icebergPath, qSchemaTable)
 }
 

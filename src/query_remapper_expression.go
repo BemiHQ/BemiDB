@@ -6,21 +6,29 @@ import (
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
-type QueryRemapperTypeCast struct {
-	parserTypeCast *ParserTypeCast
-	config         *Config
+type QueryRemapperExpression struct {
+	parserTypeCast  *ParserTypeCast
+	parserColumnRef *ParserColumnRef
+	config          *Config
 }
 
-func NewQueryRemapperTypeCast(config *Config) *QueryRemapperTypeCast {
-	remapper := &QueryRemapperTypeCast{
-		parserTypeCast: NewParserTypeCast(config),
-		config:         config,
+func NewQueryRemapperExpression(config *Config) *QueryRemapperExpression {
+	remapper := &QueryRemapperExpression{
+		parserTypeCast:  NewParserTypeCast(config),
+		parserColumnRef: NewParserColumnRef(config),
+		config:          config,
 	}
 	return remapper
 }
 
+func (remapper *QueryRemapperExpression) RemappedExpression(node *pgQuery.Node) *pgQuery.Node {
+	node = remapper.remappedTypeCast(node)
+	remapper.remapColumnReference(node)
+	return node
+}
+
 // value::type or CAST(value AS type)
-func (remapper *QueryRemapperTypeCast) RemappedTypeCast(node *pgQuery.Node) *pgQuery.Node {
+func (remapper *QueryRemapperExpression) remappedTypeCast(node *pgQuery.Node) *pgQuery.Node {
 	typeCast := remapper.parserTypeCast.TypeCast(node)
 	if typeCast == nil {
 		return node
@@ -54,4 +62,27 @@ func (remapper *QueryRemapperTypeCast) RemappedTypeCast(node *pgQuery.Node) *pgQ
 	}
 
 	return node
+}
+
+// public.table.column -> table.column
+// schema.table.column -> schema_table.column
+func (remapper *QueryRemapperExpression) remapColumnReference(node *pgQuery.Node) {
+	fieldNames := remapper.parserColumnRef.FieldNames(node)
+	if fieldNames == nil || len(fieldNames) != 3 {
+		return
+	}
+
+	schema := fieldNames[0]
+	if schema == PG_SCHEMA_PG_CATALOG || schema == PG_SCHEMA_INFORMATION_SCHEMA {
+		return
+	}
+
+	table := fieldNames[1]
+	column := fieldNames[2]
+	if schema == PG_SCHEMA_PUBLIC {
+		remapper.parserColumnRef.SetFields(node, []string{table, column})
+		return
+	}
+
+	remapper.parserColumnRef.SetFields(node, []string{schema + "_" + table, column})
 }

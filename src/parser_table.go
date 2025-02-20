@@ -157,7 +157,8 @@ func (parser *ParserTable) IsTableFromInformationSchema(qSchemaTable QuerySchema
 	return qSchemaTable.Schema == PG_SCHEMA_INFORMATION_SCHEMA
 }
 
-// iceberg.table -> FROM iceberg_scan('path', skip_schema_inference = true)
+// public.table -> FROM iceberg_scan('path', skip_schema_inference = true) table
+// schema.table -> FROM iceberg_scan('path', skip_schema_inference = true) schema_table
 func (parser *ParserTable) MakeIcebergTableNode(tablePath string, qSchemaTable QuerySchemaTable) *pgQuery.Node {
 	node := pgQuery.MakeSimpleRangeFunctionNode([]*pgQuery.Node{
 		pgQuery.MakeListNode([]*pgQuery.Node{
