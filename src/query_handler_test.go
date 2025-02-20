@@ -837,6 +837,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"f"},
 		},
+		"SELECT CASE WHEN FALSE THEN true ELSE pg_catalog.pg_is_in_recovery() END AS CASE": {
+			"description": {"case"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {"f"},
+		},
 		"SELECT CASE WHEN nsp.nspname = ANY('{information_schema}') THEN false ELSE true END AS db_support FROM pg_catalog.pg_namespace nsp WHERE nsp.oid = 1268::OID;": {
 			"description": {"db_support"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},

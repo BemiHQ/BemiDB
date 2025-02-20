@@ -222,11 +222,15 @@ func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, i
 		if typeName != "" {
 			caseExpr.Defresult = remapper.parserTypeCast.MakeCaseTypeCastNode(caseExpr.Defresult, typeName)
 		}
-
 		if subLink := caseExpr.Defresult.GetSubLink(); subLink != nil {
 			remapper.traceTreeTraversal("CASE->ELSE", indentLevel+1)
 			subSelect := subLink.Subselect.GetSelectStmt()
 			remapper.remapSelectStatement(subSelect, indentLevel+1)
+		}
+		if functionCall := caseExpr.Defresult.GetFuncCall(); functionCall != nil {
+			remapper.traceTreeTraversal("CASE->ELSE function", indentLevel+1)
+			remapper.remapperFunction.RemapFunctionCall(functionCall)
+			remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
 		}
 	}
 
