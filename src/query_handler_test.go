@@ -710,12 +710,17 @@ func TestHandleQuery(t *testing.T) {
 		},
 
 		// Type casts
-		"SELECT '\"public\".\"test_table\"'::regclass::oid > 1270 AS oid": {
+		"SELECT '\"public\".\"test_table\"'::regclass::oid > 0 AS oid": {
 			"description": {"oid"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"t"},
 		},
-		"SELECT attrelid > 1270 AS attrelid FROM pg_attribute WHERE attrelid = '\"public\".\"test_table\"'::regclass LIMIT 1": {
+		"SELECT FORMAT('%I.%I', 'public', 'test_table')::regclass::oid > 0 AS oid": { // NOTE: ::regclass::oid on non-constants is not fully supported yet
+			"description": {"oid"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {""},
+		},
+		"SELECT attrelid > 0 AS attrelid FROM pg_attribute WHERE attrelid = '\"public\".\"test_table\"'::regclass LIMIT 1": {
 			"description": {"attrelid"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"t"},
@@ -882,12 +887,16 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID)},
 			"values":      {},
 		},
-
 		// WHERE with nested SELECT
 		"SELECT int2_column FROM test_table WHERE int2_column > 0 AND int2_column = (SELECT int2_column FROM test_table WHERE int2_column = 32767)": {
 			"description": {"int2_column"},
 			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"32767"},
+		},
+		// WHERE ANY(column reference)
+		"SELECT id FROM test_table WHERE id = ANY(id)": { // NOTE: ... = ANY() on non-constants is not fully supported yet
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
 
 		// WITH

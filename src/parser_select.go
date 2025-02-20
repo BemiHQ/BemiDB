@@ -8,10 +8,11 @@ import (
 
 type ParserSelect struct {
 	config *Config
+	utils  *ParserUtils
 }
 
 func NewParserSelect(config *Config) *ParserSelect {
-	return &ParserSelect{config: config}
+	return &ParserSelect{config: config, utils: NewParserUtils(config)}
 }
 
 func (parser *ParserSelect) SetDefaultTargetName(targetNode *pgQuery.Node, name string) {
@@ -24,6 +25,11 @@ func (parser *ParserSelect) SetDefaultTargetName(targetNode *pgQuery.Node, name 
 
 // = ANY({schema_information}) -> IN (schema_information)
 func (parser *ParserSelect) ConvertRightAnyToIn(aExpr *pgQuery.A_Expr) *pgQuery.Node {
+	if aExpr.Rexpr.GetAConst() == nil {
+		// NOTE: ... = ANY() on non-constants is not fully supported yet
+		return parser.utils.MakeNullNode()
+	}
+
 	arrayStr := aExpr.Rexpr.GetAConst().GetSval().Sval
 	arrayStr = strings.Trim(arrayStr, "{}")
 	values := strings.Split(arrayStr, ",")

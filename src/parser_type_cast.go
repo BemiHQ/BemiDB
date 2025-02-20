@@ -100,6 +100,11 @@ func (parser *ParserTypeCast) MakeSubselectOidBySchemaTableArg(argumentNode *pgQ
 		),
 	)
 
+	if argumentNode.GetAConst() == nil {
+		// NOTE: ::regclass::oid on non-constants is not fully supported yet
+		return parser.utils.MakeNullNode()
+	}
+
 	value := argumentNode.GetAConst().GetSval().Sval
 	qSchemaTable := NewQuerySchemaTableFromString(value)
 	if qSchemaTable.Schema == "" {

@@ -79,13 +79,7 @@ func (utils *ParserUtils) MakeSubselectWithoutRowsNode(tableName string, tableDe
 
 	targetList := make([]*pgQuery.Node, len(tableDef.Columns))
 	for i, col := range tableDef.Columns {
-		nullNode := &pgQuery.Node{
-			Node: &pgQuery.Node_AConst{
-				AConst: &pgQuery.A_Const{
-					Isnull: true,
-				},
-			},
-		}
+		nullNode := utils.MakeNullNode()
 		typedNullNode := utils.MakeTypeCastNode(nullNode, col.Type)
 		targetList[i] = pgQuery.MakeResTargetNodeWithVal(typedNullNode, 0)
 	}
@@ -161,18 +155,22 @@ func (utils *ParserUtils) MakeAConstBoolNode(val bool) *pgQuery.Node {
 
 func (utils *ParserUtils) MakeTypedConstNode(val string, pgType string) *pgQuery.Node {
 	if val == "NULL" {
-		return &pgQuery.Node{
-			Node: &pgQuery.Node_AConst{
-				AConst: &pgQuery.A_Const{
-					Isnull: true,
-				},
-			},
-		}
+		return utils.MakeNullNode()
 	}
 
 	constNode := pgQuery.MakeAConstStrNode(val, 0)
 
 	return utils.MakeTypeCastNode(constNode, pgType)
+}
+
+func (utils *ParserUtils) MakeNullNode() *pgQuery.Node {
+	return &pgQuery.Node{
+		Node: &pgQuery.Node_AConst{
+			AConst: &pgQuery.A_Const{
+				Isnull: true,
+			},
+		},
+	}
 }
 
 func (utils *ParserUtils) MakeTypeCastNode(arg *pgQuery.Node, typeName string) *pgQuery.Node {
