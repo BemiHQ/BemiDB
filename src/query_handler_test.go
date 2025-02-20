@@ -49,6 +49,9 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
 		},
+		"SELECT pg_catalog.pg_get_expr(adbin, drelid) AS def_value FROM pg_catalog.pg_attrdef": {
+			"description": {"def_value"},
+		},
 		"SELECT pg_catalog.pg_get_expr(adbin, drelid, TRUE) AS def_value FROM pg_catalog.pg_attrdef": {
 			"description": {"def_value"},
 		},
