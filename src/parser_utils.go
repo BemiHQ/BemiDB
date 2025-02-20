@@ -14,15 +14,15 @@ func NewParserUtils(config *Config) *ParserUtils {
 	return &ParserUtils{config: config}
 }
 
-func (utils *ParserUtils) SchemaFunction(functionCall *pgQuery.FuncCall) PgSchemaFunction {
+func (utils *ParserUtils) SchemaFunction(functionCall *pgQuery.FuncCall) QuerySchemaFunction {
 	switch len(functionCall.Funcname) {
 	case 1:
-		return PgSchemaFunction{
+		return QuerySchemaFunction{
 			Schema:   "",
 			Function: functionCall.Funcname[0].GetString_().Sval,
 		}
 	case 2:
-		return PgSchemaFunction{
+		return QuerySchemaFunction{
 			Schema:   functionCall.Funcname[0].GetString_().Sval,
 			Function: functionCall.Funcname[1].GetString_().Sval,
 		}
@@ -114,9 +114,10 @@ func (utils *ParserUtils) MakeSubselectWithoutRowsNode(tableName string, tableDe
 	}
 }
 
-func (utils *ParserUtils) MakeSubselectFromNode(tableName string, targetList []*pgQuery.Node, fromNode *pgQuery.Node, alias string) *pgQuery.Node {
+func (utils *ParserUtils) MakeSubselectFromNode(qSchemaTable QuerySchemaTable, targetList []*pgQuery.Node, fromNode *pgQuery.Node) *pgQuery.Node {
+	alias := qSchemaTable.Alias
 	if alias == "" {
-		alias = tableName
+		alias = qSchemaTable.Table
 	}
 
 	return &pgQuery.Node{

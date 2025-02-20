@@ -149,7 +149,7 @@ func (parser *ParserTable) MakePgIndexNode(qSchemaTable QuerySchemaTable) *pgQue
 
 	fromNode := pgQuery.MakeSimpleRangeVarNode(PG_TABLE_PG_INDEX, 0)
 
-	return parser.utils.MakeSubselectFromNode(qSchemaTable.Table, targetList, fromNode, qSchemaTable.Alias)
+	return parser.utils.MakeSubselectFromNode(qSchemaTable, targetList, fromNode)
 }
 
 // Other information_schema.* tables
@@ -191,10 +191,10 @@ func (parser *ParserTable) MakeIcebergTableNode(tablePath string, qSchemaTable Q
 		),
 		0,
 	)
-	return parser.utils.MakeSubselectFromNode(qSchemaTable.Table, []*pgQuery.Node{selectStarNode}, node, qSchemaTable.Alias)
+	return parser.utils.MakeSubselectFromNode(qSchemaTable, []*pgQuery.Node{selectStarNode}, node)
 }
 
-func (parser *ParserTable) SchemaFunction(node *pgQuery.Node) PgSchemaFunction {
+func (parser *ParserTable) SchemaFunction(node *pgQuery.Node) QuerySchemaFunction {
 	for _, funcNode := range node.GetRangeFunction().Functions {
 		for _, funcItemNode := range funcNode.GetList().Items {
 			funcCallNode := funcItemNode.GetFuncCall()
@@ -206,7 +206,7 @@ func (parser *ParserTable) SchemaFunction(node *pgQuery.Node) PgSchemaFunction {
 		}
 	}
 
-	return PgSchemaFunction{}
+	return QuerySchemaFunction{}
 }
 
 // pg_catalog.pg_get_keywords() -> VALUES(values...) t(columns...)
@@ -360,8 +360,12 @@ func (parser *ParserTable) MakePgShowAllSettingsNode(node *pgQuery.Node) *pgQuer
 	if node.GetAlias() != nil {
 		alias = node.GetAlias().Aliasname
 	}
-
-	return parser.utils.MakeSubselectFromNode(PG_FUNCTION_PG_SHOW_ALL_SETTINGS, targetList, fromNode, alias)
+	qSchemaTable := QuerySchemaTable{
+		Schema: PG_SCHEMA_PG_CATALOG,
+		Table:  PG_FUNCTION_PG_SHOW_ALL_SETTINGS,
+		Alias:  alias,
+	}
+	return parser.utils.MakeSubselectFromNode(qSchemaTable, targetList, fromNode)
 }
 
 // pg_catalog.pg_is_in_recovery() -> 'f'::bool

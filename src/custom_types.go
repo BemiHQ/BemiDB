@@ -100,10 +100,24 @@ func NewQuerySchemaTableFromString(schemaTable string) QuerySchemaTable {
 }
 
 func (qSchemaTable QuerySchemaTable) ToIcebergSchemaTable() IcebergSchemaTable {
+	if qSchemaTable.Schema == "" {
+		return IcebergSchemaTable{
+			Schema: PG_SCHEMA_PUBLIC,
+			Table:  qSchemaTable.Table,
+		}
+	}
+
 	return IcebergSchemaTable{
 		Schema: qSchemaTable.Schema,
 		Table:  qSchemaTable.Table,
 	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+type QuerySchemaFunction struct {
+	Schema   string
+	Function string
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -123,11 +137,4 @@ func (pgSchemaTable PgSchemaTable) ToIcebergSchemaTable() IcebergSchemaTable {
 		Schema: pgSchemaTable.Schema,
 		Table:  pgSchemaTable.Table,
 	}
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-type PgSchemaFunction struct {
-	Schema   string
-	Function string
 }

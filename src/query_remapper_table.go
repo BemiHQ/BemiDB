@@ -146,11 +146,9 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 		}
 	}
 
-	// iceberg.table -> FROM iceberg_scan('iceberg/schema/table/metadata/v1.metadata.json', skip_schema_inference = true)
-	if qSchemaTable.Schema == "" {
-		qSchemaTable.Schema = PG_SCHEMA_PUBLIC
-	}
+	// iceberg.table -> FROM iceberg_scan('iceberg/schema/table/metadata/v1.metadata.json', skip_schema_inference = true) iceberg.table
 	schemaTable := qSchemaTable.ToIcebergSchemaTable()
+	// Reload Iceberg tables if not found
 	if !remapper.icebergSchemaTables.Contains(schemaTable) {
 		remapper.reloadIceberSchemaTables()
 		if !remapper.icebergSchemaTables.Contains(schemaTable) {
@@ -263,7 +261,7 @@ func (remapper *QueryRemapperTable) isTableFromPgCatalog(qSchemaTable QuerySchem
 			!remapper.icebergSchemaTables.Contains(qSchemaTable.ToIcebergSchemaTable()))
 }
 
-func (remapper *QueryRemapperTable) isFunctionFromPgCatalog(schemaFunction PgSchemaFunction) bool {
+func (remapper *QueryRemapperTable) isFunctionFromPgCatalog(schemaFunction QuerySchemaFunction) bool {
 	return schemaFunction.Schema == PG_SCHEMA_PG_CATALOG ||
 		(schemaFunction.Schema == "" && PG_SYSTEM_FUNCTIONS.Contains(schemaFunction.Function))
 }
