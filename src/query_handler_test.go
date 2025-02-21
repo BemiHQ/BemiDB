@@ -278,6 +278,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"memory", "public", "test_table"},
 		},
+		"SELECT column_name, udt_schema, udt_name FROM information_schema.columns WHERE table_schema = 'public' ORDER BY ordinal_position LIMIT 1": {
+			"description": {"column_name", "udt_schema", "udt_name"},
+			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+			"values":      {"id", "pg_catalog", "int4"},
+		},
 
 		// DISCARD
 		"DISCARD ALL": {

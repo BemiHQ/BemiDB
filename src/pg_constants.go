@@ -16,7 +16,6 @@ const (
 	PG_TABLE_PG_NAMESPACE        = "pg_namespace"
 	PG_TABLE_PG_STAT_USER_TABLES = "pg_stat_user_tables"
 	PG_TABLE_TABLES              = "tables"
-	PG_TABLE_COLUMNS             = "columns"
 
 	PG_VAR_SEARCH_PATH = "search_path"
 )

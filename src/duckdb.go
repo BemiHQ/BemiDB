@@ -50,8 +50,9 @@ func NewDuckdb(config *Config) *Duckdb {
 		CreatePgCatalogMacroQueries(config),
 		CreateInformationSchemaMacroQueries(config),
 
-		// Create pg-compatible tables
+		// Create pg-compatible tables and views
 		CreatePgCatalogTableQueries(config),
+		CreateInformationSchemaTableQueries(config),
 
 		// Use the public schema
 		[]string{"USE public"},

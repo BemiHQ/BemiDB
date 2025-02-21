@@ -11,6 +11,7 @@ import (
 var MAX_REDUNDANT_PG_NAMESPACE_OID = 1265
 
 var PG_CATALOG_TABLE_NAMES = Set[string]{}
+var PG_INFORMATION_SCHEMA_TABLE_NAMES = Set[string]{}
 
 func CreatePgCatalogTableQueries(config *Config) []string {
 	result := []string{
@@ -43,6 +44,48 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		"CREATE VIEW pg_index AS SELECT *, FALSE AS indnullsnotdistinct FROM pg_catalog.pg_index",
 	}
 	PG_CATALOG_TABLE_NAMES = extractTableNames(result)
+	return result
+}
+
+func CreateInformationSchemaTableQueries(config *Config) []string {
+	result := []string{
+		// Dynamic views
+		// DuckDB does not support udt_schema, udt_name
+		`CREATE VIEW columns AS
+		SELECT
+			table_catalog, table_schema, table_name, column_name, ordinal_position, column_default, is_nullable, data_type, character_maximum_length, character_octet_length, numeric_precision, numeric_precision_radix, numeric_scale, datetime_precision, interval_type, interval_precision, character_set_catalog, character_set_schema, character_set_name, collation_catalog, collation_schema, collation_name, domain_catalog, domain_schema, domain_name,
+			'` + config.Database + `' AS udt_catalog,
+			'pg_catalog' AS udt_schema,
+			CASE data_type
+			WHEN 'BIGINT' THEN 'int8'
+			WHEN 'BIGINT[]' THEN '_int8'
+			WHEN 'BLOB' THEN 'bytea'
+			WHEN 'BLOB[]' THEN '_bytea'
+			WHEN 'BOOLEAN' THEN 'bool'
+			WHEN 'BOOLEAN[]' THEN '_bool'
+			WHEN 'DATE' THEN 'date'
+			WHEN 'DATE[]' THEN '_date'
+			WHEN 'FLOAT' THEN 'float8'
+			WHEN 'FLOAT[]' THEN '_float8'
+			WHEN 'INTEGER' THEN 'int4'
+			WHEN 'INTEGER[]' THEN '_int4'
+			WHEN 'VARCHAR' THEN 'text'
+			WHEN 'VARCHAR[]' THEN '_text'
+			WHEN 'TIME' THEN 'time'
+			WHEN 'TIME[]' THEN '_time'
+			WHEN 'TIMESTAMP' THEN 'timestamp'
+			WHEN 'TIMESTAMP[]' THEN '_timestamp'
+			WHEN 'UUID' THEN 'uuid'
+			WHEN 'UUID[]' THEN '_uuid'
+			ELSE
+				CASE
+				WHEN starts_with(data_type, 'DECIMAL') THEN 'numeric'
+				END
+			END AS udt_name,
+			scope_catalog, scope_schema, scope_name, maximum_cardinality, dtd_identifier, is_self_referencing, is_identity, identity_generation, identity_start, identity_increment, identity_maximum, identity_minimum, identity_cycle, is_generated, generation_expression, is_updatable
+		FROM information_schema.columns`,
+	}
+	PG_INFORMATION_SCHEMA_TABLE_NAMES = extractTableNames(result)
 	return result
 }
 
@@ -109,16 +152,16 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 		// information_schema.tables -> reload Iceberg tables
 		case PG_TABLE_TABLES:
 			remapper.reloadIceberSchemaTables()
-			return node
+		}
 
-		// information_schema.columns -> return hard-coded columns
-		// DuckDB does not support udt_schema, udt_name
-		case PG_TABLE_COLUMNS:
-
-		// information_schema.* other system tables -> return as is
-		default:
+		// information_schema.table -> main.table
+		if PG_INFORMATION_SCHEMA_TABLE_NAMES.Contains(qSchemaTable.Table) {
+			parser.RemapSchemaToMain(node)
 			return node
 		}
+
+		// information_schema.* other system tables -> return as is
+		return node
 	}
 
 	// public.table -> FROM iceberg_scan('path', skip_schema_inference = true) table
