@@ -244,10 +244,10 @@ func TestHandleQuery(t *testing.T) {
 				Uint32ToString(pgtype.BoolOID),
 				Uint32ToString(pgtype.BoolOID),
 				Uint32ToString(pgtype.Int4OID),
-				Uint32ToString(pgtype.Int4OID),
-				Uint32ToString(pgtype.Int4OID),
+				Uint32ToString(pgtype.TextOID),
+				Uint32ToString(pgtype.TimestampOID),
 				Uint32ToString(pgtype.BoolOID),
-				Uint32ToString(pgtype.Int4OID),
+				Uint32ToString(pgtype.TextArrayOID),
 			},
 			"values": {"10", "bemidb", "t", "t", "t", "t", "t", "f", "-1", "", "", "f", ""},
 		},
@@ -1106,7 +1106,7 @@ func TestHandleParseQuery(t *testing.T) {
 			&pgproto3.ParseComplete{},
 		})
 
-		remappedQuery := "SELECT usename, passwd FROM (VALUES ('bemidb'::text, '10'::oid, 'FALSE'::bool, 'FALSE'::bool, 'TRUE'::bool, 'FALSE'::bool, 'bemidb-encrypted'::text, NULL, NULL)) pg_shadow(usename, usesysid, usecreatedb, usesuper, userepl, usebypassrls, passwd, valuntil, useconfig) WHERE usename = $1"
+		remappedQuery := "SELECT usename, passwd FROM main.pg_shadow WHERE usename = $1"
 		if preparedStatement.Query != remappedQuery {
 			t.Errorf("Expected the prepared statement query to be %v, got %v", remappedQuery, preparedStatement.Query)
 		}

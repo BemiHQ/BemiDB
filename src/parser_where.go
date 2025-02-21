@@ -29,11 +29,6 @@ func (parser *ParserWhere) MakeIntEqualityExpressionNode(column string, operator
 	)
 }
 
-// WHERE false
-func (parser *ParserWhere) MakeFalseConditionNode() *pgQuery.Node {
-	return parser.utils.MakeAConstBoolNode(false)
-}
-
 func (parser *ParserWhere) AppendWhereCondition(selectStatement *pgQuery.SelectStmt, whereCondition *pgQuery.Node) *pgQuery.SelectStmt {
 	whereClause := selectStatement.WhereClause
 
@@ -51,10 +46,5 @@ func (parser *ParserWhere) AppendWhereCondition(selectStatement *pgQuery.SelectS
 			0,
 		)
 	}
-	return selectStatement
-}
-
-func (parser *ParserWhere) OverrideWhereCondition(selectStatement *pgQuery.SelectStmt, whereCondition *pgQuery.Node) *pgQuery.SelectStmt {
-	selectStatement.WhereClause = whereCondition
 	return selectStatement
 }

@@ -12,7 +12,9 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 )
 
-var DEFAULT_BOOT_QUERIES = slices.Concat([]string{
+var DUCKDB_SCHEMA_MAIN = "main"
+
+var DUCKDB_INIT_BOOT_QUERIES = []string{
 	// Set up Iceberg
 	"INSTALL iceberg",
 	"LOAD iceberg",
@@ -22,15 +24,8 @@ var DEFAULT_BOOT_QUERIES = slices.Concat([]string{
 	"CREATE SCHEMA public",
 
 	// Configure DuckDB
-	"SET scalar_subquery_error_on_multiple_rows=false"},
-
-	// Create pg-compatible functions
-	CREATE_PG_CATALOG_MACRO_QUERIES,
-	CREATE_INFORMATION_SCHEMA_MACRO_QUERIES,
-
-	// Use public schema
-	[]string{"USE public"},
-)
+	"SET scalar_subquery_error_on_multiple_rows=false",
+}
 
 type Duckdb struct {
 	db     *sql.DB
@@ -47,10 +42,25 @@ func NewDuckdb(config *Config) *Duckdb {
 		config: config,
 	}
 
-	bootQueries := readDuckdbInitFile(config)
-	if bootQueries == nil {
-		bootQueries = DEFAULT_BOOT_QUERIES
+	bootQueries := slices.Concat(
+		// Set up DuckDB
+		DUCKDB_INIT_BOOT_QUERIES,
+
+		// Create pg-compatible functions
+		CreatePgCatalogMacroQueries(config),
+		CreateInformationSchemaMacroQueries(config),
+
+		// Create pg-compatible tables
+		CreatePgCatalogTableQueries(config),
+
+		// Use the public schema
+		[]string{"USE public"},
+	)
+	additionalBootQueries := readDuckdbInitFile(config)
+	if additionalBootQueries != nil {
+		bootQueries = slices.Concat(bootQueries, additionalBootQueries)
 	}
+
 	for _, query := range bootQueries {
 		_, err := duckdb.ExecContext(ctx, query, nil)
 		PanicIfError(err)
@@ -94,6 +104,26 @@ func (duckdb *Duckdb) PrepareContext(ctx context.Context, query string) (*sql.St
 
 func (duckdb *Duckdb) Close() {
 	duckdb.db.Close()
+}
+
+func (duckdb *Duckdb) ExecTransactionContext(ctx context.Context, queries []string) error {
+	tx, err := duckdb.db.Begin()
+	LogDebug(duckdb.config, "Querying DuckDB: BEGIN")
+	if err != nil {
+		return err
+	}
+
+	for _, query := range queries {
+		LogDebug(duckdb.config, "Querying DuckDB:", query)
+		_, err := tx.ExecContext(ctx, query)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	LogDebug(duckdb.config, "Querying DuckDB: COMMIT")
+	return tx.Commit()
 }
 
 func replaceNamedStringArgs(query string, args map[string]string) string {

@@ -2,12 +2,49 @@ package main
 
 import (
 	"context"
+	"regexp"
 	"strings"
 
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
 var MAX_REDUNDANT_PG_NAMESPACE_OID = 1265
+
+var PG_CATALOG_TABLE_NAMES = Set[string]{}
+
+func CreatePgCatalogTableQueries(config *Config) []string {
+	result := []string{
+		// Static empty tables
+		"CREATE TABLE pg_inherits(inhrelid oid, inhparent oid, inhseqno int4, inhdetachpending bool)",
+		"CREATE TABLE pg_shdescription(objoid oid, classoid oid, description text)",
+		"CREATE TABLE pg_statio_user_tables(relid oid, schemaname text, relname text, heap_blks_read int8, heap_blks_hit int8, idx_blks_read int8, idx_blks_hit int8, toast_blks_read int8, toast_blks_hit int8, tidx_blks_read int8, tidx_blks_hit int8)",
+		"CREATE TABLE pg_replication_slots(slot_name text, plugin text, slot_type text, datoid oid, database text, temporary bool, active bool, active_pid int4, xmin int8, catalog_xmin int8, restart_lsn text, confirmed_flush_lsn text, wal_status text, safe_wal_size int8, two_phase bool, conflicting bool)",
+		"CREATE TABLE pg_stat_gssapi(pid int4, gss_authenticated bool, principal text, encrypted bool, credentials_delegated bool)",
+		"CREATE TABLE pg_auth_members(oid text, roleid oid, member oid, grantor oid, admin_option bool, inherit_option bool, set_option bool)",
+		"CREATE TABLE pg_stat_activity(datid oid, datname text, pid int4, usesysid oid, usename text, application_name text, client_addr inet, client_hostname text, client_port int4, backend_start timestamp, xact_start timestamp, query_start timestamp, state_change timestamp, wait_event_type text, wait_event text, state text, backend_xid int8, backend_xmin int8, query text, backend_type text)",
+		"CREATE TABLE pg_views(schemaname text, viewname text, viewowner text, definition text)",
+		"CREATE TABLE pg_matviews(schemaname text, matviewname text, matviewowner text, tablespace text, hasindexes bool, ispopulated bool, definition text)",
+		"CREATE TABLE pg_opclass(oid oid, opcmethod oid, opcname text, opcnamespace oid, opcowner oid, opcfamily oid, opcintype oid, opcdefault bool, opckeytype oid)",
+
+		// Dynamic tables
+		// DuckDB doesn't handle dynamic view replacement properly
+		"CREATE TABLE pg_stat_user_tables(relid oid, schemaname text, relname text, seq_scan int8, last_seq_scan timestamp, seq_tup_read int8, idx_scan int8, last_idx_scan timestamp, idx_tup_fetch int8, n_tup_ins int8, n_tup_upd int8, n_tup_del int8, n_tup_hot_upd int8, n_tup_newpage_upd int8, n_live_tup int8, n_dead_tup int8, n_mod_since_analyze int8, n_ins_since_vacuum int8, last_vacuum timestamp, last_autovacuum timestamp, last_analyze timestamp, last_autoanalyze timestamp, vacuum_count int8, autovacuum_count int8, analyze_count int8, autoanalyze_count int8)",
+
+		// Static views
+		"CREATE VIEW pg_shadow AS SELECT '" + config.User + "' AS usename, '10'::oid AS usesysid, FALSE AS usecreatedb, FALSE AS usesuper, TRUE AS userepl, FALSE AS usebypassrls, '" + config.EncryptedPassword + "' AS passwd, NULL::timestamp AS valuntil, NULL::text[] AS useconfig",
+		"CREATE VIEW pg_roles AS SELECT '10'::oid AS oid, '" + config.User + "' AS rolname, TRUE AS rolsuper, TRUE AS rolinherit, TRUE AS rolcreaterole, TRUE AS rolcreatedb, TRUE AS rolcanlogin, FALSE AS rolreplication, -1 AS rolconnlimit, NULL::text AS rolpassword, NULL::timestamp AS rolvaliduntil, FALSE AS rolbypassrls, NULL::text[] AS rolconfig",
+		"CREATE VIEW pg_extension AS SELECT '13823'::oid AS oid, 'plpgsql' AS extname, '10'::oid AS extowner, '11'::oid AS extnamespace, FALSE AS extrelocatable, '1.0'::text AS extversion, NULL::text[] AS extconfig, NULL::text[] AS extcondition",
+		"CREATE VIEW pg_database AS SELECT '16388'::oid AS oid, '" + config.Database + "' AS datname, '10'::oid AS datdba, '6'::int4 AS encoding, 'c' AS datlocprovider, FALSE AS datistemplate, TRUE AS datallowconn, '-1'::int4 AS datconnlimit, '722'::int8 AS datfrozenxid, '1'::int4 AS datminmxid, '1663'::oid AS dattablespace, 'en_US.UTF-8' AS datcollate, 'en_US.UTF-8' AS datctype, 'en_US.UTF-8' AS datlocale, NULL::text AS daticurules, NULL::text AS datcollversion, NULL::text[] AS datacl",
+		"CREATE VIEW pg_user AS SELECT '" + config.User + "' AS usename, '10'::oid AS usesysid, TRUE AS usecreatedb, TRUE AS usesuper, TRUE AS userepl, TRUE AS usebypassrls, '' AS passwd, NULL::timestamp AS valuntil, NULL::text[] AS useconfig",
+		"CREATE VIEW pg_collation AS SELECT '100'::oid AS oid, 'default' AS collname, '11'::oid AS collnamespace, '10'::oid AS collowner, 'd' AS collprovider, TRUE AS collisdeterministic, '-1'::int4 AS collencoding, NULL::text AS collcollate, NULL::text AS collctype, NULL::text AS colliculocale, NULL::text AS collicurules, NULL::text AS collversion",
+
+		// Dynamic views
+		// DuckDB does not support indnullsnotdistinct column
+		"CREATE VIEW pg_index AS SELECT *, FALSE AS indnullsnotdistinct FROM pg_catalog.pg_index",
+	}
+	PG_CATALOG_TABLE_NAMES = extractTableNames(result)
+	return result
+}
 
 type QueryRemapperTable struct {
 	parserTable         *ParserTable
@@ -45,90 +82,24 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 	if remapper.isTableFromPgCatalog(qSchemaTable) {
 		switch qSchemaTable.Table {
 
-		// pg_catalog.pg_shadow -> return hard-coded credentials
-		case PG_TABLE_PG_SHADOW:
-			return parser.MakePgShadowNode(remapper.config.User, remapper.config.EncryptedPassword, qSchemaTable.Alias)
+		// pg_class -> reload Iceberg tables
+		case PG_TABLE_PG_CLASS:
+			remapper.reloadIceberSchemaTables()
 
-		// pg_catalog.pg_roles -> return hard-coded role info
-		case PG_TABLE_PG_ROLES:
-			return parser.MakePgRolesNode(remapper.config.User, qSchemaTable.Alias)
-
-		// pg_catalog.pg_extension -> return hard-coded extension info
-		case PG_TABLE_PG_EXTENSION:
-			return parser.MakePgExtensionNode(qSchemaTable.Alias)
-
-		// pg_catalog.pg_database -> return hard-coded database info
-		case PG_TABLE_PG_DATABASE:
-			return parser.MakePgDatabaseNode(remapper.config.Database, qSchemaTable.Alias)
-
-		// pg_catalog.pg_user -> return hard-coded user info
-		case PG_TABLE_PG_USER:
-			return parser.MakePgUserNode(remapper.config.User, qSchemaTable.Alias)
-
-		// pg_stat_user_tables -> return hard-coded table info
+		// pg_stat_user_tables -> return Iceberg tables
 		case PG_TABLE_PG_STAT_USER_TABLES:
 			remapper.reloadIceberSchemaTables()
-			return parser.MakePgStatUserTablesNode(remapper.icebergSchemaTables, qSchemaTable.Alias)
+			remapper.upsertPgStatUserTables(remapper.icebergSchemaTables)
+		}
 
-		// pg_collation -> return hard-coded collation (encoding) info
-		case PG_TABLE_PG_COLLATION:
-			return parser.MakePgCollationNode(qSchemaTable.Alias)
-
-		// pg_index -> returns (SELECT *, FALSE AS indnullsnotdistinct FROM pg_index)
-		// DuckDB does not support indnullsnotdistinct column
-		case PG_TABLE_PG_INDEX:
-			return parser.MakePgIndexNode(qSchemaTable)
-
-		// pg_catalog.pg_inherits -> return empty table
-		case PG_TABLE_PG_INHERITS:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_INHERITS, PG_INHERITS_DEFINITION, qSchemaTable.Alias)
-
-		// pg_catalog.pg_shdescription -> return empty table
-		case PG_TABLE_PG_SHDESCRIPTION:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_SHDESCRIPTION, PG_SHDESCRIPTION_DEFINITION, qSchemaTable.Alias)
-
-		// pg_catalog.pg_statio_user_tables -> return empty table
-		case PG_TABLE_PG_STATIO_USER_TABLES:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_STATIO_USER_TABLES, PG_STATIO_USER_TABLES_DEFINITION, qSchemaTable.Alias)
-
-		// pg_replication_slots -> return empty table
-		case PG_TABLE_PG_REPLICATION_SLOTS:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_REPLICATION_SLOTS, PG_REPLICATION_SLOTS_DEFINITION, qSchemaTable.Alias)
-
-		// pg_catalog.pg_stat_gssapi -> return empty table
-		case PG_TABLE_PG_STAT_GSSAPI:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_STAT_GSSAPI, PG_STAT_GSSAPI_DEFINITION, qSchemaTable.Alias)
-
-		// pg_catalog.pg_auth_members -> return empty table
-		case PG_TABLE_PG_AUTH_MEMBERS:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_AUTH_MEMBERS, PG_AUTH_MEMBERS_DEFINITION, qSchemaTable.Alias)
-
-		// pg_stat_activity -> return empty table
-		case PG_TABLE_PG_STAT_ACTIVITY:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_STAT_ACTIVITY, PG_STAT_ACTIVITY_DEFINITION, qSchemaTable.Alias)
-
-		// pg_views -> return empty table
-		case PG_TABLE_PG_VIEWS:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_VIEWS, PG_VIEWS_DEFINITION, qSchemaTable.Alias)
-
-		// pg_matviews -> return empty table
-		case PG_TABLE_PG_MATVIEWS:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_MATVIEWS, PG_MATVIEWS_DEFINITION, qSchemaTable.Alias)
-
-		// pg_opclass -> return empty table
-		case PG_TABLE_PG_OPCLASS:
-			return parser.MakeEmptyTableNode(PG_TABLE_PG_OPCLASS, PG_OPCLASS_DEFINITION, qSchemaTable.Alias)
-
-		// pg_catalog.pg_* other system tables -> return as is
-		default:
-			// pg_catalog.pg_class -> reload Iceberg tables
-			switch qSchemaTable.Table {
-			case PG_TABLE_PG_CLASS:
-				remapper.reloadIceberSchemaTables()
-			}
-
+		// pg_catalog.pg_table -> main.pg_table
+		if PG_CATALOG_TABLE_NAMES.Contains(qSchemaTable.Table) {
+			parser.RemapSchemaToMain(node)
 			return node
 		}
+
+		// pg_catalog.pg_* other system tables -> return as is
+		return node
 	}
 
 	// information_schema.* system tables
@@ -139,6 +110,10 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 		case PG_TABLE_TABLES:
 			remapper.reloadIceberSchemaTables()
 			return node
+
+		// information_schema.columns -> return hard-coded columns
+		// DuckDB does not support udt_schema, udt_name
+		case PG_TABLE_COLUMNS:
 
 		// information_schema.* other system tables -> return as is
 		default:
@@ -212,11 +187,6 @@ func (remapper *QueryRemapperTable) RemapWhereClauseForTable(qSchemaTable QueryS
 			}
 			withoutDuckdbOidsWhereCondition := remapper.parserWhere.MakeIntEqualityExpressionNode("oid", ">", MAX_REDUNDANT_PG_NAMESPACE_OID, alias)
 			remapper.parserWhere.AppendWhereCondition(selectStatement, withoutDuckdbOidsWhereCondition)
-
-		// FROM pg_catalog.pg_statio_user_tables -> FROM pg_catalog.pg_statio_user_tables WHERE false
-		case PG_TABLE_PG_STATIO_USER_TABLES:
-			falseWhereCondition := remapper.parserWhere.MakeFalseConditionNode()
-			return remapper.parserWhere.OverrideWhereCondition(selectStatement, falseWhereCondition)
 		}
 	}
 	return selectStatement
@@ -253,6 +223,19 @@ func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 	remapper.icebergSchemaTables = newIcebergSchemaTables
 }
 
+func (remapper *QueryRemapperTable) upsertPgStatUserTables(icebergSchemaTables Set[IcebergSchemaTable]) {
+	values := make([]string, len(icebergSchemaTables))
+	for i, icebergSchemaTable := range icebergSchemaTables.Values() {
+		values[i] = "('123456', '" + icebergSchemaTable.Schema + "', '" + icebergSchemaTable.Table + "', 0, NULL, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, NULL, NULL, NULL, NULL, 0, 0, 0, 0)"
+	}
+
+	err := remapper.duckdb.ExecTransactionContext(context.Background(), []string{
+		"DELETE FROM pg_stat_user_tables",
+		"INSERT INTO pg_stat_user_tables VALUES " + strings.Join(values, ", "),
+	})
+	PanicIfError(err)
+}
+
 // System pg_* tables
 func (remapper *QueryRemapperTable) isTableFromPgCatalog(qSchemaTable QuerySchemaTable) bool {
 	return qSchemaTable.Schema == PG_SCHEMA_PG_CATALOG ||
@@ -264,4 +247,18 @@ func (remapper *QueryRemapperTable) isTableFromPgCatalog(qSchemaTable QuerySchem
 func (remapper *QueryRemapperTable) isFunctionFromPgCatalog(schemaFunction QuerySchemaFunction) bool {
 	return schemaFunction.Schema == PG_SCHEMA_PG_CATALOG ||
 		(schemaFunction.Schema == "" && PG_SYSTEM_FUNCTIONS.Contains(schemaFunction.Function))
+}
+
+func extractTableNames(tables []string) Set[string] {
+	names := make(Set[string])
+	re := regexp.MustCompile(`CREATE (TABLE|VIEW) (\w+)`)
+
+	for _, table := range tables {
+		matches := re.FindStringSubmatch(table)
+		if len(matches) > 1 {
+			names.Add(matches[2])
+		}
+	}
+
+	return names
 }

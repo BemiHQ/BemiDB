@@ -185,7 +185,7 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	}
 
 	// SELECT
-	selectStatement = remapper.remapSelect(selectStatement, indentLevel) // recursion
+	remapper.remapSelect(selectStatement, indentLevel) // recursion
 }
 
 // FROM PG_FUNCTION()

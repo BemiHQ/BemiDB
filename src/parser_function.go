@@ -46,9 +46,9 @@ func (parser *ParserFunction) SchemaFunction(functionCall *pgQuery.FuncCall) Que
 func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	switch len(functionCall.Funcname) {
 	case 1:
-		functionCall.Funcname = append([]*pgQuery.Node{pgQuery.MakeStrNode("main")}, functionCall.Funcname...)
+		functionCall.Funcname = append([]*pgQuery.Node{pgQuery.MakeStrNode(DUCKDB_SCHEMA_MAIN)}, functionCall.Funcname...)
 	case 2:
-		functionCall.Funcname[0] = pgQuery.MakeStrNode("main")
+		functionCall.Funcname[0] = pgQuery.MakeStrNode(DUCKDB_SCHEMA_MAIN)
 	}
 
 	return functionCall

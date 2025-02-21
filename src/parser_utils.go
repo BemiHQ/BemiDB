@@ -71,43 +71,6 @@ func (utils *ParserUtils) MakeSubselectWithRowsNode(tableName string, tableDef T
 	}
 }
 
-func (utils *ParserUtils) MakeSubselectWithoutRowsNode(tableName string, tableDef TableDefinition, alias string) *pgQuery.Node {
-	columnNodes := make([]*pgQuery.Node, len(tableDef.Columns))
-	for i, col := range tableDef.Columns {
-		columnNodes[i] = pgQuery.MakeStrNode(col.Name)
-	}
-
-	targetList := make([]*pgQuery.Node, len(tableDef.Columns))
-	for i, col := range tableDef.Columns {
-		nullNode := utils.MakeNullNode()
-		typedNullNode := utils.MakeTypeCastNode(nullNode, col.Type)
-		targetList[i] = pgQuery.MakeResTargetNodeWithVal(typedNullNode, 0)
-	}
-
-	if alias == "" {
-		alias = tableName
-	}
-
-	return &pgQuery.Node{
-		Node: &pgQuery.Node_RangeSubselect{
-			RangeSubselect: &pgQuery.RangeSubselect{
-				Subquery: &pgQuery.Node{
-					Node: &pgQuery.Node_SelectStmt{
-						SelectStmt: &pgQuery.SelectStmt{
-							TargetList:  targetList,
-							WhereClause: utils.MakeAConstBoolNode(false),
-						},
-					},
-				},
-				Alias: &pgQuery.Alias{
-					Aliasname: alias,
-					Colnames:  columnNodes,
-				},
-			},
-		},
-	}
-}
-
 func (utils *ParserUtils) MakeSubselectFromNode(qSchemaTable QuerySchemaTable, targetList []*pgQuery.Node, fromNode *pgQuery.Node) *pgQuery.Node {
 	alias := qSchemaTable.Alias
 	if alias == "" {
