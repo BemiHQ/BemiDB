@@ -150,12 +150,9 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	if len(selectStatement.FromClause) > 0 {
 		for i, fromNode := range selectStatement.FromClause {
 			if fromNode.GetRangeVar() != nil {
-				remapper.traceTreeTraversal("WHERE statements", indentLevel)
 				// FROM [TABLE]
 				remapper.traceTreeTraversal("FROM table", indentLevel)
 				selectStatement.FromClause[i] = remapper.remapperTable.RemapTable(fromNode)
-				qSchemaTable := remapper.remapperTable.NodeToQuerySchemaTable(fromNode)
-				selectStatement = remapper.remapperTable.RemapWhereClauseForTable(qSchemaTable, selectStatement)
 			} else if fromNode.GetRangeSubselect() != nil {
 				// FROM (SELECT ...)
 				remapper.traceTreeTraversal("FROM subselect", indentLevel)
@@ -163,7 +160,8 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 				remapper.remapSelectStatement(subSelectStatement, indentLevel+1) // self-recursion
 			} else if fromNode.GetRangeFunction() != nil {
 				// FROM PG_FUNCTION()
-				selectStatement.FromClause[i] = remapper.remapTableFunction(fromNode, indentLevel) // recursion
+				remapper.traceTreeTraversal("FROM function()", indentLevel)
+				remapper.remapperTable.RemapTableFunctionCall(fromNode.GetRangeFunction()) // recursion
 			}
 		}
 	}
@@ -188,57 +186,12 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	remapper.remapSelect(selectStatement, indentLevel) // recursion
 }
 
-// FROM PG_FUNCTION()
-func (remapper *QueryRemapper) remapTableFunction(fromNode *pgQuery.Node, indentLevel int) *pgQuery.Node {
-	remapper.traceTreeTraversal("FROM function()", indentLevel)
-
-	fromNode = remapper.remapperTable.RemapTableFunction(fromNode)
-	if fromNode.GetRangeFunction() == nil {
-		return fromNode
-	}
-
-	for _, funcNode := range fromNode.GetRangeFunction().Functions {
-		for _, funcItemNode := range funcNode.GetList().Items {
-			funcCallNode := funcItemNode.GetFuncCall()
-			if funcCallNode == nil {
-				continue
-			}
-			remapper.remapTableFunctionArgs(funcCallNode, indentLevel+1) // recursion
-		}
-	}
-
-	return fromNode
-}
-
-// FROM PG_FUNCTION(PG_NESTED_FUNCTION())
-func (remapper *QueryRemapper) remapTableFunctionArgs(funcCallNode *pgQuery.FuncCall, indentLevel int) *pgQuery.FuncCall {
-	remapper.traceTreeTraversal("FROM nested_function()", indentLevel)
-
-	for i, argNode := range funcCallNode.GetArgs() {
-		nestedFunctionCall := argNode.GetFuncCall()
-		if nestedFunctionCall == nil {
-			continue
-		}
-
-		nestedFunctionCall = remapper.remapperTable.RemapNestedTableFunction(nestedFunctionCall)
-		nestedFunctionCall = remapper.remapTableFunctionArgs(nestedFunctionCall, indentLevel+1) // recursion
-
-		funcCallNode.Args[i].Node = &pgQuery.Node_FuncCall{FuncCall: nestedFunctionCall}
-	}
-
-	return funcCallNode
-}
-
 func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.SelectStmt, node *pgQuery.Node, indentLevel int) *pgQuery.Node {
 	remapper.traceTreeTraversal("JOIN left", indentLevel)
 	leftJoinNode := node.GetJoinExpr().Larg
 	if leftJoinNode.GetJoinExpr() != nil {
 		leftJoinNode = remapper.remapJoinExpressions(selectStatement, leftJoinNode, indentLevel+1) // self-recursion
 	} else if leftJoinNode.GetRangeVar() != nil {
-		// WHERE
-		remapper.traceTreeTraversal("WHERE left", indentLevel+1)
-		qSchemaTable := remapper.remapperTable.NodeToQuerySchemaTable(leftJoinNode)
-		selectStatement = remapper.remapperTable.RemapWhereClauseForTable(qSchemaTable, selectStatement)
 		// TABLE
 		remapper.traceTreeTraversal("TABLE left", indentLevel+1)
 		leftJoinNode = remapper.remapperTable.RemapTable(leftJoinNode)
@@ -253,10 +206,6 @@ func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.Sel
 	if rightJoinNode.GetJoinExpr() != nil {
 		rightJoinNode = remapper.remapJoinExpressions(selectStatement, rightJoinNode, indentLevel+1) // self-recursion
 	} else if rightJoinNode.GetRangeVar() != nil {
-		// WHERE
-		remapper.traceTreeTraversal("WHERE right", indentLevel+1)
-		qSchemaTable := remapper.remapperTable.NodeToQuerySchemaTable(rightJoinNode)
-		remapper.remapperTable.RemapWhereClauseForTable(qSchemaTable, selectStatement)
 		// TABLE
 		remapper.traceTreeTraversal("TABLE right", indentLevel+1)
 		rightJoinNode = remapper.remapperTable.RemapTable(rightJoinNode)

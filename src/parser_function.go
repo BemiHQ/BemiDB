@@ -38,7 +38,7 @@ func (parser *ParserFunction) NestedFunctionCalls(functionCall *pgQuery.FuncCall
 	return nestedFunctionCalls
 }
 
-func (parser *ParserFunction) SchemaFunction(functionCall *pgQuery.FuncCall) QuerySchemaFunction {
+func (parser *ParserFunction) SchemaFunction(functionCall *pgQuery.FuncCall) *QuerySchemaFunction {
 	return parser.utils.SchemaFunction(functionCall)
 }
 

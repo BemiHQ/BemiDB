@@ -5,30 +5,14 @@ const (
 	PG_SCHEMA_PG_CATALOG         = "pg_catalog"
 	PG_SCHEMA_PUBLIC             = "public"
 
-	PG_FUNCTION_ARRAY_UPPER          = "array_upper"
-	PG_FUNCTION_PG_GET_KEYWORDS      = "pg_get_keywords"
-	PG_FUNCTION_PG_IS_IN_RECOVERY    = "pg_is_in_recovery"
-	PG_FUNCTION_PG_SHOW_ALL_SETTINGS = "pg_show_all_settings"
-	PG_FUNCTION_FORMAT               = "format"
+	PG_FUNCTION_FORMAT = "format"
 
-	PG_TABLE_PG_ATTRIBUTE        = "pg_attribute"
 	PG_TABLE_PG_CLASS            = "pg_class"
-	PG_TABLE_PG_NAMESPACE        = "pg_namespace"
 	PG_TABLE_PG_STAT_USER_TABLES = "pg_stat_user_tables"
 	PG_TABLE_TABLES              = "tables"
 
 	PG_VAR_SEARCH_PATH = "search_path"
 )
-
-type ColumnDefinition struct {
-	Name string
-	Type string
-}
-
-type TableDefinition struct {
-	Columns []ColumnDefinition
-	Values  []string
-}
 
 var PG_SYSTEM_TABLES = NewSet([]string{
 	"pg_aggregate",
@@ -147,11 +131,4 @@ var PG_SYSTEM_VIEWS = NewSet([]string{
 	"pg_statio_all_sequences",
 	"pg_statio_sys_sequences",
 	"pg_statio_user_sequences",
-})
-
-var PG_SYSTEM_FUNCTIONS = NewSet([]string{
-	"pg_get_expr",
-	"pg_get_keywords",
-	"pg_is_in_recovery",
-	"pg_show_all_settings",
 })

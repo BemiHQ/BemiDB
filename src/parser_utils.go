@@ -1,8 +1,6 @@
 package main
 
 import (
-	"strings"
-
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
@@ -14,60 +12,20 @@ func NewParserUtils(config *Config) *ParserUtils {
 	return &ParserUtils{config: config}
 }
 
-func (utils *ParserUtils) SchemaFunction(functionCall *pgQuery.FuncCall) QuerySchemaFunction {
+func (utils *ParserUtils) SchemaFunction(functionCall *pgQuery.FuncCall) *QuerySchemaFunction {
 	switch len(functionCall.Funcname) {
 	case 1:
-		return QuerySchemaFunction{
+		return &QuerySchemaFunction{
 			Schema:   "",
 			Function: functionCall.Funcname[0].GetString_().Sval,
 		}
 	case 2:
-		return QuerySchemaFunction{
+		return &QuerySchemaFunction{
 			Schema:   functionCall.Funcname[0].GetString_().Sval,
 			Function: functionCall.Funcname[1].GetString_().Sval,
 		}
 	default:
 		panic("Invalid function call")
-	}
-}
-
-func (utils *ParserUtils) MakeSubselectWithRowsNode(tableName string, tableDef TableDefinition, rowsValues [][]string, alias string) *pgQuery.Node {
-	columnNodes := make([]*pgQuery.Node, len(tableDef.Columns))
-	for i, col := range tableDef.Columns {
-		columnNodes[i] = pgQuery.MakeStrNode(col.Name)
-	}
-
-	selectStmt := &pgQuery.SelectStmt{}
-
-	for _, row := range rowsValues {
-		var rowList []*pgQuery.Node
-		for i, val := range row {
-			colType := tableDef.Columns[i].Type
-			constNode := utils.MakeTypedConstNode(val, colType)
-			rowList = append(rowList, constNode)
-		}
-		selectStmt.ValuesLists = append(selectStmt.ValuesLists,
-			&pgQuery.Node{Node: &pgQuery.Node_List{List: &pgQuery.List{Items: rowList}}})
-	}
-
-	if alias == "" {
-		alias = tableName
-	}
-
-	return &pgQuery.Node{
-		Node: &pgQuery.Node_RangeSubselect{
-			RangeSubselect: &pgQuery.RangeSubselect{
-				Subquery: &pgQuery.Node{
-					Node: &pgQuery.Node_SelectStmt{
-						SelectStmt: selectStmt,
-					},
-				},
-				Alias: &pgQuery.Alias{
-					Aliasname: alias,
-					Colnames:  columnNodes,
-				},
-			},
-		},
 	}
 }
 
@@ -116,51 +74,11 @@ func (utils *ParserUtils) MakeAConstBoolNode(val bool) *pgQuery.Node {
 	}
 }
 
-func (utils *ParserUtils) MakeTypedConstNode(val string, pgType string) *pgQuery.Node {
-	if val == "NULL" {
-		return utils.MakeNullNode()
-	}
-
-	constNode := pgQuery.MakeAConstStrNode(val, 0)
-
-	return utils.MakeTypeCastNode(constNode, pgType)
-}
-
 func (utils *ParserUtils) MakeNullNode() *pgQuery.Node {
 	return &pgQuery.Node{
 		Node: &pgQuery.Node_AConst{
 			AConst: &pgQuery.A_Const{
 				Isnull: true,
-			},
-		},
-	}
-}
-
-func (utils *ParserUtils) MakeTypeCastNode(arg *pgQuery.Node, typeName string) *pgQuery.Node {
-	var typeNameNode *pgQuery.TypeName
-
-	if strings.HasSuffix(typeName, "[]") {
-		typeNameNode = &pgQuery.TypeName{
-			Names: []*pgQuery.Node{
-				pgQuery.MakeStrNode(strings.TrimSuffix(typeName, "[]")),
-			},
-			ArrayBounds: []*pgQuery.Node{
-				pgQuery.MakeIntNode(-1),
-			},
-		}
-	} else {
-		typeNameNode = &pgQuery.TypeName{
-			Names: []*pgQuery.Node{
-				pgQuery.MakeStrNode(typeName),
-			},
-		}
-	}
-
-	return &pgQuery.Node{
-		Node: &pgQuery.Node_TypeCast{
-			TypeCast: &pgQuery.TypeCast{
-				Arg:      arg,
-				TypeName: typeNameNode,
 			},
 		},
 	}

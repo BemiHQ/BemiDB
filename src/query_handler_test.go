@@ -789,7 +789,7 @@ func TestHandleQuery(t *testing.T) {
 		// SELECT * FROM function()
 		"SELECT * FROM pg_catalog.pg_get_keywords() LIMIT 1": {
 			"description": {"word", "catcode", "barelabel", "catdesc", "baredesc"},
-			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"abort", "U", "t", "unreserved", "can be bare label"},
 		},
 		"SELECT pg_get_keywords.word FROM pg_catalog.pg_get_keywords() LIMIT 1": {

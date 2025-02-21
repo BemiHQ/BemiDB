@@ -11,6 +11,7 @@ var PG_INFORMATION_SCHEMA_MACRO_FUNCTION_NAMES = Set[string]{}
 
 func CreatePgCatalogMacroQueries(config *Config) []string {
 	result := []string{
+		// Functions
 		"CREATE MACRO aclexplode(aclitem_array) AS json(aclitem_array)",
 		"CREATE MACRO current_setting(setting_name) AS '', (setting_name, missing_ok) AS ''",
 		"CREATE MACRO pg_backend_pid() AS 0",
@@ -30,6 +31,40 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 		"CREATE MACRO row_to_json(record) AS to_json(record), (record, pretty_bool) AS to_json(record)",
 		"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
 		"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
+		`CREATE MACRO array_upper(arr, dimension) AS
+			CASE dimension
+			WHEN 1 THEN len(arr)
+			ELSE NULL
+		END`,
+
+		// Table functions
+		"CREATE MACRO pg_is_in_recovery() AS TABLE SELECT false AS pg_is_in_recovery",
+		`CREATE MACRO pg_show_all_settings() AS TABLE SELECT
+			name,
+			value AS setting,
+			NULL::text AS unit,
+			'Settings' AS category,
+			description AS short_desc,
+			NULL::text AS extra_desc,
+			'user' AS context,
+			input_type AS vartype,
+			'default' AS source,
+			NULL::int4 AS min_val,
+			NULL::int4 AS max_val,
+			NULL::text[] AS enumvals,
+			value AS boot_val,
+			value AS reset_val,
+			NULL::text AS sourcefile,
+			NULL::int4 AS sourceline,
+			FALSE AS pending_restart
+		FROM duckdb_settings()`,
+		`CREATE MACRO pg_get_keywords() AS TABLE SELECT
+			keyword_name AS word,
+			'U' AS catcode,
+			TRUE AS barelabel,
+			keyword_category AS catdesc,
+			'can be bare label' AS baredesc
+		FROM duckdb_keywords()`,
 	}
 	PG_CATALOG_MACRO_FUNCTION_NAMES = extractMacroNames(result)
 	return result
@@ -65,25 +100,28 @@ func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.F
 
 	// Pre-defined macro functions
 	switch schemaFunction.Schema {
+
 	// pg_catalog.func() -> main.func()
 	case PG_SCHEMA_PG_CATALOG, "":
 		if PG_CATALOG_MACRO_FUNCTION_NAMES.Contains(schemaFunction.Function) || BUILTIN_DUCKDB_PG_FUNCTION_NAMES.Contains(schemaFunction.Function) {
 			remapper.parserFunction.RemapSchemaToMain(functionCall)
-			return &schemaFunction
+			return schemaFunction
 		}
+
 	// information_schema.func() -> main.func()
 	case PG_SCHEMA_INFORMATION_SCHEMA:
 		if PG_INFORMATION_SCHEMA_MACRO_FUNCTION_NAMES.Contains(schemaFunction.Function) {
 			remapper.parserFunction.RemapSchemaToMain(functionCall)
-			return &schemaFunction
+			return schemaFunction
 		}
 	}
 
 	switch {
+
 	// format('%s %1$s', str) -> printf('%1$s %1$s', str)
 	case schemaFunction.Function == PG_FUNCTION_FORMAT:
 		remapper.parserFunction.RemapFormatToPrintf(functionCall)
-		return &schemaFunction
+		return schemaFunction
 	}
 
 	return nil

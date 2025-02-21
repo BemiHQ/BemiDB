@@ -8,8 +8,6 @@ import (
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
-var MAX_REDUNDANT_PG_NAMESPACE_OID = 1265
-
 var PG_CATALOG_TABLE_NAMES = Set[string]{}
 var PG_INFORMATION_SCHEMA_TABLE_NAMES = Set[string]{}
 
@@ -42,6 +40,8 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		// Dynamic views
 		// DuckDB does not support indnullsnotdistinct column
 		"CREATE VIEW pg_index AS SELECT *, FALSE AS indnullsnotdistinct FROM pg_catalog.pg_index",
+		// Hide DuckDB's system and duplicate schemas
+		"CREATE VIEW pg_namespace AS SELECT * FROM pg_catalog.pg_namespace WHERE oid > 1265",
 	}
 	PG_CATALOG_TABLE_NAMES = extractTableNames(result)
 	return result
@@ -50,37 +50,37 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 func CreateInformationSchemaTableQueries(config *Config) []string {
 	result := []string{
 		// Dynamic views
-		// DuckDB does not support udt_schema, udt_name
+		// DuckDB does not support udt_catalog, udt_schema, udt_name
 		`CREATE VIEW columns AS
 		SELECT
 			table_catalog, table_schema, table_name, column_name, ordinal_position, column_default, is_nullable, data_type, character_maximum_length, character_octet_length, numeric_precision, numeric_precision_radix, numeric_scale, datetime_precision, interval_type, interval_precision, character_set_catalog, character_set_schema, character_set_name, collation_catalog, collation_schema, collation_name, domain_catalog, domain_schema, domain_name,
 			'` + config.Database + `' AS udt_catalog,
 			'pg_catalog' AS udt_schema,
 			CASE data_type
-			WHEN 'BIGINT' THEN 'int8'
-			WHEN 'BIGINT[]' THEN '_int8'
-			WHEN 'BLOB' THEN 'bytea'
-			WHEN 'BLOB[]' THEN '_bytea'
-			WHEN 'BOOLEAN' THEN 'bool'
-			WHEN 'BOOLEAN[]' THEN '_bool'
-			WHEN 'DATE' THEN 'date'
-			WHEN 'DATE[]' THEN '_date'
-			WHEN 'FLOAT' THEN 'float8'
-			WHEN 'FLOAT[]' THEN '_float8'
-			WHEN 'INTEGER' THEN 'int4'
-			WHEN 'INTEGER[]' THEN '_int4'
-			WHEN 'VARCHAR' THEN 'text'
-			WHEN 'VARCHAR[]' THEN '_text'
-			WHEN 'TIME' THEN 'time'
-			WHEN 'TIME[]' THEN '_time'
-			WHEN 'TIMESTAMP' THEN 'timestamp'
-			WHEN 'TIMESTAMP[]' THEN '_timestamp'
-			WHEN 'UUID' THEN 'uuid'
-			WHEN 'UUID[]' THEN '_uuid'
-			ELSE
-				CASE
-				WHEN starts_with(data_type, 'DECIMAL') THEN 'numeric'
-				END
+				WHEN 'BIGINT' THEN 'int8'
+				WHEN 'BIGINT[]' THEN '_int8'
+				WHEN 'BLOB' THEN 'bytea'
+				WHEN 'BLOB[]' THEN '_bytea'
+				WHEN 'BOOLEAN' THEN 'bool'
+				WHEN 'BOOLEAN[]' THEN '_bool'
+				WHEN 'DATE' THEN 'date'
+				WHEN 'DATE[]' THEN '_date'
+				WHEN 'FLOAT' THEN 'float8'
+				WHEN 'FLOAT[]' THEN '_float8'
+				WHEN 'INTEGER' THEN 'int4'
+				WHEN 'INTEGER[]' THEN '_int4'
+				WHEN 'VARCHAR' THEN 'text'
+				WHEN 'VARCHAR[]' THEN '_text'
+				WHEN 'TIME' THEN 'time'
+				WHEN 'TIME[]' THEN '_time'
+				WHEN 'TIMESTAMP' THEN 'timestamp'
+				WHEN 'TIMESTAMP[]' THEN '_timestamp'
+				WHEN 'UUID' THEN 'uuid'
+				WHEN 'UUID[]' THEN '_uuid'
+				ELSE
+					CASE
+					WHEN starts_with(data_type, 'DECIMAL') THEN 'numeric'
+					END
 			END AS udt_name,
 			scope_catalog, scope_schema, scope_name, maximum_cardinality, dtd_identifier, is_self_referencing, is_identity, identity_generation, identity_start, identity_increment, identity_maximum, identity_minimum, identity_cycle, is_generated, generation_expression, is_updatable
 		FROM information_schema.columns`,
@@ -91,8 +91,8 @@ func CreateInformationSchemaTableQueries(config *Config) []string {
 
 type QueryRemapperTable struct {
 	parserTable         *ParserTable
-	parserWhere         *ParserWhere
 	parserFunction      *ParserFunction
+	remapperFunction    *QueryRemapperFunction
 	icebergSchemaTables Set[IcebergSchemaTable]
 	icebergReader       *IcebergReader
 	duckdb              *Duckdb
@@ -101,19 +101,15 @@ type QueryRemapperTable struct {
 
 func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, duckdb *Duckdb) *QueryRemapperTable {
 	remapper := &QueryRemapperTable{
-		parserTable:    NewParserTable(config),
-		parserWhere:    NewParserWhere(config),
-		parserFunction: NewParserFunction(config),
-		icebergReader:  icebergReader,
-		duckdb:         duckdb,
-		config:         config,
+		parserTable:      NewParserTable(config),
+		parserFunction:   NewParserFunction(config),
+		remapperFunction: NewQueryRemapperFunction(config),
+		icebergReader:    icebergReader,
+		duckdb:           duckdb,
+		config:           config,
 	}
 	remapper.reloadIceberSchemaTables()
 	return remapper
-}
-
-func (remapper *QueryRemapperTable) NodeToQuerySchemaTable(node *pgQuery.Node) QuerySchemaTable {
-	return remapper.parserTable.NodeToQuerySchemaTable(node)
 }
 
 // FROM / JOIN [TABLE]
@@ -148,7 +144,6 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 	// information_schema.* system tables
 	if parser.IsTableFromInformationSchema(qSchemaTable) {
 		switch qSchemaTable.Table {
-
 		// information_schema.tables -> reload Iceberg tables
 		case PG_TABLE_TABLES:
 			remapper.reloadIceberSchemaTables()
@@ -177,62 +172,15 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 	return parser.MakeIcebergTableNode(icebergPath, qSchemaTable)
 }
 
-// FROM [PG_FUNCTION()]
-func (remapper *QueryRemapperTable) RemapTableFunction(node *pgQuery.Node) *pgQuery.Node {
-	parser := remapper.parserTable
+// FROM FUNCTION()
+func (remapper *QueryRemapperTable) RemapTableFunctionCall(rangeFunction *pgQuery.RangeFunction) {
+	schemaFunction := remapper.parserTable.TopLevelSchemaFunction(rangeFunction)
+	remapper.parserTable.SetAliasIfNotExists(rangeFunction, schemaFunction.Function)
 
-	schemaFunction := parser.SchemaFunction(node)
-
-	if remapper.isFunctionFromPgCatalog(schemaFunction) {
-		switch {
-
-		// pg_catalog.pg_get_keywords() -> hard-coded keywords
-		case schemaFunction.Function == PG_FUNCTION_PG_GET_KEYWORDS:
-			return parser.MakePgGetKeywordsNode(node)
-
-		// pg_catalog.pg_show_all_settings() -> duckdb_settings()
-		case schemaFunction.Function == PG_FUNCTION_PG_SHOW_ALL_SETTINGS:
-			return parser.MakePgShowAllSettingsNode(node)
-
-		// pg_catalog.pg_is_in_recovery() -> 'f'::bool
-		case schemaFunction.Function == PG_FUNCTION_PG_IS_IN_RECOVERY:
-			return parser.MakePgIsInRecoveryNode(node)
-		}
+	for _, functionCall := range remapper.parserTable.TableFunctionCalls(rangeFunction) {
+		remapper.remapperFunction.RemapFunctionCall(functionCall)
+		remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
 	}
-
-	return node
-}
-
-// FROM PG_FUNCTION(PG_NESTED_FUNCTION())
-func (remapper *QueryRemapperTable) RemapNestedTableFunction(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
-
-	switch {
-
-	// array_upper(values, 1) -> len(values)
-	case schemaFunction.Function == PG_FUNCTION_ARRAY_UPPER:
-		return remapper.parserTable.MakeArrayUpperNode(functionCall)
-
-	default:
-		return functionCall
-	}
-}
-
-func (remapper *QueryRemapperTable) RemapWhereClauseForTable(qSchemaTable QuerySchemaTable, selectStatement *pgQuery.SelectStmt) *pgQuery.SelectStmt {
-	if remapper.isTableFromPgCatalog(qSchemaTable) {
-		switch qSchemaTable.Table {
-
-		// FROM pg_catalog.pg_namespace -> FROM pg_catalog.pg_namespace WHERE oid > 1265
-		case PG_TABLE_PG_NAMESPACE:
-			alias := qSchemaTable.Alias
-			if alias == "" {
-				alias = PG_TABLE_PG_NAMESPACE
-			}
-			withoutDuckdbOidsWhereCondition := remapper.parserWhere.MakeIntEqualityExpressionNode("oid", ">", MAX_REDUNDANT_PG_NAMESPACE_OID, alias)
-			remapper.parserWhere.AppendWhereCondition(selectStatement, withoutDuckdbOidsWhereCondition)
-		}
-	}
-	return selectStatement
 }
 
 func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
@@ -285,11 +233,6 @@ func (remapper *QueryRemapperTable) isTableFromPgCatalog(qSchemaTable QuerySchem
 		(qSchemaTable.Schema == "" &&
 			(PG_SYSTEM_TABLES.Contains(qSchemaTable.Table) || PG_SYSTEM_VIEWS.Contains(qSchemaTable.Table)) &&
 			!remapper.icebergSchemaTables.Contains(qSchemaTable.ToIcebergSchemaTable()))
-}
-
-func (remapper *QueryRemapperTable) isFunctionFromPgCatalog(schemaFunction QuerySchemaFunction) bool {
-	return schemaFunction.Schema == PG_SCHEMA_PG_CATALOG ||
-		(schemaFunction.Schema == "" && PG_SYSTEM_FUNCTIONS.Contains(schemaFunction.Function))
 }
 
 func extractTableNames(tables []string) Set[string] {
