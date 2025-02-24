@@ -79,6 +79,31 @@ func (nullDecimal NullDecimal) String() string {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+type NullInterval struct {
+	Present bool
+	Value   duckDb.Interval
+}
+
+func (nullInterval *NullInterval) Scan(value interface{}) error {
+	if value == nil {
+		nullInterval.Present = false
+		return nil
+	}
+
+	nullInterval.Present = true
+	nullInterval.Value = value.(duckDb.Interval)
+	return nil
+}
+
+func (nullInterval NullInterval) String() string {
+	if nullInterval.Present {
+		return fmt.Sprintf("%d months %d days %d microseconds", nullInterval.Value.Months, nullInterval.Value.Days, nullInterval.Value.Micros)
+	}
+	return ""
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 type NullUint32 struct {
 	Present bool
 	Value   uint32
@@ -565,6 +590,10 @@ func (queryHandler *QueryHandler) columnTypeOid(col *sql.ColumnType) uint32 {
 		return pgtype.UUIDOID
 	case "BLOB[]":
 		return pgtype.UUIDArrayOID
+	case "INTERVAL":
+		return pgtype.IntervalOID
+	case "INTERVAL[]":
+		return pgtype.IntervalArrayOID
 	default:
 		if strings.HasPrefix(col.DatabaseTypeName(), "DECIMAL") {
 			if strings.HasSuffix(col.DatabaseTypeName(), "[]") {
@@ -629,6 +658,9 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 			valuePtrs[i] = &value
 		case "duckdb.Decimal":
 			var value NullDecimal
+			valuePtrs[i] = &value
+		case "duckdb.Interval":
+			var value NullInterval
 			valuePtrs[i] = &value
 		case "[]interface {}":
 			var value NullArray
@@ -716,6 +748,12 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 				values = append(values, nil)
 			}
 		case *NullDecimal:
+			if value.Present {
+				values = append(values, []byte(value.String()))
+			} else {
+				values = append(values, nil)
+			}
+		case *NullInterval:
 			if value.Present {
 				values = append(values, []byte(value.String()))
 			} else {

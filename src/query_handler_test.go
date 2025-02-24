@@ -791,6 +791,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.UUIDOID)},
 			"values":      {"58a7c845-af77-44b2-8664-7ca613d92f04"},
 		},
+		"SELECT '1 week'::INTERVAL AS interval": {
+			"description": {"interval"},
+			"types":       {Uint32ToString(pgtype.IntervalOID)},
+			"values":      {"0 months 7 days 0 microseconds"},
+		},
 
 		// SELECT * FROM function()
 		"SELECT * FROM pg_catalog.pg_get_keywords() LIMIT 1": {
