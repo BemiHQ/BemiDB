@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	duckDb "github.com/marcboeker/go-duckdb"
@@ -44,7 +45,10 @@ type PreparedStatement struct {
 	Variables []interface{}
 	Portal    string
 
-	// Describe or Execute
+	// Describe
+	Described bool
+
+	// Describe/Execute
 	Rows *sql.Rows
 }
 
@@ -309,6 +313,10 @@ func (queryHandler *QueryHandler) HandleBindQuery(message *pgproto3.Bind, prepar
 			variables = append(variables, int32(binary.BigEndian.Uint32(param)))
 		} else if len(param) == 8 {
 			variables = append(variables, int64(binary.BigEndian.Uint64(param)))
+		} else if len(param) == 16 {
+			variables = append(variables, uuid.UUID(param).String())
+		} else {
+			return nil, nil, fmt.Errorf("unsupported parameter format: %v (length %d). Original query: %s", param, len(param), preparedStatement.OriginalQuery)
 		}
 	}
 
@@ -334,13 +342,14 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 		}
 	}
 
+	preparedStatement.Described = true
 	if preparedStatement.Query == "" || !preparedStatement.Bound { // Empty query or Parse->[No Bind]->Describe
 		return []pgproto3.Message{&pgproto3.NoData{}}, preparedStatement, nil
 	}
 
 	rows, err := preparedStatement.Statement.QueryContext(context.Background(), preparedStatement.Variables...)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("couldn't execute statement: %w. Original query: %s", err, preparedStatement.OriginalQuery)
 	}
 	preparedStatement.Rows = rows
 

@@ -110,6 +110,7 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 	}
 	postgres.writeMessages(messages...)
 
+	var previousErr error
 	for {
 		message, err := postgres.backend.Receive()
 		if err != nil {
@@ -118,28 +119,40 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 
 		switch message := message.(type) {
 		case *pgproto3.Bind:
+			if previousErr != nil { // Skip processing the next message if there was an error in the previous message
+				continue
+			}
+
 			LogDebug(postgres.config, "Binding query", message.PreparedStatement)
 			messages, preparedStatement, err = queryHandler.HandleBindQuery(message, preparedStatement)
 			if err != nil {
 				postgres.writeError(err)
-				continue
+				previousErr = err
 			}
 			postgres.writeMessages(messages...)
 		case *pgproto3.Describe:
+			if previousErr != nil { // Skip processing the next message if there was an error in the previous message
+				continue
+			}
+
 			LogDebug(postgres.config, "Describing query", message.Name, "("+string(message.ObjectType)+")")
 			var messages []pgproto3.Message
 			messages, preparedStatement, err = queryHandler.HandleDescribeQuery(message, preparedStatement)
 			if err != nil {
 				postgres.writeError(err)
-				continue
+				previousErr = err
 			}
 			postgres.writeMessages(messages...)
 		case *pgproto3.Execute:
+			if previousErr != nil { // Skip processing the next message if there was an error in the previous message
+				continue
+			}
+
 			LogDebug(postgres.config, "Executing query", message.Portal)
 			messages, err := queryHandler.HandleExecuteQuery(message, preparedStatement)
 			if err != nil {
 				postgres.writeError(err)
-				continue
+				previousErr = err
 			}
 			postgres.writeMessages(messages...)
 		case *pgproto3.Sync:
@@ -148,11 +161,13 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 				&pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE},
 			)
 
-			// If Bind step completed, it means that sync is the last message in the extended query protocol, we can exit handleExtendedQuery
-			// Otherwise, wait for Bind/Describe/Execute/Sync. For example, psycopg sends an extra Sync after Parse
-			if preparedStatement.Bound {
+			// If there was an error or Parse->Bind->Sync (...) or Parse->Describe->Sync (e.g., Metabase)
+			// it means that sync is the last message in the extended query protocol, we can exit handleExtendedQuery
+			if previousErr != nil || preparedStatement.Bound || preparedStatement.Described {
 				return nil
 			}
+			// Otherwise, wait for Bind/Describe/Execute/Sync.
+			// For example, psycopg sends Parse->[extra Sync]->Bind->Describe->Execute->Sync
 		}
 	}
 }

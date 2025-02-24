@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -1143,8 +1144,7 @@ func TestHandleParseQuery(t *testing.T) {
 func TestHandleBindQuery(t *testing.T) {
 	t.Run("Handles BIND extended query step with text format parameter", func(t *testing.T) {
 		queryHandler := initQueryHandler()
-		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
-		parseMessage := &pgproto3.Parse{Query: query}
+		parseMessage := &pgproto3.Parse{Query: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
 
@@ -1166,10 +1166,37 @@ func TestHandleBindQuery(t *testing.T) {
 		}
 	})
 
-	t.Run("Handles BIND extended query step with binary format parameter", func(t *testing.T) {
+	t.Run("Handles BIND extended query step with binary format 4-byte parameter", func(t *testing.T) {
 		queryHandler := initQueryHandler()
-		query := "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"
-		parseMessage := &pgproto3.Parse{Query: query}
+		parseMessage := &pgproto3.Parse{Query: "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"}
+		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
+		testNoError(t, err)
+
+		paramValue := int32(2200)
+		paramBytes := make([]byte, 4)
+		binary.BigEndian.PutUint32(paramBytes, uint32(paramValue))
+
+		bindMessage := &pgproto3.Bind{
+			Parameters:           [][]byte{paramBytes},
+			ParameterFormatCodes: []int16{1}, // Binary format
+		}
+		messages, preparedStatement, err := queryHandler.HandleBindQuery(bindMessage, preparedStatement)
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.BindComplete{},
+		})
+		if len(preparedStatement.Variables) != 1 {
+			t.Errorf("Expected the prepared statement to have 1 variable, got %v", len(preparedStatement.Variables))
+		}
+		if preparedStatement.Variables[0] != paramValue {
+			t.Errorf("Expected the prepared statement variable to be %v, got %v", paramValue, preparedStatement.Variables[0])
+		}
+	})
+
+	t.Run("Handles BIND extended query step with binary format 8-byte parameter", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+		parseMessage := &pgproto3.Parse{Query: "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
 
@@ -1192,6 +1219,33 @@ func TestHandleBindQuery(t *testing.T) {
 		}
 		if preparedStatement.Variables[0] != paramValue {
 			t.Errorf("Expected the prepared statement variable to be %v, got %v", paramValue, preparedStatement.Variables[0])
+		}
+	})
+
+	t.Run("Handles BIND extended query step with binary format 16-byte (uuid) parameter", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+		parseMessage := &pgproto3.Parse{Query: "SELECT uuid_column FROM public.test_table WHERE uuid_column = $1"}
+		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
+		testNoError(t, err)
+
+		uuidParam := "58a7c845-af77-44b2-8664-7ca613d92f04"
+		paramBytes, _ := uuid.Must(uuid.Parse(uuidParam)).MarshalBinary()
+
+		bindMessage := &pgproto3.Bind{
+			Parameters:           [][]byte{paramBytes},
+			ParameterFormatCodes: []int16{1}, // Binary format
+		}
+		messages, preparedStatement, err := queryHandler.HandleBindQuery(bindMessage, preparedStatement)
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.BindComplete{},
+		})
+		if len(preparedStatement.Variables) != 1 {
+			t.Errorf("Expected the prepared statement to have 1 variable, got %v", len(preparedStatement.Variables))
+		}
+		if preparedStatement.Variables[0] != uuidParam {
+			t.Errorf("Expected the prepared statement variable to be %v, got %v", uuidParam, preparedStatement.Variables[0])
 		}
 	})
 }
