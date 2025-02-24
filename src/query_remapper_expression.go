@@ -36,6 +36,10 @@ func (remapper *QueryRemapperExpression) remappedTypeCast(node *pgQuery.Node) *p
 
 	typeName := remapper.parserTypeCast.TypeName(typeCast)
 	switch typeName {
+	case "uuid":
+		// 'uuid'::uuid -> 'uuid'::text
+		remapper.parserTypeCast.SetTypeCast(typeCast, "text")
+		return node
 	case "text[]":
 		// '{a,b,c}'::text[] -> ARRAY['a', 'b', 'c']
 		return remapper.parserTypeCast.MakeListValueFromArray(typeCast.Arg)

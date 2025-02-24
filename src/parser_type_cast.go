@@ -43,6 +43,14 @@ func (parser *ParserTypeCast) ArgStringValue(typeCast *pgQuery.TypeCast) string 
 	return typeCast.Arg.GetAConst().GetSval().Sval
 }
 
+func (parser *ParserTypeCast) SetTypeCast(typeCast *pgQuery.TypeCast, typeName string) {
+	if len(typeCast.TypeName.Names) != 1 {
+		return
+	}
+
+	typeCast.TypeName.Names[0].GetString_().Sval = typeName
+}
+
 func (parser *ParserTypeCast) MakeListValueFromArray(node *pgQuery.Node) *pgQuery.Node {
 	arrayStr := node.GetAConst().GetSval().Sval
 	arrayStr = strings.Trim(arrayStr, "{}")

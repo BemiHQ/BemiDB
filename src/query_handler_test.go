@@ -786,6 +786,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"array_in"},
 		},
+		"SELECT uuid_column FROM test_table WHERE uuid_column IN ('58a7c845-af77-44b2-8664-7ca613d92f04'::uuid)": {
+			"description": {"uuid_column"},
+			"types":       {Uint32ToString(pgtype.UUIDOID)},
+			"values":      {"58a7c845-af77-44b2-8664-7ca613d92f04"},
+		},
 
 		// SELECT * FROM function()
 		"SELECT * FROM pg_catalog.pg_get_keywords() LIMIT 1": {
