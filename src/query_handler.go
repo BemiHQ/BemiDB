@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -205,10 +204,9 @@ func NewQueryHandler(config *Config, duckdb *Duckdb, icebergReader *IcebergReade
 	return queryHandler
 }
 
-func (queryHandler *QueryHandler) HandleQuery(originalQuery string) ([]pgproto3.Message, error) {
+func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgproto3.Message, error) {
 	queryStatements, originalQueryStatements, err := queryHandler.parseAndRemapQuery(originalQuery)
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't map query:", originalQuery+"\n"+err.Error())
 		return nil, err
 	}
 	if len(queryStatements) == 0 {
@@ -224,21 +222,20 @@ func (queryHandler *QueryHandler) HandleQuery(originalQuery string) ([]pgproto3.
 			if errorMessage == "Binder Error: UNNEST requires a single list as input" {
 				// https://github.com/duckdb/duckdb/issues/11693
 				LogWarn(queryHandler.config, "Couldn't handle query via DuckDB:", queryStatement+"\n"+err.Error())
-				queriesMsgs, err := queryHandler.HandleQuery(FALLBACK_SQL_QUERY) // self-recursion
+				queriesMsgs, err := queryHandler.HandleSimpleQuery(FALLBACK_SQL_QUERY) // self-recursion
 				if err != nil {
 					return nil, err
 				}
 				queriesMessages = append(queriesMessages, queriesMsgs...)
 				continue
 			} else {
-				LogError(queryHandler.config, "Couldn't handle query via DuckDB:", queryStatement+"\n"+err.Error())
 				return nil, err
 			}
 		}
 		defer rows.Close()
 
 		var queryMessages []pgproto3.Message
-		descriptionMessages, err := queryHandler.rowsToDescriptionMessages(rows, queryStatement)
+		descriptionMessages, err := queryHandler.rowsToDescriptionMessages(rows, originalQueryStatements[i])
 		if err != nil {
 			return nil, err
 		}
@@ -260,11 +257,10 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 	originalQuery := string(message.Query)
 	queryStatements, _, err := queryHandler.parseAndRemapQuery(originalQuery)
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't map query:", originalQuery+"\n"+err.Error())
 		return nil, nil, err
 	}
 	if len(queryStatements) > 1 {
-		return nil, nil, errors.New("multiple queries in a single parse message are not supported")
+		return nil, nil, fmt.Errorf("multiple queries in a single parse message are not supported: %s", originalQuery)
 	}
 
 	preparedStatement := &PreparedStatement{
@@ -281,7 +277,6 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 	statement, err := queryHandler.duckdb.PrepareContext(ctx, query)
 	preparedStatement.Statement = statement
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't prepare query via DuckDB:", query+"\n"+err.Error())
 		return nil, nil, err
 	}
 
@@ -290,8 +285,7 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 
 func (queryHandler *QueryHandler) HandleBindQuery(message *pgproto3.Bind, preparedStatement *PreparedStatement) ([]pgproto3.Message, *PreparedStatement, error) {
 	if message.PreparedStatement != preparedStatement.Name {
-		LogError(queryHandler.config, "Prepared statement mismatch:", message.PreparedStatement, "instead of", preparedStatement.Name)
-		return nil, nil, errors.New("prepared statement mismatch")
+		return nil, nil, fmt.Errorf("prepared statement mismatch, %s instead of %s: %s", message.PreparedStatement, preparedStatement.Name, preparedStatement.OriginalQuery)
 	}
 
 	var variables []interface{}
@@ -332,13 +326,11 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 	switch message.ObjectType {
 	case 'S': // Statement
 		if message.Name != preparedStatement.Name {
-			LogError(queryHandler.config, "Statement mismatch:", message.Name, "instead of", preparedStatement.Name)
-			return nil, nil, errors.New("statement mismatch")
+			return nil, nil, fmt.Errorf("statement mismatch, %s instead of %s: %s", message.Name, preparedStatement.Name, preparedStatement.OriginalQuery)
 		}
 	case 'P': // Portal
 		if message.Name != preparedStatement.Portal {
-			LogError(queryHandler.config, "Portal mismatch:", message.Name, "instead of", preparedStatement.Portal)
-			return nil, nil, errors.New("portal mismatch")
+			return nil, nil, fmt.Errorf("portal mismatch, %s instead of %s: %s", message.Name, preparedStatement.Portal, preparedStatement.OriginalQuery)
 		}
 	}
 
@@ -348,12 +340,11 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 
 	rows, err := preparedStatement.Statement.QueryContext(context.Background(), preparedStatement.Variables...)
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't execute prepared statement via DuckDB:", preparedStatement.Query+"\n"+err.Error())
 		return nil, nil, err
 	}
 	preparedStatement.Rows = rows
 
-	messages, err := queryHandler.rowsToDescriptionMessages(preparedStatement.Rows, preparedStatement.Query)
+	messages, err := queryHandler.rowsToDescriptionMessages(preparedStatement.Rows, preparedStatement.OriginalQuery)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -362,8 +353,7 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 
 func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, preparedStatement *PreparedStatement) ([]pgproto3.Message, error) {
 	if message.Portal != preparedStatement.Portal {
-		LogError(queryHandler.config, "Portal mismatch:", message.Portal, "instead of", preparedStatement.Portal)
-		return nil, errors.New("portal mismatch")
+		return nil, fmt.Errorf("portal mismatch, %s instead of %s: %s", message.Portal, preparedStatement.Portal, preparedStatement.OriginalQuery)
 	}
 
 	if preparedStatement.Query == "" {
@@ -373,7 +363,6 @@ func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, 
 	if preparedStatement.Rows == nil { // Parse->[No Bind]->Describe->Execute or Parse->Bind->[No Describe]->Execute
 		rows, err := preparedStatement.Statement.QueryContext(context.Background(), preparedStatement.Variables...)
 		if err != nil {
-			LogError(queryHandler.config, "Couldn't execute prepared statement via DuckDB:", preparedStatement.Query+"\n"+err.Error())
 			return nil, err
 		}
 		preparedStatement.Rows = rows
@@ -399,11 +388,10 @@ func (queryHandler *QueryHandler) createSchemas() {
 	}
 }
 
-func (queryHandler *QueryHandler) rowsToDescriptionMessages(rows *sql.Rows, query string) ([]pgproto3.Message, error) {
+func (queryHandler *QueryHandler) rowsToDescriptionMessages(rows *sql.Rows, originalQuery string) ([]pgproto3.Message, error) {
 	cols, err := rows.ColumnTypes()
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't get column types", query+"\n"+err.Error())
-		return nil, err
+		return nil, fmt.Errorf("couldn't get column types: %w. Original query: %s", err, originalQuery)
 	}
 
 	var messages []pgproto3.Message
@@ -416,25 +404,23 @@ func (queryHandler *QueryHandler) rowsToDescriptionMessages(rows *sql.Rows, quer
 	return messages, nil
 }
 
-func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQueryStatement string) ([]pgproto3.Message, error) {
+func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQuery string) ([]pgproto3.Message, error) {
 	cols, err := rows.ColumnTypes()
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't get column types", originalQueryStatement+"\n"+err.Error())
-		return nil, err
+		return nil, fmt.Errorf("couldn't get column types: %w. Original query: %s", err, originalQuery)
 	}
 
 	var messages []pgproto3.Message
 	for rows.Next() {
 		dataRow, err := queryHandler.generateDataRow(rows, cols)
 		if err != nil {
-			LogError(queryHandler.config, "Couldn't get data row", originalQueryStatement+"\n"+err.Error())
-			return nil, err
+			return nil, fmt.Errorf("couldn't get data row: %w. Original query: %s", err, originalQuery)
 		}
 		messages = append(messages, dataRow)
 	}
 
 	commandTag := FALLBACK_SQL_QUERY
-	upperOriginalQueryStatement := strings.ToUpper(originalQueryStatement)
+	upperOriginalQueryStatement := strings.ToUpper(originalQuery)
 	switch {
 	case strings.HasPrefix(upperOriginalQueryStatement, "SET "):
 		commandTag = "SET"
@@ -451,8 +437,7 @@ func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQue
 func (queryHandler *QueryHandler) parseAndRemapQuery(query string) ([]string, []string, error) {
 	queryTree, err := pgQuery.Parse(query)
 	if err != nil {
-		LogError(queryHandler.config, "Error parsing query:", query+"\n"+err.Error())
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("couldn't parse query: %s. %w", query, err)
 	}
 
 	if strings.HasSuffix(query, INSPECT_SQL_COMMENT) {
@@ -463,21 +448,21 @@ func (queryHandler *QueryHandler) parseAndRemapQuery(query string) ([]string, []
 	for _, stmt := range queryTree.Stmts {
 		originalQueryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{stmt}})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("couldn't deparse query: %s. %w", query, err)
 		}
 		originalQueryStatements = append(originalQueryStatements, originalQueryStatement)
 	}
 
 	remappedStatements, err := queryHandler.queryRemapper.RemapStatements(queryTree.Stmts)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("couldn't remap query: %s. %w", query, err)
 	}
 
 	var queryStatements []string
 	for _, remappedStatement := range remappedStatements {
 		queryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{remappedStatement}})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("couldn't deparse remapped query: %s. %w", query, err)
 		}
 		queryStatements = append(queryStatements, queryStatement)
 	}

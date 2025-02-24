@@ -92,9 +92,9 @@ func (postgres *Postgres) Close() error {
 
 func (postgres *Postgres) handleSimpleQuery(queryHandler *QueryHandler, queryMessage *pgproto3.Query) {
 	LogDebug(postgres.config, "Received query:", queryMessage.String)
-	messages, err := queryHandler.HandleQuery(queryMessage.String)
+	messages, err := queryHandler.HandleSimpleQuery(queryMessage.String)
 	if err != nil {
-		postgres.writeError(err.Error())
+		postgres.writeError(err)
 		return
 	}
 	messages = append(messages, &pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE})
@@ -105,7 +105,7 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 	LogDebug(postgres.config, "Parsing query", parseMessage.Query)
 	messages, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 	if err != nil {
-		postgres.writeError("Failed to parse query")
+		postgres.writeError(err)
 		return nil
 	}
 	postgres.writeMessages(messages...)
@@ -121,7 +121,7 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 			LogDebug(postgres.config, "Binding query", message.PreparedStatement)
 			messages, preparedStatement, err = queryHandler.HandleBindQuery(message, preparedStatement)
 			if err != nil {
-				postgres.writeError("Failed to bind query")
+				postgres.writeError(err)
 				continue
 			}
 			postgres.writeMessages(messages...)
@@ -130,7 +130,7 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 			var messages []pgproto3.Message
 			messages, preparedStatement, err = queryHandler.HandleDescribeQuery(message, preparedStatement)
 			if err != nil {
-				postgres.writeError("Failed to describe query")
+				postgres.writeError(err)
 				continue
 			}
 			postgres.writeMessages(messages...)
@@ -138,7 +138,7 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 			LogDebug(postgres.config, "Executing query", message.Portal)
 			messages, err := queryHandler.HandleExecuteQuery(message, preparedStatement)
 			if err != nil {
-				postgres.writeError("Failed to execute query")
+				postgres.writeError(err)
 				continue
 			}
 			postgres.writeMessages(messages...)
@@ -168,9 +168,14 @@ func (postgres *Postgres) writeMessages(messages ...pgproto3.Message) {
 	PanicIfError(err, "Error writing messages")
 }
 
-func (postgres *Postgres) writeError(message string) {
+func (postgres *Postgres) writeError(err error) {
+	LogError(postgres.config, err.Error())
+
 	postgres.writeMessages(
-		&pgproto3.ErrorResponse{Message: message},
+		&pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Message:  err.Error(),
+		},
 		&pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE},
 	)
 }
@@ -187,12 +192,12 @@ func (postgres *Postgres) handleStartup() error {
 		LogDebug(postgres.config, "BemiDB: startup message", params)
 
 		if params["database"] != postgres.config.Database {
-			postgres.writeError("database " + params["database"] + " does not exist")
+			postgres.writeError(errors.New("database " + params["database"] + " does not exist"))
 			return errors.New("database does not exist")
 		}
 
 		if postgres.config.User != "" && params["user"] != postgres.config.User && params["user"] != SYSTEM_AUTH_USER {
-			postgres.writeError("role \"" + params["user"] + "\" does not exist")
+			postgres.writeError(errors.New("role \"" + params["user"] + "\" does not exist"))
 			return errors.New("role does not exist")
 		}
 

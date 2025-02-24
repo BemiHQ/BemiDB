@@ -1015,7 +1015,7 @@ func TestHandleQuery(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			queryHandler := initQueryHandler()
 
-			messages, err := queryHandler.HandleQuery(query)
+			messages, err := queryHandler.HandleSimpleQuery(query)
 
 			testNoError(t, err)
 			testRowDescription(t, messages[0], responses["description"], responses["types"])
@@ -1040,7 +1040,7 @@ func TestHandleQuery(t *testing.T) {
 	t.Run("Returns an error if a table does not exist", func(t *testing.T) {
 		queryHandler := initQueryHandler()
 
-		_, err := queryHandler.HandleQuery("SELECT * FROM non_existent_table")
+		_, err := queryHandler.HandleSimpleQuery("SELECT * FROM non_existent_table")
 
 		if err == nil {
 			t.Errorf("Expected an error, got nil")
@@ -1060,7 +1060,7 @@ func TestHandleQuery(t *testing.T) {
 	t.Run("Returns a result without a row description for SET queries", func(t *testing.T) {
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+		messages, err := queryHandler.HandleSimpleQuery("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1071,9 +1071,9 @@ func TestHandleQuery(t *testing.T) {
 
 	t.Run("Allows setting and querying timezone", func(t *testing.T) {
 		queryHandler := initQueryHandler()
-		queryHandler.HandleQuery("SET timezone = 'UTC'")
+		queryHandler.HandleSimpleQuery("SET timezone = 'UTC'")
 
-		messages, err := queryHandler.HandleQuery("show timezone")
+		messages, err := queryHandler.HandleSimpleQuery("show timezone")
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1089,7 +1089,7 @@ func TestHandleQuery(t *testing.T) {
 	t.Run("Handles an empty query", func(t *testing.T) {
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery("-- ping")
+		messages, err := queryHandler.HandleSimpleQuery("-- ping")
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1298,7 +1298,7 @@ SET client_min_messages TO 'warning';
 SET standard_conforming_strings = on;`
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery(query)
+		messages, err := queryHandler.HandleSimpleQuery(query)
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1316,7 +1316,7 @@ SET standard_conforming_strings = on;`
 SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery(query)
+		messages, err := queryHandler.HandleSimpleQuery(query)
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1335,7 +1335,7 @@ SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery(query)
+		messages, err := queryHandler.HandleSimpleQuery(query)
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1358,7 +1358,7 @@ SELECT * FROM non_existent_table;
 SET standard_conforming_strings = on;`
 		queryHandler := initQueryHandler()
 
-		_, err := queryHandler.HandleQuery(query)
+		_, err := queryHandler.HandleSimpleQuery(query)
 
 		if err == nil {
 			t.Error("Expected an error for non-existent table, got nil")
