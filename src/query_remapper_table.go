@@ -185,13 +185,13 @@ func (remapper *QueryRemapperTable) RemapTableFunctionCall(rangeFunction *pgQuer
 
 func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 	newIcebergSchemaTables, err := remapper.icebergReader.SchemaTables()
-	PanicIfError(err)
+	PanicIfError(err, remapper.config)
 
 	ctx := context.Background()
 	for _, icebergSchemaTable := range newIcebergSchemaTables.Values() {
 		if !remapper.icebergSchemaTables.Contains(icebergSchemaTable) {
 			icebergTableFields, err := remapper.icebergReader.TableFields(icebergSchemaTable)
-			PanicIfError(err)
+			PanicIfError(err, remapper.config)
 
 			var sqlColumns []string
 			for _, icebergTableField := range icebergTableFields {
@@ -199,15 +199,15 @@ func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 			}
 
 			_, err = remapper.duckdb.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+icebergSchemaTable.Schema, nil)
-			PanicIfError(err)
+			PanicIfError(err, remapper.config)
 			_, err = remapper.duckdb.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS "+icebergSchemaTable.String()+" ("+strings.Join(sqlColumns, ", ")+")", nil)
-			PanicIfError(err)
+			PanicIfError(err, remapper.config)
 		}
 	}
 	for _, icebergSchemaTable := range remapper.icebergSchemaTables.Values() {
 		if !newIcebergSchemaTables.Contains(icebergSchemaTable) {
 			_, err = remapper.duckdb.ExecContext(ctx, "DROP TABLE IF EXISTS "+icebergSchemaTable.String(), nil)
-			PanicIfError(err)
+			PanicIfError(err, remapper.config)
 		}
 	}
 
@@ -224,7 +224,7 @@ func (remapper *QueryRemapperTable) upsertPgStatUserTables(icebergSchemaTables S
 		"DELETE FROM pg_stat_user_tables",
 		"INSERT INTO pg_stat_user_tables VALUES " + strings.Join(values, ", "),
 	})
-	PanicIfError(err)
+	PanicIfError(err, remapper.config)
 }
 
 // System pg_* tables

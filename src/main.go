@@ -53,7 +53,7 @@ func start(config *Config) {
 	queryHandler := NewQueryHandler(config, duckdb, icebergReader)
 
 	for {
-		conn := AcceptConnection(tcpListener)
+		conn := AcceptConnection(config, tcpListener)
 		LogInfo(config, "BemiDB: Accepted connection from", conn.RemoteAddr())
 		postgres := NewPostgres(config, &conn)
 

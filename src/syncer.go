@@ -43,11 +43,11 @@ func (syncer *Syncer) SyncFromPostgres() {
 	syncer.sendAnonymousAnalytics(databaseUrl)
 
 	conn, err := pgx.Connect(ctx, databaseUrl)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer conn.Close(ctx)
 
 	_, err = conn.Exec(ctx, "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 
 	pgSchemaTables := []PgSchemaTable{}
 	for _, schema := range syncer.listPgSchemas(conn) {
@@ -128,13 +128,13 @@ func (syncer *Syncer) listPgSchemas(conn *pgx.Conn) []string {
 		context.Background(),
 		"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'pg_toast', 'information_schema')",
 	)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer schemasRows.Close()
 
 	for schemasRows.Next() {
 		var schema string
 		err = schemasRows.Scan(&schema)
-		PanicIfError(err)
+		PanicIfError(err, syncer.config)
 		schemas = append(schemas, schema)
 	}
 
@@ -156,13 +156,13 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 		`,
 		schema,
 	)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer tablesRows.Close()
 
 	for tablesRows.Next() {
 		pgSchemaTable := PgSchemaTable{Schema: schema}
 		err = tablesRows.Scan(&pgSchemaTable.Table, &pgSchemaTable.ParentPartitionedTable)
-		PanicIfError(err)
+		PanicIfError(err, syncer.config)
 		pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
 	}
 
@@ -173,12 +173,12 @@ func (syncer *Syncer) syncFromPgTable(conn *pgx.Conn, pgSchemaTable PgSchemaTabl
 	LogInfo(syncer.config, "Syncing "+pgSchemaTable.String()+"...")
 
 	csvFile, err := syncer.exportPgTableToCsv(conn, pgSchemaTable)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer csvFile.Close()
 
 	csvReader := csv.NewReader(csvFile)
 	csvHeader, err := csvReader.Read()
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 
 	pgSchemaColumns := syncer.pgTableSchemaColumns(conn, pgSchemaTable, csvHeader)
 	reachedEnd := false
@@ -211,7 +211,7 @@ func (syncer *Syncer) syncFromPgTable(conn *pgx.Conn, pgSchemaTable PgSchemaTabl
 		if totalRowCount%(BATCH_SIZE*PING_INTERVAL_BETWEEN_BATCHES) == 0 {
 			LogDebug(syncer.config, "Pinging the database...")
 			_, err := conn.Exec(context.Background(), "SELECT 1")
-			PanicIfError(err)
+			PanicIfError(err, syncer.config)
 		}
 
 		return rows
@@ -243,11 +243,11 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 		pgSchemaTable.Table,
 		csvHeader,
 	)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer rows.Close()
 
 	for rows.Next() {
-		var pgSchemaColumn PgSchemaColumn
+		pgSchemaColumn := NewPgSchemaColumn(syncer.config)
 		err = rows.Scan(
 			&pgSchemaColumn.ColumnName,
 			&pgSchemaColumn.DataType,
@@ -260,8 +260,8 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 			&pgSchemaColumn.DatetimePrecision,
 			&pgSchemaColumn.Namespace,
 		)
-		PanicIfError(err)
-		pgSchemaColumns = append(pgSchemaColumns, pgSchemaColumn)
+		PanicIfError(err, syncer.config)
+		pgSchemaColumns = append(pgSchemaColumns, *pgSchemaColumn)
 	}
 
 	return pgSchemaColumns
@@ -269,7 +269,7 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 
 func (syncer *Syncer) exportPgTableToCsv(conn *pgx.Conn, pgSchemaTable PgSchemaTable) (csvFile *os.File, err error) {
 	tempFile, err := CreateTemporaryFile(pgSchemaTable.String())
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer DeleteTemporaryFile(tempFile)
 
 	result, err := conn.PgConn().CopyTo(
@@ -277,7 +277,7 @@ func (syncer *Syncer) exportPgTableToCsv(conn *pgx.Conn, pgSchemaTable PgSchemaT
 		tempFile,
 		"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
 	)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	LogDebug(syncer.config, "Copied", result.RowsAffected(), "row(s) into", tempFile.Name())
 
 	return os.Open(tempFile.Name())
@@ -293,7 +293,7 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 	}
 
 	icebergSchemas, err := syncer.icebergReader.Schemas()
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 
 	for _, icebergSchema := range icebergSchemas {
 		found := false
@@ -311,7 +311,7 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 	}
 
 	icebergSchemaTables, err := syncer.icebergReader.SchemaTables()
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 
 	for _, icebergSchemaTable := range icebergSchemaTables.Values() {
 		found := false

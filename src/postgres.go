@@ -45,13 +45,13 @@ func NewTcpListener(config *Config) net.Listener {
 	}
 
 	tcpListener, err := net.Listen(network, host+":"+config.Port)
-	PanicIfError(err)
+	PanicIfError(err, config)
 	return tcpListener
 }
 
-func AcceptConnection(listener net.Listener) net.Conn {
+func AcceptConnection(config *Config, listener net.Listener) net.Conn {
 	conn, err := listener.Accept()
-	PanicIfError(err)
+	PanicIfError(err, config)
 	return conn
 }
 
@@ -177,10 +177,10 @@ func (postgres *Postgres) writeMessages(messages ...pgproto3.Message) {
 	var err error
 	for _, message := range messages {
 		buf, err = message.Encode(buf)
-		PanicIfError(err, "Error encoding messages")
+		PanicIfError(err, nil, "Error encoding messages")
 	}
 	_, err = (*postgres.conn).Write(buf)
-	PanicIfError(err, "Error writing messages")
+	PanicIfError(err, nil, "Error writing messages")
 }
 
 func (postgres *Postgres) writeError(err error) {

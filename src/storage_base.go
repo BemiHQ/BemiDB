@@ -87,7 +87,7 @@ func (storage *StorageBase) WriteParquetFile(fileWriter source.ParquetFile, pgSc
 		schemaMap["Fields"] = append(schemaMap["Fields"].([]map[string]interface{}), fieldMap)
 	}
 	schemaJson, err := json.Marshal(schemaMap)
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 
 	LogDebug(storage.config, "Parquet schema:", string(schemaJson))
 	parquetWriter, err := writer.NewJSONWriter(string(schemaJson), fileWriter, PARQUET_PARALLEL_NUMBER)
@@ -106,7 +106,7 @@ func (storage *StorageBase) WriteParquetFile(fileWriter source.ParquetFile, pgSc
 				rowMap[pgSchemaColumns[i].ColumnName] = pgSchemaColumns[i].FormatParquetValue(rowValue)
 			}
 			rowJson, err := json.Marshal(rowMap)
-			PanicIfError(err)
+			PanicIfError(err, storage.config)
 
 			if err = parquetWriter.Write(string(rowJson)); err != nil {
 				return 0, fmt.Errorf("Write error: %v", err)

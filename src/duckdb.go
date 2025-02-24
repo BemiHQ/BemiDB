@@ -35,7 +35,7 @@ type Duckdb struct {
 func NewDuckdb(config *Config) *Duckdb {
 	ctx := context.Background()
 	db, err := sql.Open("duckdb", "")
-	PanicIfError(err)
+	PanicIfError(err, config)
 
 	duckdb := &Duckdb{
 		db:     db,
@@ -64,7 +64,7 @@ func NewDuckdb(config *Config) *Duckdb {
 
 	for _, query := range bootQueries {
 		_, err := duckdb.ExecContext(ctx, query, nil)
-		PanicIfError(err)
+		PanicIfError(err, config)
 	}
 
 	switch config.StorageType {
@@ -77,11 +77,11 @@ func NewDuckdb(config *Config) *Duckdb {
 			"endpoint":        config.Aws.S3Endpoint,
 			"s3Bucket":        "s3://" + config.Aws.S3Bucket,
 		})
-		PanicIfError(err)
+		PanicIfError(err, config)
 
 		if config.LogLevel == LOG_LEVEL_TRACE {
 			_, err = duckdb.ExecContext(ctx, "SET enable_http_logging=true", nil)
-			PanicIfError(err)
+			PanicIfError(err, config)
 		}
 	}
 
@@ -143,12 +143,12 @@ func readDuckdbInitFile(config *Config) []string {
 			LogDebug(config, "DuckDB: No init file found at", config.InitSqlFilepath)
 			return nil
 		}
-		PanicIfError(err)
+		PanicIfError(err, config)
 	}
 
 	LogInfo(config, "DuckDB: Reading init file", config.InitSqlFilepath)
 	file, err := os.Open(config.InitSqlFilepath)
-	PanicIfError(err)
+	PanicIfError(err, config)
 	defer file.Close()
 
 	lines := []string{}
@@ -156,6 +156,6 @@ func readDuckdbInitFile(config *Config) []string {
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-	PanicIfError(scanner.Err())
+	PanicIfError(scanner.Err(), config)
 	return lines
 }

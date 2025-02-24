@@ -76,7 +76,7 @@ func (storage *StorageLocal) IcebergTableFields(icebergSchemaTable IcebergSchema
 
 func (storage *StorageLocal) absoluteIcebergPath(relativePaths ...string) string {
 	execPath, err := os.Getwd()
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 
 	return filepath.Join(execPath, storage.config.StoragePath, filepath.Join(relativePaths...))
 }
@@ -111,7 +111,7 @@ func (storage *StorageLocal) CreateDataDir(schemaTable IcebergSchemaTable) strin
 	tablePath := storage.tablePath(schemaTable)
 	dataPath := filepath.Join(tablePath, "data")
 	err := os.MkdirAll(dataPath, os.ModePerm)
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 	return dataPath
 }
 
@@ -119,7 +119,7 @@ func (storage *StorageLocal) CreateMetadataDir(schemaTable IcebergSchemaTable) s
 	tablePath := storage.tablePath(schemaTable)
 	metadataPath := filepath.Join(tablePath, "metadata")
 	err := os.MkdirAll(metadataPath, os.ModePerm)
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 	return metadataPath
 }
 

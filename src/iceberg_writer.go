@@ -333,29 +333,29 @@ func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSche
 	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
 
 	parquetFile, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
-	PanicIfError(err)
+	PanicIfError(err, icebergWriter.config)
 
 	metadataDirPath := icebergWriter.storage.CreateMetadataDir(schemaTable)
 
 	manifestFile, err := icebergWriter.storage.CreateManifest(metadataDirPath, parquetFile)
-	PanicIfError(err)
+	PanicIfError(err, icebergWriter.config)
 
 	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile, manifestFile)
-	PanicIfError(err)
+	PanicIfError(err, icebergWriter.config)
 
 	metadataFile, err := icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, parquetFile, manifestFile, manifestListFile)
-	PanicIfError(err)
+	PanicIfError(err, icebergWriter.config)
 
 	err = icebergWriter.storage.CreateVersionHint(metadataDirPath, metadataFile)
-	PanicIfError(err)
+	PanicIfError(err, icebergWriter.config)
 }
 
 func (icebergWriter *IcebergWriter) DeleteSchemaTable(schemaTable IcebergSchemaTable) {
 	err := icebergWriter.storage.DeleteSchemaTable(schemaTable)
-	PanicIfError(err)
+	PanicIfError(err, icebergWriter.config)
 }
 
 func (icebergWriter *IcebergWriter) DeleteSchema(schema string) {
 	err := icebergWriter.storage.DeleteSchema(schema)
-	PanicIfError(err)
+	PanicIfError(err, icebergWriter.config)
 }

@@ -385,7 +385,7 @@ func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, 
 func (queryHandler *QueryHandler) createSchemas() {
 	ctx := context.Background()
 	schemas, err := queryHandler.icebergReader.Schemas()
-	PanicIfError(err)
+	PanicIfError(err, queryHandler.config)
 
 	for _, schema := range schemas {
 		_, err := queryHandler.duckdb.ExecContext(
@@ -393,7 +393,7 @@ func (queryHandler *QueryHandler) createSchemas() {
 			"CREATE SCHEMA IF NOT EXISTS \"$schema\"",
 			map[string]string{"schema": schema},
 		)
-		PanicIfError(err)
+		PanicIfError(err, queryHandler.config)
 	}
 }
 

@@ -41,7 +41,7 @@ func NewS3Storage(config *Config) *StorageS3 {
 		awsConfig.WithCredentialsProvider(awsCredentials),
 		awsConfig.WithClientLogMode(logMode),
 	)
-	PanicIfError(err)
+	PanicIfError(err, config)
 
 	return &StorageS3{
 		s3Client:    s3.NewFromConfig(loadedAwsConfig),

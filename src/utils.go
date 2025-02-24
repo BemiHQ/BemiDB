@@ -1,20 +1,37 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
+	"runtime"
 	"strconv"
+	"time"
 	"unicode"
 
 	"golang.org/x/crypto/pbkdf2"
 )
 
-func PanicIfError(err error, message ...string) {
+type AnonymousErrorData struct {
+	DbHost     string `json:"dbHost"`
+	OsName     string `json:"osName"`
+	Version    string `json:"version"`
+	Error      string `json:"error"`
+	StackTrace string `json:"stackTrace"`
+}
+
+func PanicIfError(err error, config *Config, message ...string) {
 	if err != nil {
+		if config != nil {
+			sendAnonymousErrorReport(config, err)
+		}
 		if len(message) == 1 {
 			panic(fmt.Errorf(message[0]+": %w", err))
 		}
@@ -25,7 +42,7 @@ func PanicIfError(err error, message ...string) {
 
 func CreateTemporaryFile(prefix string) (file *os.File, err error) {
 	tempFile, err := os.CreateTemp("", prefix)
-	PanicIfError(err)
+	PanicIfError(err, nil)
 
 	return tempFile, nil
 }
@@ -88,4 +105,47 @@ func sha256Hash(data []byte) []byte {
 	hash := sha256.New()
 	hash.Write(data)
 	return hash.Sum(nil)
+}
+
+func sendAnonymousErrorReport(config *Config, err error) {
+	if config.DisableAnonymousAnalytics {
+		LogInfo(config, "Anonymous analytics is disabled")
+		return
+	}
+
+	stack := make([]byte, 4096)
+	n := runtime.Stack(stack, false)
+	stackTrace := string(stack[:n])
+
+	var dbHost string
+	if config != nil && config.Pg.DatabaseUrl != "" {
+		dbUrl, err := url.Parse(config.Pg.DatabaseUrl)
+		if err != nil {
+			return
+		}
+
+		hostname := dbUrl.Hostname()
+		switch hostname {
+		case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+			return
+		default:
+			dbHost = hostname
+		}
+	}
+
+	data := AnonymousErrorData{
+		DbHost:     dbHost,
+		OsName:     runtime.GOOS + "-" + runtime.GOARCH,
+		Version:    config.Version,
+		Error:      err.Error(),
+		StackTrace: stackTrace,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	client := http.Client{Timeout: 5 * time.Second}
+	_, _ = client.Post("https://api.bemidb.com/api/errors", "application/json", bytes.NewBuffer(jsonData))
 }
