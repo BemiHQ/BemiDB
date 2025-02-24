@@ -25,6 +25,7 @@ var DUCKDB_INIT_BOOT_QUERIES = []string{
 
 	// Configure DuckDB
 	"SET scalar_subquery_error_on_multiple_rows=false",
+	"SET timezone='UTC'",
 }
 
 type Duckdb struct {

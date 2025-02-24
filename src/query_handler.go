@@ -586,6 +586,10 @@ func (queryHandler *QueryHandler) columnTypeOid(col *sql.ColumnType) uint32 {
 		return pgtype.TimestampOID
 	case "TIMESTAMP[]":
 		return pgtype.TimestampArrayOID
+	case "TIMESTAMPTZ":
+		return pgtype.TimestamptzOID
+	case "TIMESTAMPTZ[]":
+		return pgtype.TimestamptzArrayOID
 	case "BLOB":
 		return pgtype.UUIDOID
 	case "BLOB[]":
@@ -603,7 +607,7 @@ func (queryHandler *QueryHandler) columnTypeOid(col *sql.ColumnType) uint32 {
 			}
 		}
 
-		panic("Unsupported column type: " + col.DatabaseTypeName())
+		panic("Unsupported serialized column type: " + col.DatabaseTypeName())
 	}
 }
 
@@ -735,8 +739,10 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 					values = append(values, []byte(value.Time.Format("15:04:05.999999")))
 				case "TIMESTAMP":
 					values = append(values, []byte(value.Time.Format("2006-01-02 15:04:05.999999")))
+				case "TIMESTAMPTZ":
+					values = append(values, []byte(value.Time.Format("2006-01-02 15:04:05.999999-07:00")))
 				default:
-					panic("Unsupported type: " + cols[i].DatabaseTypeName())
+					panic("Unsupported scanned time type: " + cols[i].DatabaseTypeName())
 				}
 			} else {
 				values = append(values, nil)
@@ -768,7 +774,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 		case *string:
 			values = append(values, []byte(*value))
 		default:
-			panic("Unsupported type: " + cols[i].ScanType().Name())
+			panic("Unsupported scanned type: " + cols[i].ScanType().Name())
 		}
 	}
 	dataRow := pgproto3.DataRow{Values: values}

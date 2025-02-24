@@ -301,6 +301,7 @@ func TestHandleQuery(t *testing.T) {
 		"SHOW timezone": {
 			"description": {"timezone"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"UTC"},
 		},
 
 		// Iceberg data
@@ -795,6 +796,11 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"interval"},
 			"types":       {Uint32ToString(pgtype.IntervalOID)},
 			"values":      {"0 months 7 days 0 microseconds"},
+		},
+		"SELECT date_trunc('month', '2025-02-24 15:58:23-05'::timestamptz + '-1 month'::interval) AS date": {
+			"description": {"date"},
+			"types":       {Uint32ToString(pgtype.TimestamptzOID)},
+			"values":      {"2025-01-01 00:00:00+00:00"},
 		},
 
 		// SELECT * FROM function()
