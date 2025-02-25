@@ -109,6 +109,7 @@ func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, duckdb 
 		config:           config,
 	}
 	remapper.reloadIceberSchemaTables()
+	duckdb.ExecInitFile()
 	return remapper
 }
 

@@ -58,10 +58,6 @@ func NewDuckdb(config *Config) *Duckdb {
 		// Use the public schema
 		[]string{"USE public"},
 	)
-	additionalBootQueries := readDuckdbInitFile(config)
-	if additionalBootQueries != nil {
-		bootQueries = slices.Concat(bootQueries, additionalBootQueries)
-	}
 
 	for _, query := range bootQueries {
 		_, err := duckdb.ExecContext(ctx, query, nil)
@@ -128,6 +124,19 @@ func (duckdb *Duckdb) ExecTransactionContext(ctx context.Context, queries []stri
 	return tx.Commit()
 }
 
+func (duckdb *Duckdb) ExecInitFile() {
+	initFileQueries := readInitFile(duckdb.config)
+	if initFileQueries == nil {
+		return
+	}
+
+	ctx := context.Background()
+	for _, query := range initFileQueries {
+		_, err := duckdb.ExecContext(ctx, query, nil)
+		PanicIfError(err, duckdb.config)
+	}
+}
+
 func replaceNamedStringArgs(query string, args map[string]string) string {
 	re := regexp.MustCompile(`['";]`) // Escape single quotes, double quotes, and semicolons from args
 
@@ -137,7 +146,7 @@ func replaceNamedStringArgs(query string, args map[string]string) string {
 	return query
 }
 
-func readDuckdbInitFile(config *Config) []string {
+func readInitFile(config *Config) []string {
 	_, err := os.Stat(config.InitSqlFilepath)
 	if err != nil {
 		if os.IsNotExist(err) {
