@@ -229,7 +229,7 @@ func (storage *StorageLocal) fileSystemPrefix() string {
 func (storage *StorageLocal) nestedDirectories(path string) (dirs []string, err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %v", err)
+		return nil, fmt.Errorf("failed to read directory: %s.\nPlease make sure to run 'bemidb sync' first", path)
 	}
 
 	for _, file := range files {
