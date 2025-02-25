@@ -20,7 +20,6 @@ const (
 
 	PARQUET_NAN                   = "NaN"
 	PARQUET_MAX_DECIMAL_PRECISION = 38
-	PARQUET_UUID_LENGTH           = 36
 
 	// 0000-01-01 00:00:00 +0000 UTC
 	EPOCH_TIME_MS = -62167219200000
@@ -204,8 +203,6 @@ func (pgSchemaColumn *PgSchemaColumn) toParquetSchemaField() ParquetSchemaField 
 		parquetSchemaField.Scale = IntToString(scale)
 		parquetSchemaField.Precision = IntToString(precision)
 		parquetSchemaField.Length = IntToString(scale + precision)
-	case "uuid":
-		parquetSchemaField.Length = IntToString(PARQUET_UUID_LENGTH)
 	default:
 		if pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY {
 			parquetSchemaField.NestedType = parquetSchemaField.Type
@@ -327,6 +324,7 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveTypes() (primitiveType str
 	case "varchar", "char", "text", "bpchar", "bit", "bytea", "interval", "jsonb", "json",
 		"point", "line", "lseg", "box", "path", "polygon", "circle",
 		"cidr", "inet", "macaddr", "macaddr8",
+		"uuid", // DuckDB doesn't support BLOB (FIXED_LEN_BYTE_ARRAY) -> UUID type casting, use a string instead
 		"tsvector", "xml", "pg_snapshot":
 		return "BYTE_ARRAY", "UTF8"
 	case "date":
@@ -345,8 +343,6 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveTypes() (primitiveType str
 		return "INT32", "UINT_32"
 	case "xid8":
 		return "INT64", "UINT_64"
-	case "uuid":
-		return "FIXED_LEN_BYTE_ARRAY", ""
 	case "bool":
 		return "BOOLEAN", ""
 	case "time", "timetz":

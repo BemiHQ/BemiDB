@@ -179,6 +179,32 @@ func (nullBigInt NullBigInt) String() string {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+type NullUuid struct {
+	Present bool
+	Value   []uint8
+}
+
+func (nullUuid *NullUuid) Scan(value interface{}) error {
+	if value == nil {
+		nullUuid.Present = false
+		return nil
+	}
+
+	nullUuid.Present = true
+	nullUuid.Value = value.([]uint8)
+	return nil
+}
+
+func (nullUuid NullUuid) String() string {
+	if nullUuid.Present {
+		uuidString := string(nullUuid.Value)
+		return fmt.Sprintf("%x-%x-%x-%x-%x", uuidString[:4], uuidString[4:6], uuidString[6:8], uuidString[8:10], uuidString[10:])
+	}
+	return ""
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 type NullArray struct {
 	Present bool
 	Value   []interface{}
@@ -592,9 +618,9 @@ func (queryHandler *QueryHandler) columnTypeOid(col *sql.ColumnType) uint32 {
 		return pgtype.TimestamptzOID
 	case "TIMESTAMPTZ[]":
 		return pgtype.TimestamptzArrayOID
-	case "BLOB":
+	case "UUID":
 		return pgtype.UUIDOID
-	case "BLOB[]":
+	case "UUID[]":
 		return pgtype.UUIDArrayOID
 	case "INTERVAL":
 		return pgtype.IntervalOID
@@ -650,8 +676,11 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 		case "float64", "float32":
 			var value sql.NullFloat64
 			valuePtrs[i] = &value
-		case "string", "[]uint8": // []uint8 is for uuid
+		case "string":
 			var value sql.NullString
+			valuePtrs[i] = &value
+		case "[]uint8": // uuid
+			var value NullUuid
 			valuePtrs[i] = &value
 		case "bool":
 			var value sql.NullBool
@@ -672,7 +701,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 			var value NullArray
 			valuePtrs[i] = &value
 		default:
-			panic("Unsupported queried type: " + col.ScanType().String())
+			panic("Unsupported data row type: " + col.ScanType().String())
 		}
 	}
 
@@ -773,10 +802,16 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 			} else {
 				values = append(values, nil)
 			}
+		case *NullUuid:
+			if value.Present {
+				values = append(values, []byte(value.String()))
+			} else {
+				values = append(values, nil)
+			}
 		case *string:
 			values = append(values, []byte(*value))
 		default:
-			panic("Unsupported scanned type: " + cols[i].ScanType().Name())
+			panic("Unsupported scanned row type: " + cols[i].ScanType().Name())
 		}
 	}
 	dataRow := pgproto3.DataRow{Values: values}

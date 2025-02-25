@@ -565,12 +565,12 @@ func TestHandleQuery(t *testing.T) {
 		},
 		"SELECT uuid_column FROM public.test_table WHERE uuid_column = '58a7c845-af77-44b2-8664-7ca613d92f04'": {
 			"description": {"uuid_column"},
-			"types":       {Uint32ToString(pgtype.UUIDOID)},
+			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"58a7c845-af77-44b2-8664-7ca613d92f04"},
 		},
 		"SELECT uuid_column FROM public.test_table WHERE uuid_column IS NULL": {
 			"description": {"uuid_column"},
-			"types":       {Uint32ToString(pgtype.UUIDOID)},
+			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
 		},
 		"SELECT bytea_column FROM public.test_table WHERE bytea_column IS NOT NULL": {
@@ -782,7 +782,7 @@ func TestHandleQuery(t *testing.T) {
 		},
 		"SELECT uuid_column FROM test_table WHERE uuid_column IN ('58a7c845-af77-44b2-8664-7ca613d92f04'::uuid)": {
 			"description": {"uuid_column"},
-			"types":       {Uint32ToString(pgtype.UUIDOID)},
+			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"58a7c845-af77-44b2-8664-7ca613d92f04"},
 		},
 		"SELECT '1 week'::INTERVAL AS interval": {
