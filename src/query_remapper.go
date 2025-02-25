@@ -22,8 +22,7 @@ var KNOWN_SET_STATEMENTS = NewSet([]string{
 	"session characteristics",     // SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED
 })
 
-var FALLBACK_QUERY_TREE, _ = pgQuery.Parse(FALLBACK_SQL_QUERY)
-var FALLBACK_SET_QUERY_TREE, _ = pgQuery.Parse("SET schema TO public")
+var NOOP_QUERY_TREE, r = pgQuery.Parse("SET TimeZone = 'UTC'")
 
 type QueryRemapper struct {
 	parserTypeCast     *ParserTypeCast
@@ -80,11 +79,15 @@ func (remapper *QueryRemapper) RemapStatements(statements []*pgQuery.RawStmt) ([
 
 		// DISCARD ALL
 		case node.GetDiscardStmt() != nil:
-			statements[i] = FALLBACK_QUERY_TREE.Stmts[0]
+			statements[i] = NOOP_QUERY_TREE.Stmts[0]
 
 		// SHOW
 		case node.GetVariableShowStmt() != nil:
 			statements[i] = remapper.remapperShow.RemapShowStatement(stmt)
+
+		// BEGIN
+		case node.GetTransactionStmt() != nil:
+			statements[i] = NOOP_QUERY_TREE.Stmts[0]
 
 		// Unsupported query
 		default:
@@ -110,7 +113,7 @@ func (remapper *QueryRemapper) remapSetStatement(stmt *pgQuery.RawStmt) *pgQuery
 		LogWarn(remapper.config, "Unknown SET ", setStatement.Name, ":", setStatement)
 	}
 
-	return FALLBACK_SET_QUERY_TREE.Stmts[0]
+	return NOOP_QUERY_TREE.Stmts[0]
 }
 
 func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.SelectStmt, indentLevel int) {

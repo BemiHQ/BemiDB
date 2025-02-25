@@ -462,6 +462,8 @@ func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQue
 		commandTag = "SHOW"
 	case strings.HasPrefix(upperOriginalQueryStatement, "DISCARD ALL"):
 		commandTag = "DISCARD ALL"
+	case strings.HasPrefix(upperOriginalQueryStatement, "BEGIN"):
+		commandTag = "BEGIN"
 	}
 
 	messages = append(messages, &pgproto3.CommandComplete{CommandTag: []byte(commandTag)})

@@ -285,13 +285,6 @@ func TestHandleQuery(t *testing.T) {
 			"values":      {"id", "pg_catalog", "int4"},
 		},
 
-		// DISCARD
-		"DISCARD ALL": {
-			"description": {"1"},
-			"types":       {Uint32ToString(pgtype.Int4OID)},
-			"values":      {"1"},
-		},
-
 		// SHOW
 		"SHOW search_path": {
 			"description": {"search_path"},
@@ -1112,6 +1105,30 @@ func TestHandleQuery(t *testing.T) {
 		testMessageTypes(t, messages, []pgproto3.Message{
 			&pgproto3.EmptyQueryResponse{},
 		})
+	})
+
+	t.Run("Handles a DISCARD ALL query", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+
+		messages, err := queryHandler.HandleSimpleQuery("DISCARD ALL")
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.CommandComplete{},
+		})
+		testCommandCompleteTag(t, messages[0], "DISCARD ALL")
+	})
+
+	t.Run("Handles a BEGIN query", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+
+		messages, err := queryHandler.HandleSimpleQuery("BEGIN")
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.CommandComplete{},
+		})
+		testCommandCompleteTag(t, messages[0], "BEGIN")
 	})
 }
 
