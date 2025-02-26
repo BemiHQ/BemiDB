@@ -31,7 +31,11 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 		"CREATE MACRO row_to_json(record) AS to_json(record), (record, pretty_bool) AS to_json(record)",
 		"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
 		"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
-		"CREATE MACRO jsonb_extract_path_text(from_json, path_elems) AS json_extract_path_text(from_json, path_elems)",
+		`CREATE MACRO jsonb_extract_path_text(from_json, path_elems) AS
+			CASE typeof(path_elems) LIKE '%[]'
+			WHEN true THEN json_extract_path_text(from_json, path_elems)[1]::varchar
+			ELSE json_extract_path_text(from_json, path_elems)::varchar
+		END`,
 		`CREATE MACRO json_build_object(k1, v1) AS json_object(k1, v1),
 			(k1, v1, k2, v2) AS json_object(k1, v1, k2, v2),
 			(k1, v1, k2, v2, k3, v3) AS json_object(k1, v1, k2, v2, k3, v3),

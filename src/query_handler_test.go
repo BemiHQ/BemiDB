@@ -136,6 +136,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"value"},
 		},
+		"SELECT jsonb_extract_path_text(json_column, VARIADIC ARRAY['key']) AS jsonb_extract_path_text FROM test_table LIMIT 1": {
+			"description": {"jsonb_extract_path_text"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"value"},
+		},
 		"SELECT encode(sha256('foo'), 'hex'::text) AS encode": {
 			"description": {"encode"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
