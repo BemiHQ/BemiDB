@@ -6,6 +6,7 @@ const (
 	PG_SCHEMA_PUBLIC             = "public"
 
 	PG_FUNCTION_FORMAT = "format"
+	PG_FUNCTION_ENCODE = "encode"
 
 	PG_TABLE_PG_CLASS            = "pg_class"
 	PG_TABLE_PG_STAT_USER_TABLES = "pg_stat_user_tables"

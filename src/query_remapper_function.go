@@ -123,6 +123,12 @@ func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.F
 	case schemaFunction.Function == PG_FUNCTION_FORMAT:
 		remapper.parserFunction.RemapFormatToPrintf(functionCall)
 		return schemaFunction
+
+	// encode(sha256(...), 'hex') -> sha256(...)
+	case schemaFunction.Function == PG_FUNCTION_ENCODE:
+		remapper.parserFunction.RemoveEncode(functionCall)
+		return schemaFunction
+
 	}
 
 	return nil

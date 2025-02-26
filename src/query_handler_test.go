@@ -136,6 +136,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"value"},
 		},
+		"SELECT encode(sha256('foo'), 'hex'::text) AS encode": {
+			"description": {"encode"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"},
+		},
 
 		// PG system tables
 		"SELECT oid, typname AS typename FROM pg_type WHERE typname='geometry' OR typname='geography'": {

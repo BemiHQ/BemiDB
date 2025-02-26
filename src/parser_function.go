@@ -65,3 +65,31 @@ func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall
 	functionCall.Args[0] = pgQuery.MakeAConstStrNode(format, 0)
 	return functionCall
 }
+
+// encode(sha256(...), 'hex') -> sha256(...)
+func (parser *ParserFunction) RemoveEncode(functionCall *pgQuery.FuncCall) {
+	if len(functionCall.Args) != 2 {
+		return
+	}
+
+	firstArg := functionCall.Args[0]
+	nestedFunctionCall := firstArg.GetFuncCall()
+	schemaFunction := parser.utils.SchemaFunction(nestedFunctionCall)
+	if schemaFunction.Function != "sha256" {
+		return
+	}
+
+	secondArg := functionCall.Args[1]
+	var format string
+	if secondArg.GetAConst() != nil {
+		format = secondArg.GetAConst().GetSval().Sval
+	} else if secondArg.GetTypeCast() != nil {
+		format = secondArg.GetTypeCast().Arg.GetAConst().GetSval().Sval
+	}
+	if format != "hex" {
+		return
+	}
+
+	functionCall.Funcname = nestedFunctionCall.Funcname
+	functionCall.Args = nestedFunctionCall.Args
+}
