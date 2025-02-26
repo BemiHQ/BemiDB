@@ -23,6 +23,9 @@ sync:
 test:
 	devbox run "cd src && go test ./..."
 
+test-function:
+	devbox run "cd src && go test ./... -run $(FUNC)"
+
 debug:
 	devbox run "cd src && dlv test github.com/BemiHQ/BemiDB"
 
@@ -68,8 +71,9 @@ pg-sniff:
 
 tpch-install:
 	devbox run "cd benchmark && \
-		git clone https://github.com/gregrahn/tpch-kit.git
-		cd tpch-kit/dbgen
+		rm -rf tpch-kit && \
+		git clone https://github.com/gregrahn/tpch-kit.git && \
+		cd tpch-kit/dbgen && \
 		make MACHINE=$$MACHINE DATABASE=POSTGRESQL"
 
 tpch-generate:

@@ -6,18 +6,20 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 const (
-	BATCH_SIZE                    = 10000
+	MAX_BUFFER_SIZE               = 256 * 1024 * 1024 // 256 MB
+	BATCH_SIZE                    = 2000
 	PING_INTERVAL_BETWEEN_BATCHES = 20
 )
 
@@ -42,19 +44,18 @@ func (syncer *Syncer) SyncFromPostgres() {
 	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
 	syncer.sendAnonymousAnalytics(databaseUrl)
 
-	conn, err := pgx.Connect(ctx, databaseUrl)
-	PanicIfError(err, syncer.config)
-	defer conn.Close(ctx)
+	structureConn := syncer.newConnection(ctx, databaseUrl)
+	defer structureConn.Close(ctx)
 
-	_, err = conn.Exec(ctx, "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
-	PanicIfError(err, syncer.config)
+	copyConn := syncer.newConnection(ctx, databaseUrl)
+	defer copyConn.Close(ctx)
 
 	pgSchemaTables := []PgSchemaTable{}
-	for _, schema := range syncer.listPgSchemas(conn) {
-		for _, pgSchemaTable := range syncer.listPgSchemaTables(conn, schema) {
+	for _, schema := range syncer.listPgSchemas(structureConn) {
+		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
 				pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
-				syncer.syncFromPgTable(conn, pgSchemaTable)
+				syncer.syncFromPgTable(pgSchemaTable, structureConn, copyConn)
 			}
 		}
 	}
@@ -169,22 +170,38 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 	return pgSchemaTables
 }
 
-func (syncer *Syncer) syncFromPgTable(conn *pgx.Conn, pgSchemaTable PgSchemaTable) {
-	LogInfo(syncer.config, "Syncing "+pgSchemaTable.String()+"...")
+func (syncer *Syncer) syncFromPgTable(pgSchemaTable PgSchemaTable, structureConn *pgx.Conn, copyConn *pgx.Conn) {
+	cappedBuffer := NewCappedBuffer(MAX_BUFFER_SIZE, syncer.config)
 
-	csvFile, err := syncer.exportPgTableToCsv(conn, pgSchemaTable)
-	PanicIfError(err, syncer.config)
-	defer csvFile.Close()
+	// Read from PostgreSQL in a separate goroutine
+	var readWaitGroup sync.WaitGroup
+	readWaitGroup.Add(1) // wait for 1 goroutine
+	go func() {
+		LogInfo(syncer.config, "Reading from PG:", pgSchemaTable.String()+"...")
+		result, err := copyConn.PgConn().CopyTo(
+			context.Background(),
+			cappedBuffer,
+			"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
+		)
+		PanicIfError(err, syncer.config)
+		LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)")
 
-	csvReader := csv.NewReader(csvFile)
+		cappedBuffer.Close()
+		readWaitGroup.Done()
+	}()
+
+	// Read the header to get the column names
+	csvReader := csv.NewReader(cappedBuffer)
 	csvHeader, err := csvReader.Read()
 	PanicIfError(err, syncer.config)
 
-	pgSchemaColumns := syncer.pgTableSchemaColumns(conn, pgSchemaTable, csvHeader)
+	schemaTable := pgSchemaTable.ToIcebergSchemaTable()
+	pgSchemaColumns := syncer.pgTableSchemaColumns(structureConn, pgSchemaTable, csvHeader)
 	reachedEnd := false
 	totalRowCount := 0
 
-	schemaTable := pgSchemaTable.ToIcebergSchemaTable()
+	// Write to Iceberg in a separate goroutine in parallel
+	LogInfo(syncer.config, "Writing to Iceberg:", pgSchemaTable.String()+"...")
 	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
@@ -193,9 +210,13 @@ func (syncer *Syncer) syncFromPgTable(conn *pgx.Conn, pgSchemaTable PgSchemaTabl
 		var rows [][]string
 		for {
 			row, err := csvReader.Read()
-			if err != nil {
+
+			if err == io.EOF {
 				reachedEnd = true
 				break
+			}
+			if err != nil {
+				PanicIfError(err, syncer.config)
 			}
 
 			rows = append(rows, row)
@@ -210,12 +231,25 @@ func (syncer *Syncer) syncFromPgTable(conn *pgx.Conn, pgSchemaTable PgSchemaTabl
 		// Ping the database to prevent the connection from being closed
 		if totalRowCount%(BATCH_SIZE*PING_INTERVAL_BETWEEN_BATCHES) == 0 {
 			LogDebug(syncer.config, "Pinging the database...")
-			_, err := conn.Exec(context.Background(), "SELECT 1")
+			_, err := structureConn.Exec(context.Background(), "SELECT 1")
 			PanicIfError(err, syncer.config)
 		}
 
 		return rows
 	})
+
+	readWaitGroup.Wait() // Wait for the Read goroutine to finish
+	LogInfo(syncer.config, "Finished writing to Iceberg:", pgSchemaTable.String())
+}
+
+func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pgx.Conn {
+	conn, err := pgx.Connect(ctx, databaseUrl)
+	PanicIfError(err, syncer.config)
+
+	_, err = conn.Exec(ctx, "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
+	PanicIfError(err, syncer.config)
+
+	return conn
 }
 
 func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
@@ -265,22 +299,6 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 	}
 
 	return pgSchemaColumns
-}
-
-func (syncer *Syncer) exportPgTableToCsv(conn *pgx.Conn, pgSchemaTable PgSchemaTable) (csvFile *os.File, err error) {
-	tempFile, err := CreateTemporaryFile(pgSchemaTable.String())
-	PanicIfError(err, syncer.config)
-	defer DeleteTemporaryFile(tempFile)
-
-	result, err := conn.PgConn().CopyTo(
-		context.Background(),
-		tempFile,
-		"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
-	)
-	PanicIfError(err, syncer.config)
-	LogDebug(syncer.config, "Copied", result.RowsAffected(), "row(s) into", tempFile.Name())
-
-	return os.Open(tempFile.Name())
 }
 
 func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTable) {

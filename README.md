@@ -269,7 +269,7 @@ Primitive data types are mapped as follows:
 | `time`, `timetz`                                            | `INT64` (`TIME_MICROS` / `TIME_MILLIS`)           | `time`                           |
 | `timestamp`                                                 | `INT64` (`TIMESTAMP_MICROS` / `TIMESTAMP_MILLIS`) | `timestamp` / `timestamp_ns`     |
 | `timestamptz`                                               | `INT64` (`TIMESTAMP_MICROS` / `TIMESTAMP_MILLIS`) | `timestamptz` / `timestamptz_ns` |
-| `uuid`                                                      | `FIXED_LEN_BYTE_ARRAY`                            | `uuid`                           |
+| `uuid`                                                      | `BYTE_ARRAY` (`UTF8`)                             | `uuid`                           |
 | `bytea`                                                     | `BYTE_ARRAY` (`UTF8`)                             | `binary`                         |
 | `interval`                                                  | `BYTE_ARRAY` (`UTF8`)                             | `string`                         |
 | `point`, `line`, `lseg`, `box`, `path`, `polygon`, `circle` | `BYTE_ARRAY` (`UTF8`)                             | `string`                         |
