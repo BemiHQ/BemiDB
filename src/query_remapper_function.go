@@ -32,6 +32,10 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 		"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
 		"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
 		"CREATE MACRO jsonb_extract_path_text(from_json, path_elems) AS json_extract_path_text(from_json, path_elems)",
+		`CREATE MACRO json_build_object(k1, v1) AS json_object(k1, v1),
+			(k1, v1, k2, v2) AS json_object(k1, v1, k2, v2),
+			(k1, v1, k2, v2, k3, v3) AS json_object(k1, v1, k2, v2, k3, v3),
+			(k1, v1, k2, v2, k3, v3, k4, v4) AS json_object(k1, v1, k2, v2, k3, v3, k4, v4)`,
 		`CREATE MACRO array_upper(arr, dimension) AS
 			CASE dimension
 			WHEN 1 THEN len(arr)

@@ -141,6 +141,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"},
 		},
+		"SELECT json_build_object('min', 1, 'max', 2) AS json_build_object": {
+			"description": {"json_build_object"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"{\"min\":1,\"max\":2}"},
+		},
 
 		// PG system tables
 		"SELECT oid, typname AS typename FROM pg_type WHERE typname='geometry' OR typname='geography'": {
