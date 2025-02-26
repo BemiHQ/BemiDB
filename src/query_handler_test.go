@@ -131,6 +131,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"varchar"},
 		},
+		"SELECT jsonb_extract_path_text(json_column, 'key') AS jsonb_extract_path_text FROM test_table LIMIT 1": {
+			"description": {"jsonb_extract_path_text"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"value"},
+		},
 
 		// PG system tables
 		"SELECT oid, typname AS typename FROM pg_type WHERE typname='geometry' OR typname='geography'": {
