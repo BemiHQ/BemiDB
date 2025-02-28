@@ -20,25 +20,22 @@ func NewQueryRemapperSelect(config *Config) *QueryRemapperSelect {
 	}
 }
 
-// SELECT ...
-func (remapper *QueryRemapperSelect) RemapSelectFunctions(targetNode *pgQuery.Node) *pgQuery.Node {
-	functionCall := remapper.parserFunction.InderectionFunctionCall(targetNode)
-	if functionCall == nil {
-		functionCall = remapper.parserFunction.FunctionCall(targetNode)
-		if functionCall == nil {
-			return targetNode
-		}
-	}
-
-	// FUNCTION(...) -> ANOTHER_FUNCTION(...)
-	schemaFunction := remapper.remapperFunction.RemapFunctionCall(functionCall)
-	if schemaFunction != nil {
+// SELECT FUNCTION(...) -> SELECT FUNCTION(...) AS FUNCTION
+func (remapper *QueryRemapperSelect) SetDefaultTargetNameToFunctionName(targetNode *pgQuery.Node) *pgQuery.Node {
+	functionCall := remapper.parserFunction.FunctionCall(targetNode)
+	if functionCall != nil {
+		schemaFunction := remapper.remapperFunction.SchemaFunction(functionCall)
+		// FUNCTION(...) -> FUNCTION(...) AS FUNCTION
 		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
 		return targetNode
 	}
 
-	// function(NESTED_FUNCTION(...), ...)
-	remapper.remapperFunction.RemapNestedFunctionCalls(functionCall)
+	indirectionName := remapper.parserFunction.IndirectionName(targetNode)
+	if indirectionName != "" {
+		// (FUNCTION()).n -> (FUNCTION()).n AS n
+		remapper.parserSelect.SetDefaultTargetName(targetNode, indirectionName)
+		return targetNode
+	}
 
 	return targetNode
 }

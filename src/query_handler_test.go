@@ -15,7 +15,7 @@ import (
 func TestHandleQuery(t *testing.T) {
 	var responsesByQuery = map[string]map[string][]string{
 		// PG functions
-		"SELECT VERSION() AS version": {
+		"SELECT VERSION()": {
 			"description": {"version"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"PostgreSQL 17.0, compiled by BemiDB"},
@@ -847,8 +847,8 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"1"},
 		},
-		"SELECT (information_schema._pg_expandarray(ARRAY[10])).n AS index": {
-			"description": {"index"},
+		"SELECT (information_schema._pg_expandarray(ARRAY[10])).n": {
+			"description": {"n"},
 			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"1"},
 		},

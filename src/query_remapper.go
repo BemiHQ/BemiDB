@@ -322,6 +322,16 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, indentLev
 		}
 	}
 
+	// (FUNCTION()).n
+	indirectionFunctionCall := node.GetAIndirection()
+	if indirectionFunctionCall != nil {
+		functionCall := indirectionFunctionCall.Arg.GetFuncCall()
+		if functionCall != nil {
+			remapper.remapperFunction.RemapFunctionCall(functionCall)
+			remapper.remapperFunction.RemapNestedFunctionCalls(functionCall) // recursion
+		}
+	}
+
 	return remapper.remapperExpression.RemappedExpression(node)
 }
 
@@ -353,6 +363,8 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 
 	// SELECT ...
 	for targetNodeIdx, targetNode := range selectStatement.TargetList {
+		targetNode = remapper.remapperSelect.SetDefaultTargetNameToFunctionName(targetNode)
+
 		valNode := targetNode.GetResTarget().Val
 		if valNode != nil {
 			targetNode.GetResTarget().Val = remapper.remappedExpressions(valNode, indentLevel) // recursion
@@ -373,7 +385,6 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 			}
 		}
 
-		targetNode = remapper.remapperSelect.RemapSelectFunctions(targetNode)
 		selectStatement.TargetList[targetNodeIdx] = targetNode
 	}
 

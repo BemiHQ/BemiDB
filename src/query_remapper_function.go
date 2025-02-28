@@ -103,9 +103,13 @@ func NewQueryRemapperFunction(config *Config) *QueryRemapperFunction {
 	}
 }
 
+func (remapper *QueryRemapperFunction) SchemaFunction(functionCall *pgQuery.FuncCall) *QuerySchemaFunction {
+	return remapper.parserFunction.SchemaFunction(functionCall)
+}
+
 // FUNCTION(...) -> ANOTHER_FUNCTION(...)
 func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.FuncCall) *QuerySchemaFunction {
-	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
+	schemaFunction := remapper.SchemaFunction(functionCall)
 
 	// Pre-defined macro functions
 	switch schemaFunction.Schema {
