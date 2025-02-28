@@ -150,11 +150,14 @@ func (pgSchemaColumn *PgSchemaColumn) FormatParquetValue(value string) interface
 	if pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY {
 		var values []interface{}
 
-		csvString := strings.Trim(value, "{}")
+		csvString := strings.TrimPrefix(value, "{")
+		csvString = strings.TrimSuffix(csvString, "}")
 		if csvString == "" {
 			return values
 		}
 
+		// Replace escaped double quotes with double quotes according to CSV format rules
+		csvString = strings.ReplaceAll(csvString, "\\\"", "\"\"")
 		csvReader := csv.NewReader(strings.NewReader(csvString))
 		stringValues, err := csvReader.Read()
 		PanicIfError(err, pgSchemaColumn.config)

@@ -20,7 +20,7 @@ import (
 const (
 	MAX_BUFFER_SIZE               = 256 * 1024 * 1024 // 256 MB
 	BATCH_SIZE                    = 2000
-	PING_INTERVAL_BETWEEN_BATCHES = 20
+	PING_INTERVAL_BETWEEN_BATCHES = 60
 )
 
 type Syncer struct {

@@ -263,6 +263,12 @@ var PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 		Namespace:  "pg_catalog",
 	},
 	{
+		ColumnName: "array_jsonb_column",
+		DataType:   "ARRAY",
+		UdtName:    "_jsonb",
+		Namespace:  "pg_catalog",
+	},
+	{
 		ColumnName: "array_ltree_column",
 		DataType:   "ARRAY",
 		UdtName:    "_ltree",
@@ -316,8 +322,9 @@ var PUBLIC_TEST_TABLE_LOADED_ROWS = [][]string{
 		"{\"key\": \"value\"}",                 // jsonb_column
 		"{one,two,three}",                      // array_text_column
 		"{1,2,3}",                              // array_int_column
-		"{\"a.b\",\"c.d\"}",                    // array_ltree_column
-		"(Toronto)",                            // user_defined_column
+		`{"{\"key\": \"value1\"}","{\"key\": \"value2\"}"}`, // array_jsonb_column
+		"{\"a.b\",\"c.d\"}", // array_ltree_column
+		"(Toronto)",         // user_defined_column
 	},
 	{
 		"2",                                // id
@@ -358,6 +365,7 @@ var PUBLIC_TEST_TABLE_LOADED_ROWS = [][]string{
 		"{}",                               // jsonb_column
 		PG_NULL_STRING,                     // array_text_column
 		"{}",                               // array_int_column
+		PG_NULL_STRING,                     // array_jsonb_column
 		PG_NULL_STRING,                     // array_ltree_column
 		PG_NULL_STRING,                     // user_defined_column
 	},

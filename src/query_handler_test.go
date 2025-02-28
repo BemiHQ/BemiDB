@@ -708,6 +708,16 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int4ArrayOID)},
 			"values":      {""},
 		},
+		"SELECT array_jsonb_column FROM public.test_table WHERE array_jsonb_column IS NOT NULL": {
+			"description": {"array_jsonb_column"},
+			"types":       {Uint32ToString(pgtype.TextArrayOID)},
+			"values":      {`{"{""key"": ""value1""}","{""key"": ""value2""}"}`},
+		},
+		"SELECT array_jsonb_column FROM public.test_table WHERE array_jsonb_column IS NULL": {
+			"description": {"array_jsonb_column"},
+			"types":       {Uint32ToString(pgtype.TextArrayOID)},
+			"values":      {""},
+		},
 		"SELECT array_ltree_column FROM public.test_table WHERE array_ltree_column IS NOT NULL": {
 			"description": {"array_ltree_column"},
 			"types":       {Uint32ToString(pgtype.TextArrayOID)},
@@ -748,7 +758,7 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT COUNT(*) AS count FROM pg_attribute WHERE attrelid = '\"public\".\"test_table\"'::regclass": {
 			"description": {"count"},
 			"types":       {Uint32ToString(pgtype.Int8OID)},
-			"values":      {"40"},
+			"values":      {"41"},
 		},
 		"SELECT objoid, classoid, objsubid, description FROM pg_description WHERE classoid = 'pg_class'::regclass": {
 			"description": {"objoid", "classoid", "objsubid", "description"},

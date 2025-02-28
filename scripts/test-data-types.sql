@@ -47,6 +47,7 @@ CREATE TABLE test_table (
   pg_snapshot_column PG_SNAPSHOT,
   array_text_column TEXT[],
   array_int_column INT[],
+  array_jsonb_column JSONB[],
   array_ltree_column LTREE[],
   user_defined_column address
 );
@@ -88,6 +89,7 @@ INSERT INTO test_table (
   pg_snapshot_column,
   array_text_column,
   array_int_column,
+  array_jsonb_column,
   array_ltree_column,
   user_defined_column
 ) VALUES (
@@ -127,6 +129,7 @@ INSERT INTO test_table (
   pg_current_snapshot(),                    -- pg_snapshot_column
   '{"one", "two", "three"}',                -- array_text_column
   '{1, 2, 3}',                              -- array_int_column
+  '{"{\"key\": \"value1\"}", "{\"key\": \"value2\"}"}'::JSONB[], -- array_jsonb_column
   '{"a.b", "c.d"}'::LTREE[],                -- array_ltree_column
   ROW('Toronto')                            -- user_defined_column
 ), (
@@ -166,6 +169,7 @@ INSERT INTO test_table (
   NULL,                                     -- pg_snapshot_column
   NULL,                                     -- array_text_column
   '{}',                                     -- array_int_column
+  NULL,                                     -- array_jsonb_column
   NULL,                                     -- array_ltree_column
   NULL                                      -- user_defined_column
 );
