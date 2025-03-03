@@ -309,7 +309,7 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveValue(value string) interf
 			return -EPOCH_TIME_MS + parsedTime.UnixMilli()
 		}
 	case "date":
-		parsedTime, err := time.Parse("2006-01-02", value)
+		parsedTime, err := StringDateToTime(value)
 		PanicIfError(err, pgSchemaColumn.config)
 		return parsedTime.Unix() / 86400
 	default:

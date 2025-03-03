@@ -148,7 +148,7 @@ INSERT INTO test_table (
   -3.141592653589793::FLOAT8,               -- float8_column
   -12345.00::NUMERIC(10, 2),                -- numeric_column
   NULL,                                     -- numeric_column_without_precision
-  NULL,                                     -- date_column
+  '20025-11-12',                            -- date_column
   '12:00:00.123',                           -- time_column
   NULL,                                     -- timeMsColumn
   '12:00:00.12300+05',                      -- timetz_column

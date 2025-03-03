@@ -343,7 +343,7 @@ var PUBLIC_TEST_TABLE_LOADED_ROWS = [][]string{
 		"-3.141592653589793",               // float8_column
 		"-12345.00",                        // numeric_column
 		PG_NULL_STRING,                     // numeric_column_without_precision
-		PG_NULL_STRING,                     // date_column
+		"20025-11-12",                      // date_column
 		"12:00:00.123",                     // time_column
 		PG_NULL_STRING,                     // timeMsColumn
 		"12:00:00.12300+05",                // timetz_column

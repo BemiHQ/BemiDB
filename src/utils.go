@@ -7,12 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 	"unicode"
 
@@ -84,6 +86,32 @@ func StringToScramSha256(password string) string {
 		base64.StdEncoding.EncodeToString(storedKeyHash),
 		base64.StdEncoding.EncodeToString(serverKeyHash),
 	)
+}
+
+func StringDateToTime(str string) (time.Time, error) {
+	// Golang's time.Parse() function does not support parsing dates with 5+ digit years
+	// So we need to handle this case manually by parsing the year separately
+	var nonStandardYear int
+	var err error
+	parts := strings.Split(str, "-")
+	if len(parts) == 3 && len(parts[0]) > 4 {
+		nonStandardYear, err = StringToInt(parts[0])
+		if err != nil {
+			return time.Time{}, errors.New("Invalid year: " + parts[0])
+		}
+
+		str = str[len(parts[0])-4:] // Remove the prefix from str leaving only the standard 10 characters (YYYY-MM-DD)
+	}
+
+	parsedTime, err := time.Parse("2006-01-02", str)
+
+	// If the year is non-standard, add the year difference to the parsed time after parsing
+	if err == nil && nonStandardYear != 0 {
+		parsedTime = parsedTime.AddDate(nonStandardYear-parsedTime.Year(), 0, 0)
+		return parsedTime, nil
+	}
+
+	return parsedTime, err
 }
 
 func StringContainsUpper(str string) bool {

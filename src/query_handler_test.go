@@ -503,15 +503,15 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.NumericOID)},
 			"values":      {""},
 		},
-		"SELECT date_column FROM public.test_table WHERE date_column IS NOT NULL": {
+		"SELECT date_column FROM public.test_table LIMIT 1": {
 			"description": {"date_column"},
 			"types":       {Uint32ToString(pgtype.DateOID)},
 			"values":      {"2021-01-01"},
 		},
-		"SELECT date_column FROM public.test_table WHERE date_column IS NULL": {
+		"SELECT date_column FROM public.test_table LIMIT 1 OFFSET 1": {
 			"description": {"date_column"},
 			"types":       {Uint32ToString(pgtype.DateOID)},
-			"values":      {""},
+			"values":      {"20025-11-12"},
 		},
 		"SELECT time_column FROM public.test_table WHERE bool_column = TRUE": {
 			"description": {"time_column"},
