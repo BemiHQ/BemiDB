@@ -99,24 +99,24 @@ func (syncer *Syncer) urlEncodePassword(databaseUrl string) string {
 }
 
 func (syncer *Syncer) shouldSyncTable(schemaTable PgSchemaTable) bool {
-	tableId := fmt.Sprintf("%s.%s", schemaTable.Schema, schemaTable.Table)
+	fullTableName := fmt.Sprintf("%s.%s", schemaTable.Schema, schemaTable.Table)
 
 	if syncer.config.Pg.IncludeSchemas != nil {
-		if !syncer.config.Pg.IncludeSchemas.Contains(schemaTable.Schema) {
+		if !HasExactOrWildcardMatch(syncer.config.Pg.IncludeSchemas, schemaTable.Schema) {
 			return false
 		}
 	} else if syncer.config.Pg.ExcludeSchemas != nil {
-		if syncer.config.Pg.ExcludeSchemas.Contains(schemaTable.Schema) {
+		if HasExactOrWildcardMatch(syncer.config.Pg.ExcludeSchemas, schemaTable.Schema) {
 			return false
 		}
 	}
 
 	if syncer.config.Pg.IncludeTables != nil {
-		return syncer.config.Pg.IncludeTables.Contains(tableId)
+		return HasExactOrWildcardMatch(syncer.config.Pg.IncludeTables, fullTableName)
 	}
 
 	if syncer.config.Pg.ExcludeTables != nil {
-		return !syncer.config.Pg.ExcludeTables.Contains(tableId)
+		return !HasExactOrWildcardMatch(syncer.config.Pg.ExcludeTables, fullTableName)
 	}
 
 	return true

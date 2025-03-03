@@ -147,16 +147,16 @@ func TestLoadConfig(t *testing.T) {
 		if config.Pg.SchemaPrefix != "mydb_" {
 			t.Errorf("Expected schemaPrefix to be empty, got %s", config.Pg.SchemaPrefix)
 		}
-		if !config.Pg.IncludeSchemas.Contains("public") {
+		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "public") {
 			t.Errorf("Expected includeSchemas to contain public, got %v", config.Pg.IncludeSchemas)
 		}
-		if !config.Pg.IncludeSchemas.Contains("auth") {
+		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "auth") {
 			t.Errorf("Expected includeSchemas to contain auth, got %v", config.Pg.IncludeSchemas)
 		}
-		if !config.Pg.ExcludeTables.Contains("public.users") {
+		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.users") {
 			t.Errorf("Expected ExcludeTables to contain public.users, got %v", config.Pg.ExcludeTables)
 		}
-		if !config.Pg.ExcludeTables.Contains("public.secrets") {
+		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.secrets") {
 			t.Errorf("Expected ExcludeTables to contain public.secrets, got %v", config.Pg.ExcludeTables)
 		}
 	})
@@ -205,16 +205,16 @@ func TestLoadConfig(t *testing.T) {
 		if config.Pg.SchemaPrefix != "mydb_" {
 			t.Errorf("Expected schemaPrefix to be mydb_, got %s", config.Pg.SchemaPrefix)
 		}
-		if !config.Pg.IncludeSchemas.Contains("public") {
+		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "public") {
 			t.Errorf("Expected IncludeSchemas to have public.users, got %v", config.Pg.IncludeSchemas)
 		}
-		if !config.Pg.IncludeSchemas.Contains("auth") {
+		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "auth") {
 			t.Errorf("Expected includeSchemas to contain auth, got %v", config.Pg.IncludeSchemas)
 		}
-		if !config.Pg.ExcludeTables.Contains("public.users") {
+		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.users") {
 			t.Errorf("Expected ExcludeTables to have public.users, got %v", config.Pg.ExcludeTables)
 		}
-		if !config.Pg.ExcludeTables.Contains("public.secrets") {
+		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.secrets") {
 			t.Errorf("Expected ExcludeTables to have public.secrets, got %v", config.Pg.ExcludeTables)
 		}
 	})

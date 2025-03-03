@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.36.3"
+	VERSION = "0.37.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
@@ -62,12 +62,12 @@ type AwsConfig struct {
 
 type PgConfig struct {
 	DatabaseUrl    string
-	SyncInterval   string      // optional
-	SchemaPrefix   string      // optional
-	IncludeSchemas Set[string] // optional
-	ExcludeSchemas Set[string] // optional
-	IncludeTables  Set[string] // optional
-	ExcludeTables  Set[string] // optional
+	SyncInterval   string   // optional
+	SchemaPrefix   string   // optional
+	IncludeSchemas []string // optional
+	ExcludeSchemas []string // optional
+	IncludeTables  []string // optional
+	ExcludeTables  []string // optional
 }
 
 type Config struct {
@@ -187,19 +187,19 @@ func parseFlags() {
 		panic("Cannot specify both --pg-include-schemas and --pg-exclude-schemas")
 	}
 	if _configParseValues.pgIncludeSchemas != "" {
-		_config.Pg.IncludeSchemas = NewSet(strings.Split(_configParseValues.pgIncludeSchemas, ","))
+		_config.Pg.IncludeSchemas = strings.Split(_configParseValues.pgIncludeSchemas, ",")
 	}
 	if _configParseValues.pgExcludeSchemas != "" {
-		_config.Pg.ExcludeSchemas = NewSet(strings.Split(_configParseValues.pgExcludeSchemas, ","))
+		_config.Pg.ExcludeSchemas = strings.Split(_configParseValues.pgExcludeSchemas, ",")
 	}
 	if _configParseValues.pgIncludeTables != "" && _configParseValues.pgExcludeTables != "" {
 		panic("Cannot specify both --pg-include-tables and --pg-exclude-tables")
 	}
 	if _configParseValues.pgIncludeTables != "" {
-		_config.Pg.IncludeTables = NewSet(strings.Split(_configParseValues.pgIncludeTables, ","))
+		_config.Pg.IncludeTables = strings.Split(_configParseValues.pgIncludeTables, ",")
 	}
 	if _configParseValues.pgExcludeTables != "" {
-		_config.Pg.ExcludeTables = NewSet(strings.Split(_configParseValues.pgExcludeTables, ","))
+		_config.Pg.ExcludeTables = strings.Split(_configParseValues.pgExcludeTables, ",")
 	}
 
 	_configParseValues = configParseValues{}

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -120,6 +121,24 @@ func StringContainsUpper(str string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func HasExactOrWildcardMatch(strs []string, value string) bool {
+	for _, str := range strs {
+		if str == value {
+			return true
+		}
+
+		if strings.Contains(str, "*") {
+			pattern := strings.ReplaceAll(regexp.QuoteMeta(str), "\\*", ".*")
+			matched, _ := regexp.MatchString("\\A"+pattern+"\\z", value)
+			if matched {
+				return true
+			}
+		}
+	}
+
 	return false
 }
 

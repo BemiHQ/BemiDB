@@ -21,7 +21,7 @@ func TestShouldSyncTable(t *testing.T) {
 		config := &Config{
 			Pg: PgConfig{
 				DatabaseUrl:   "postgres://user:pass@localhost:5432/db",
-				IncludeTables: NewSet([]string{"public.users", "public.orders"}),
+				IncludeTables: []string{"public.users", "public.orders"},
 			},
 		}
 		syncer := NewSyncer(config)
@@ -41,7 +41,7 @@ func TestShouldSyncTable(t *testing.T) {
 		config := &Config{
 			Pg: PgConfig{
 				DatabaseUrl:   "postgres://user:pass@localhost:5432/db",
-				ExcludeTables: NewSet([]string{"public.secrets", "public.cache"}),
+				ExcludeTables: []string{"public.secrets", "public.cache"},
 			},
 		}
 		syncer := NewSyncer(config)

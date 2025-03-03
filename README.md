@@ -186,15 +186,15 @@ psql postgres://localhost:54321/bemidb -c \
 
 #### `sync` command
 
-| CLI argument           | Environment variable | Default value | Description                                                               |
-|------------------------|----------------------|---------------|---------------------------------------------------------------------------|
-| `--pg-database-url`    | `PG_DATABASE_URL`    | Required      | PostgreSQL database URL to sync                                           |
-| `--pg-sync-interval`   | `PG_SYNC_INTERVAL`   |               | Interval between syncs. Valid units: `ns`, `us`/`µs`, `ms`, `s`, `m`, `h` |
-| `--pg-exclude-schemas` | `PG_EXCLUDE_SCHEMAS` |               | List of schemas to exclude from sync. Comma-separated                     |
-| `--pg-include-schemas` | `PG_INCLUDE_SCHEMAS` |               | List of schemas to include in sync. Comma-separated                       |
-| `--pg-exclude-tables`  | `PG_EXCLUDE_TABLES`  |               | List of tables to exclude from sync. Comma-separated `schema.table`       |
-| `--pg-include-tables`  | `PG_INCLUDE_TABLES`  |               | List of tables to include in sync. Comma-separated `schema.table`         |
-| `--pg-schema-prefix`   | `PG_SCHEMA_PREFIX`   |               | Prefix for PostgreSQL schema names                                        |
+| CLI argument           | Environment variable | Default value | Description                                                                                      |
+|------------------------|----------------------|---------------|--------------------------------------------------------------------------------------------------|
+| `--pg-database-url`    | `PG_DATABASE_URL`    | Required      | PostgreSQL database URL to sync                                                                  |
+| `--pg-sync-interval`   | `PG_SYNC_INTERVAL`   |               | Interval between syncs. Valid units: `ns`, `us`/`µs`, `ms`, `s`, `m`, `h`                        |
+| `--pg-exclude-schemas` | `PG_EXCLUDE_SCHEMAS` |               | List of schemas to exclude from sync. Comma-separated. May contain wildcards (`*`)               |
+| `--pg-include-schemas` | `PG_INCLUDE_SCHEMAS` |               | List of schemas to include in sync. Comma-separated. May contain wildcards (`*`)                 |
+| `--pg-exclude-tables`  | `PG_EXCLUDE_TABLES`  |               | List of tables to exclude from sync. Comma-separated `schema.table`. May contain wildcards (`*`) |
+| `--pg-include-tables`  | `PG_INCLUDE_TABLES`  |               | List of tables to include in sync. Comma-separated `schema.table`. May contain wildcards (`*`)   |
+| `--pg-schema-prefix`   | `PG_SCHEMA_PREFIX`   |               | Prefix for PostgreSQL schema names                                                               |
 
 #### `start` command
 
