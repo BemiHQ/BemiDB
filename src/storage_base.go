@@ -21,7 +21,7 @@ import (
 
 const (
 	PARQUET_PARALLEL_NUMBER  = 4
-	PARQUET_ROW_GROUP_SIZE   = 64 * 1024 * 1024 // 64 MB
+	PARQUET_ROW_GROUP_SIZE   = 128 * 1024 * 1024 // 128 MB
 	PARQUET_COMPRESSION_TYPE = parquet.CompressionCodec_ZSTD
 
 	VERSION_HINT_FILE_NAME = "version-hint.text"

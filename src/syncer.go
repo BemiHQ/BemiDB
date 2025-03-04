@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	MAX_BUFFER_SIZE               = 256 * 1024 * 1024 // 256 MB
-	BATCH_SIZE                    = 2000
-	PING_INTERVAL_BETWEEN_BATCHES = 60
+	MAX_BUFFER_SIZE                  = 256 * 1024 * 1024 // 256 MB
+	BATCH_SIZE                       = 1000
+	GC_INTERVAL_BETWEEN_BATCHES      = 10
+	PING_PG_INTERVAL_BETWEEN_BATCHES = 1000
 )
 
 type Syncer struct {
@@ -226,13 +227,17 @@ func (syncer *Syncer) syncFromPgTable(pgSchemaTable PgSchemaTable, structureConn
 		}
 
 		totalRowCount += len(rows)
-		LogDebug(syncer.config, "Writing", totalRowCount, "rows to Parquet...")
 
 		// Ping the database to prevent the connection from being closed
-		if totalRowCount%(BATCH_SIZE*PING_INTERVAL_BETWEEN_BATCHES) == 0 {
+		if totalRowCount%(BATCH_SIZE*PING_PG_INTERVAL_BETWEEN_BATCHES) == 0 {
 			LogDebug(syncer.config, "Pinging the database...")
 			_, err := structureConn.Exec(context.Background(), "SELECT 1")
 			PanicIfError(err, syncer.config)
+		}
+
+		if totalRowCount%(BATCH_SIZE*GC_INTERVAL_BETWEEN_BATCHES) == 0 {
+			LogDebug(syncer.config, "Writing", totalRowCount, "rows to Parquet...")
+			runtime.GC()
 		}
 
 		return rows
