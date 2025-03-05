@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.37.2"
+	VERSION = "0.38.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
@@ -176,11 +176,11 @@ func parseFlags() {
 		if _config.Aws.S3Bucket == "" {
 			panic("AWS S3 bucket name is required")
 		}
-		if _config.Aws.AccessKeyId == "" {
-			panic("AWS access key ID is required")
-		}
-		if _config.Aws.SecretAccessKey == "" {
+		if _config.Aws.AccessKeyId != "" && _config.Aws.SecretAccessKey == "" {
 			panic("AWS secret access key is required")
+		}
+		if _config.Aws.AccessKeyId == "" && _config.Aws.SecretAccessKey != "" {
+			panic("AWS access key ID is required")
 		}
 	}
 	if _configParseValues.pgIncludeSchemas != "" && _configParseValues.pgExcludeSchemas != "" {

@@ -24,23 +24,20 @@ type StorageS3 struct {
 }
 
 func NewS3Storage(config *Config) *StorageS3 {
-	awsCredentials := credentials.NewStaticCredentialsProvider(
-		config.Aws.AccessKeyId,
-		config.Aws.SecretAccessKey,
-		"",
-	)
-
-	var logMode aws.ClientLogMode
-	// if config.LogLevel == LOG_LEVEL_DEBUG {
-	// 	logMode = aws.LogRequest | aws.LogResponse
-	// }
-
-	loadedAwsConfig, err := awsConfig.LoadDefaultConfig(
-		context.Background(),
+	var awsConfigOptions = []func(*awsConfig.LoadOptions) error{
 		awsConfig.WithRegion(config.Aws.Region),
-		awsConfig.WithCredentialsProvider(awsCredentials),
-		awsConfig.WithClientLogMode(logMode),
-	)
+	}
+
+	if config.Aws.AccessKeyId != "" && config.Aws.SecretAccessKey != "" {
+		awsCredentials := credentials.NewStaticCredentialsProvider(
+			config.Aws.AccessKeyId,
+			config.Aws.SecretAccessKey,
+			"",
+		)
+		awsConfigOptions = append(awsConfigOptions, awsConfig.WithCredentialsProvider(awsCredentials))
+	}
+
+	loadedAwsConfig, err := awsConfig.LoadDefaultConfig(context.Background(), awsConfigOptions...)
 	PanicIfError(err, config)
 
 	return &StorageS3{

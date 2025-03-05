@@ -274,4 +274,28 @@ func TestLoadConfig(t *testing.T) {
 
 		LoadConfig()
 	})
+
+	t.Run("Panics when only AWS_ACCESS_KEY_ID is set without AWS_SECRET_ACCESS_KEY", func(t *testing.T) {
+		t.Setenv("AWS_ACCESS_KEY_ID", "my_access_key_id")
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when only AWS_ACCESS_KEY_ID is set")
+			}
+		}()
+
+		LoadConfig(true)
+	})
+
+	t.Run("Panics when only AWS_SECRET_ACCESS_KEY is set without AWS_ACCESS_KEY_ID", func(t *testing.T) {
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "my_secret_access_key")
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when only AWS_SECRET_ACCESS_KEY is set")
+			}
+		}()
+
+		LoadConfig(true)
+	})
 }
