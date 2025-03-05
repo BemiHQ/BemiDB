@@ -173,16 +173,12 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 
 func (syncer *Syncer) syncFromPgTable(pgSchemaTable PgSchemaTable, structureConn *pgx.Conn, copyConn *pgx.Conn) {
 	// Identify the batch size dynamically based on the table stats
-	tableSize, rowCount := syncer.pgTableStats(pgSchemaTable, structureConn)
-	rowSize := tableSize / rowCount
-	batchSize := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
-	if batchSize == 0 {
-		batchSize = 1
-	}
-	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount, "Batch size:", batchSize)
+	rowCountPerBatch := syncer.calculateRowCountPerBatch(pgSchemaTable, structureConn)
+	LogDebug(syncer.config, "Row count per batch:", rowCountPerBatch)
 
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
+
 	var waitGroup sync.WaitGroup
 
 	// Copy from PG to cappedBuffer in a separate goroutine in parallel
@@ -228,7 +224,7 @@ func (syncer *Syncer) syncFromPgTable(pgSchemaTable PgSchemaTable, structureConn
 			}
 
 			rows = append(rows, row)
-			if len(rows) >= batchSize {
+			if len(rows) >= rowCountPerBatch {
 				break
 			}
 		}
@@ -308,7 +304,10 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 	return pgSchemaColumns
 }
 
-func (syncer *Syncer) pgTableStats(pgSchemaTable PgSchemaTable, conn *pgx.Conn) (tableSize int64, rowCount int64) {
+func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, conn *pgx.Conn) int {
+	var tableSize int64
+	var rowCount int64
+
 	rows, err := conn.Query(
 		context.Background(),
 		`
@@ -321,7 +320,6 @@ func (syncer *Syncer) pgTableStats(pgSchemaTable PgSchemaTable, conn *pgx.Conn) 
 		pgSchemaTable.Schema,
 		pgSchemaTable.Table,
 	)
-
 	PanicIfError(err, syncer.config)
 	defer rows.Close()
 
@@ -329,8 +327,19 @@ func (syncer *Syncer) pgTableStats(pgSchemaTable PgSchemaTable, conn *pgx.Conn) 
 		err = rows.Scan(&tableSize, &rowCount)
 		PanicIfError(err, syncer.config)
 	}
+	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount)
 
-	return tableSize, rowCount
+	if tableSize == 0 || rowCount == 0 {
+		return 1
+	}
+
+	rowSize := tableSize / rowCount
+	rowCountPerBatch := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
+	if rowCountPerBatch == 0 {
+		return 1
+	}
+
+	return rowCountPerBatch
 }
 
 func (syncer *Syncer) copyFromPgTable(pgSchemaTable PgSchemaTable, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
