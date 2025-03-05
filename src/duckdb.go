@@ -13,7 +13,10 @@ import (
 	_ "github.com/marcboeker/go-duckdb"
 )
 
-var DUCKDB_SCHEMA_MAIN = "main"
+const (
+	DUCKDB_SCHEMA_MAIN                        = "main"
+	REFRESH_IMPLICIT_AWS_CREDENTIALS_INTERVAL = 10 * time.Minute
+)
 
 var DUCKDB_INIT_BOOT_QUERIES = []string{
 	// Set up Iceberg
@@ -30,9 +33,9 @@ var DUCKDB_INIT_BOOT_QUERIES = []string{
 }
 
 type Duckdb struct {
-	refreshQuit chan struct{}
-	db          *sql.DB
-	config      *Config
+	db                                    *sql.DB
+	config                                *Config
+	stopImplicitAwsCredentialsRefreshChan chan struct{}
 }
 
 func NewDuckdb(config *Config) *Duckdb {
@@ -41,9 +44,9 @@ func NewDuckdb(config *Config) *Duckdb {
 	PanicIfError(err, config)
 
 	duckdb := &Duckdb{
-		db:          db,
-		config:      config,
-		refreshQuit: make(chan struct{}),
+		db:                                    db,
+		config:                                config,
+		stopImplicitAwsCredentialsRefreshChan: make(chan struct{}),
 	}
 
 	bootQueries := slices.Concat(
@@ -69,20 +72,12 @@ func NewDuckdb(config *Config) *Duckdb {
 
 	switch config.StorageType {
 	case STORAGE_TYPE_S3:
-		duckdb.setAwsCredentials(ctx)
-		ticker := time.NewTicker(10 * time.Minute)
-		time.Tick(10 * time.Minute)
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					duckdb.setAwsCredentials(ctx)
-				case <-duckdb.refreshQuit:
-					ticker.Stop()
-					return
-				}
-			}
-		}()
+		if duckdb.config.Aws.AccessKeyId != "" && duckdb.config.Aws.SecretAccessKey != "" {
+			duckdb.setExplicitAwsCredentials(ctx)
+		} else {
+			duckdb.setImplicitAwsCredentials(ctx)
+			duckdb.autoRefreshImplicitAwsCredentials(ctx)
+		}
 
 		if config.LogLevel == LOG_LEVEL_TRACE {
 			_, err = duckdb.ExecContext(ctx, "SET enable_http_logging=true", nil)
@@ -91,30 +86,6 @@ func NewDuckdb(config *Config) *Duckdb {
 	}
 
 	return duckdb
-}
-
-func (duckdb *Duckdb) setAwsCredentials(ctx context.Context) {
-	config := duckdb.config
-	switch config.Aws.CredentialsType {
-	case AWS_CREDENTIALS_TYPE_STATIC:
-		query := "CREATE OR REPLACE SECRET aws_s3_secret (TYPE S3, KEY_ID '$accessKeyId', SECRET '$secretAccessKey', REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
-		_, err := duckdb.ExecContext(ctx, query, map[string]string{
-			"accessKeyId":     config.Aws.AccessKeyId,
-			"secretAccessKey": config.Aws.SecretAccessKey,
-			"region":          config.Aws.Region,
-			"endpoint":        config.Aws.S3Endpoint,
-			"s3Bucket":        "s3://" + config.Aws.S3Bucket,
-		})
-		PanicIfError(err, config)
-	case AWS_CREDENTIALS_TYPE_DEFAULT:
-		query := "CREATE OR REPLACE SECRET aws_s3_secret (TYPE S3, PROVIDER CREDENTIAL_CHAIN, REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
-		_, err := duckdb.ExecContext(ctx, query, map[string]string{
-			"region":   config.Aws.Region,
-			"endpoint": config.Aws.S3Endpoint,
-			"s3Bucket": "s3://" + config.Aws.S3Bucket,
-		})
-		PanicIfError(err, config)
-	}
 }
 
 func (duckdb *Duckdb) ExecContext(ctx context.Context, query string, args map[string]string) (sql.Result, error) {
@@ -133,7 +104,7 @@ func (duckdb *Duckdb) PrepareContext(ctx context.Context, query string) (*sql.St
 }
 
 func (duckdb *Duckdb) Close() {
-	close(duckdb.refreshQuit)
+	close(duckdb.stopImplicitAwsCredentialsRefreshChan)
 	duckdb.db.Close()
 }
 
@@ -168,6 +139,45 @@ func (duckdb *Duckdb) ExecInitFile() {
 		_, err := duckdb.ExecContext(ctx, query, nil)
 		PanicIfError(err, duckdb.config)
 	}
+}
+
+func (duckdb *Duckdb) setExplicitAwsCredentials(ctx context.Context) {
+	config := duckdb.config
+	query := "CREATE OR REPLACE SECRET aws_s3_secret (TYPE S3, KEY_ID '$accessKeyId', SECRET '$secretAccessKey', REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
+	_, err := duckdb.ExecContext(ctx, query, map[string]string{
+		"accessKeyId":     config.Aws.AccessKeyId,
+		"secretAccessKey": config.Aws.SecretAccessKey,
+		"region":          config.Aws.Region,
+		"endpoint":        config.Aws.S3Endpoint,
+		"s3Bucket":        "s3://" + config.Aws.S3Bucket,
+	})
+	PanicIfError(err, config)
+}
+
+func (duckdb *Duckdb) setImplicitAwsCredentials(ctx context.Context) {
+	config := duckdb.config
+	query := "CREATE OR REPLACE SECRET aws_s3_secret (TYPE S3, PROVIDER CREDENTIAL_CHAIN, REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
+	_, err := duckdb.ExecContext(ctx, query, map[string]string{
+		"region":   config.Aws.Region,
+		"endpoint": config.Aws.S3Endpoint,
+		"s3Bucket": "s3://" + config.Aws.S3Bucket,
+	})
+	PanicIfError(err, config)
+}
+
+func (duckdb *Duckdb) autoRefreshImplicitAwsCredentials(ctx context.Context) {
+	ticker := time.NewTicker(REFRESH_IMPLICIT_AWS_CREDENTIALS_INTERVAL)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				duckdb.setImplicitAwsCredentials(ctx)
+			case <-duckdb.stopImplicitAwsCredentialsRefreshChan:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
 }
 
 func replaceNamedStringArgs(query string, args map[string]string) string {

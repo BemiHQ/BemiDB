@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.37.2"
+	VERSION = "0.38.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
@@ -23,7 +23,6 @@ const (
 	ENV_AWS_REGION            = "AWS_REGION"
 	ENV_AWS_S3_ENDPOINT       = "AWS_S3_ENDPOINT"
 	ENV_AWS_S3_BUCKET         = "AWS_S3_BUCKET"
-	ENV_AWS_CREDENTIALS_TYPE  = "AWS_CREDENTIALS_TYPE"
 	ENV_AWS_ACCESS_KEY_ID     = "AWS_ACCESS_KEY_ID"
 	ENV_AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
 
@@ -47,11 +46,7 @@ const (
 	DEFAULT_LOG_LEVEL         = "INFO"
 	DEFAULT_DB_STORAGE_TYPE   = "LOCAL"
 
-	DEFAULT_AWS_S3_ENDPOINT      = "s3.amazonaws.com"
-	DEFAULT_AWS_CREDENTIALS_TYPE = "STATIC"
-
-	AWS_CREDENTIALS_TYPE_STATIC  = "STATIC"
-	AWS_CREDENTIALS_TYPE_DEFAULT = "DEFAULT"
+	DEFAULT_AWS_S3_ENDPOINT = "s3.amazonaws.com"
 
 	STORAGE_TYPE_LOCAL = "LOCAL"
 	STORAGE_TYPE_S3    = "S3"
@@ -61,7 +56,6 @@ type AwsConfig struct {
 	Region          string
 	S3Endpoint      string // optional
 	S3Bucket        string
-	CredentialsType string // optional
 	AccessKeyId     string
 	SecretAccessKey string
 }
@@ -127,7 +121,6 @@ func registerFlags() {
 	flag.StringVar(&_config.Aws.Region, "aws-region", os.Getenv(ENV_AWS_REGION), "AWS region")
 	flag.StringVar(&_config.Aws.S3Endpoint, "aws-s3-endpoint", os.Getenv(ENV_AWS_S3_ENDPOINT), "AWS S3 endpoint. Default: \""+DEFAULT_AWS_S3_ENDPOINT+"\"")
 	flag.StringVar(&_config.Aws.S3Bucket, "aws-s3-bucket", os.Getenv(ENV_AWS_S3_BUCKET), "AWS S3 bucket name")
-	flag.StringVar(&_config.Aws.CredentialsType, "aws-credentials-type", os.Getenv(ENV_AWS_CREDENTIALS_TYPE), "AWS credentials type: \"STATIC\", \"DEFAULT\". Default: \""+DEFAULT_AWS_CREDENTIALS_TYPE+"\"")
 	flag.StringVar(&_config.Aws.AccessKeyId, "aws-access-key-id", os.Getenv(ENV_AWS_ACCESS_KEY_ID), "AWS access key ID")
 	flag.StringVar(&_config.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
 	flag.BoolVar(&_config.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
@@ -183,18 +176,11 @@ func parseFlags() {
 		if _config.Aws.S3Bucket == "" {
 			panic("AWS S3 bucket name is required")
 		}
-		if _config.Aws.CredentialsType == "" {
-			_config.Aws.CredentialsType = DEFAULT_AWS_CREDENTIALS_TYPE
-		} else if !slices.Contains(AWS_CREDENTIALS_TYPE, _config.Aws.CredentialsType) {
-			panic("Invalid AWS Credentials type " + _config.Aws.CredentialsType + ". Must be one of " + strings.Join(AWS_CREDENTIALS_TYPE, ", "))
+		if _config.Aws.AccessKeyId != "" && _config.Aws.SecretAccessKey == "" {
+			panic("AWS secret access key is required")
 		}
-		if _config.Aws.CredentialsType == AWS_CREDENTIALS_TYPE_STATIC {
-			if _config.Aws.AccessKeyId == "" {
-				panic("AWS access key ID is required")
-			}
-			if _config.Aws.SecretAccessKey == "" {
-				panic("AWS secret access key is required")
-			}
+		if _config.Aws.AccessKeyId == "" && _config.Aws.SecretAccessKey != "" {
+			panic("AWS access key ID is required")
 		}
 	}
 	if _configParseValues.pgIncludeSchemas != "" && _configParseValues.pgExcludeSchemas != "" {
