@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,10 +19,9 @@ import (
 )
 
 const (
-	MAX_BUFFER_SIZE                  = 256 * 1024 * 1024 // 256 MB
-	BATCH_SIZE                       = 1000
-	GC_INTERVAL_BETWEEN_BATCHES      = 10
-	PING_PG_INTERVAL_BETWEEN_BATCHES = 1000
+	MAX_IN_MEMORY_BUFFER_SIZE = 256 * 1024 * 1024 // 256 MB
+	MAX_PG_ROWS_BATCH_SIZE    = 1 * 1024 * 1024   // 1 MB (will get expanded 400x in memory when serializing to Parquet)
+	PING_PG_INTERVAL_SECONDS  = 24
 )
 
 type Syncer struct {
@@ -172,23 +172,30 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 }
 
 func (syncer *Syncer) syncFromPgTable(pgSchemaTable PgSchemaTable, structureConn *pgx.Conn, copyConn *pgx.Conn) {
-	cappedBuffer := NewCappedBuffer(MAX_BUFFER_SIZE, syncer.config)
+	// Identify the batch size dynamically based on the table stats
+	tableSize, rowCount := syncer.pgTableStats(pgSchemaTable, structureConn)
+	rowSize := tableSize / rowCount
+	batchSize := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
+	if batchSize == 0 {
+		batchSize = 1
+	}
+	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount, "Batch size:", batchSize)
 
-	// Read from PostgreSQL in a separate goroutine
-	var readWaitGroup sync.WaitGroup
-	readWaitGroup.Add(1) // wait for 1 goroutine
+	// Create a capped buffer read and written in parallel
+	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
+	var waitGroup sync.WaitGroup
+
+	// Copy from PG to cappedBuffer in a separate goroutine in parallel
+	waitGroup.Add(1)
 	go func() {
-		LogInfo(syncer.config, "Reading from PG:", pgSchemaTable.String()+"...")
-		result, err := copyConn.PgConn().CopyTo(
-			context.Background(),
-			cappedBuffer,
-			"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
-		)
-		PanicIfError(err, syncer.config)
-		LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)")
+		syncer.copyFromPgTable(pgSchemaTable, copyConn, cappedBuffer, &waitGroup)
+	}()
 
-		cappedBuffer.Close()
-		readWaitGroup.Done()
+	// Ping PG using structureConn in a separate goroutine in parallel to keep the connection alive
+	waitGroup.Add(1)
+	stopPingChannel := make(chan struct{})
+	go func() {
+		syncer.pingPg(structureConn, &stopPingChannel, &waitGroup)
 	}()
 
 	// Read the header to get the column names
@@ -221,29 +228,20 @@ func (syncer *Syncer) syncFromPgTable(pgSchemaTable PgSchemaTable, structureConn
 			}
 
 			rows = append(rows, row)
-			if len(rows) >= BATCH_SIZE {
+			if len(rows) >= batchSize {
 				break
 			}
 		}
 
 		totalRowCount += len(rows)
-
-		// Ping the database to prevent the connection from being closed
-		if totalRowCount%(BATCH_SIZE*PING_PG_INTERVAL_BETWEEN_BATCHES) == 0 {
-			LogDebug(syncer.config, "Pinging the database...")
-			_, err := structureConn.Exec(context.Background(), "SELECT 1")
-			PanicIfError(err, syncer.config)
-		}
-
-		if totalRowCount%(BATCH_SIZE*GC_INTERVAL_BETWEEN_BATCHES) == 0 {
-			LogDebug(syncer.config, "Writing", totalRowCount, "rows to Parquet...")
-			runtime.GC()
-		}
+		LogDebug(syncer.config, "Writing", totalRowCount, "rows to Parquet...")
+		runtime.GC() // To reduce Parquet Go memory leakage
 
 		return rows
 	})
 
-	readWaitGroup.Wait() // Wait for the Read goroutine to finish
+	close(stopPingChannel) // Stop the pingPg goroutine
+	waitGroup.Wait()       // Wait for the Read goroutine to finish
 	LogInfo(syncer.config, "Finished writing to Iceberg:", pgSchemaTable.String())
 }
 
@@ -258,6 +256,10 @@ func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pg
 }
 
 func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
+	if len(csvHeader) == 0 {
+		PanicIfError(errors.New("couldn't read data from "+pgSchemaTable.String()), syncer.config)
+	}
+
 	var pgSchemaColumns []PgSchemaColumn
 
 	rows, err := conn.Query(
@@ -304,6 +306,63 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 	}
 
 	return pgSchemaColumns
+}
+
+func (syncer *Syncer) pgTableStats(pgSchemaTable PgSchemaTable, conn *pgx.Conn) (tableSize int64, rowCount int64) {
+	rows, err := conn.Query(
+		context.Background(),
+		`
+		SELECT
+			pg_total_relation_size(c.oid) AS table_size,
+			c.reltuples::bigint AS row_count
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
+		pgSchemaTable.Schema,
+		pgSchemaTable.Table,
+	)
+
+	PanicIfError(err, syncer.config)
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&tableSize, &rowCount)
+		PanicIfError(err, syncer.config)
+	}
+
+	return tableSize, rowCount
+}
+
+func (syncer *Syncer) copyFromPgTable(pgSchemaTable PgSchemaTable, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
+	LogInfo(syncer.config, "Reading from PG:", pgSchemaTable.String()+"...")
+	result, err := copyConn.PgConn().CopyTo(
+		context.Background(),
+		cappedBuffer,
+		"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
+	)
+	PanicIfError(err, syncer.config)
+	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)")
+
+	cappedBuffer.Close()
+	waitGroup.Done()
+}
+
+func (syncer *Syncer) pingPg(conn *pgx.Conn, stopPingChannel *chan struct{}, waitGroup *sync.WaitGroup) {
+	ticker := time.NewTicker(PING_PG_INTERVAL_SECONDS * time.Second)
+
+	for {
+		select {
+		case <-*stopPingChannel:
+			LogDebug(syncer.config, "Stopping the ping...")
+			waitGroup.Done()
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			LogDebug(syncer.config, "Pinging the database...")
+			_, err := conn.Exec(context.Background(), "SELECT 1")
+			PanicIfError(err, syncer.config)
+		}
+	}
 }
 
 func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTable) {
