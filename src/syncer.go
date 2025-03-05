@@ -1,19 +1,27 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
-	"os"
+	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 const (
-	BATCH_SIZE                    = 10000
-	PING_INTERVAL_BETWEEN_BATCHES = 20
+	MAX_IN_MEMORY_BUFFER_SIZE = 256 * 1024 * 1024 // 256 MB
+	MAX_PG_ROWS_BATCH_SIZE    = 1 * 1024 * 1024   // 1 MB (will get expanded 400x in memory when serializing to Parquet)
+	PING_PG_INTERVAL_SECONDS  = 24
 )
 
 type Syncer struct {
@@ -35,20 +43,20 @@ func NewSyncer(config *Config) *Syncer {
 func (syncer *Syncer) SyncFromPostgres() {
 	ctx := context.Background()
 	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
+	syncer.sendAnonymousAnalytics(databaseUrl)
 
-	conn, err := pgx.Connect(ctx, databaseUrl)
-	PanicIfError(err)
-	defer conn.Close(ctx)
+	structureConn := syncer.newConnection(ctx, databaseUrl)
+	defer structureConn.Close(ctx)
 
-	_, err = conn.Exec(ctx, "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
-	PanicIfError(err)
+	copyConn := syncer.newConnection(ctx, databaseUrl)
+	defer copyConn.Close(ctx)
 
 	pgSchemaTables := []PgSchemaTable{}
-	for _, schema := range syncer.listPgSchemas(conn) {
-		for _, pgSchemaTable := range syncer.listPgSchemaTables(conn, schema) {
+	for _, schema := range syncer.listPgSchemas(structureConn) {
+		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
 				pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
-				syncer.syncFromPgTable(conn, pgSchemaTable)
+				syncer.syncFromPgTable(pgSchemaTable, structureConn, copyConn)
 			}
 		}
 	}
@@ -92,24 +100,24 @@ func (syncer *Syncer) urlEncodePassword(databaseUrl string) string {
 }
 
 func (syncer *Syncer) shouldSyncTable(schemaTable PgSchemaTable) bool {
-	tableId := fmt.Sprintf("%s.%s", schemaTable.Schema, schemaTable.Table)
+	fullTableName := fmt.Sprintf("%s.%s", schemaTable.Schema, schemaTable.Table)
 
 	if syncer.config.Pg.IncludeSchemas != nil {
-		if !syncer.config.Pg.IncludeSchemas.Contains(schemaTable.Schema) {
+		if !HasExactOrWildcardMatch(syncer.config.Pg.IncludeSchemas, schemaTable.Schema) {
 			return false
 		}
 	} else if syncer.config.Pg.ExcludeSchemas != nil {
-		if syncer.config.Pg.ExcludeSchemas.Contains(schemaTable.Schema) {
+		if HasExactOrWildcardMatch(syncer.config.Pg.ExcludeSchemas, schemaTable.Schema) {
 			return false
 		}
 	}
 
 	if syncer.config.Pg.IncludeTables != nil {
-		return syncer.config.Pg.IncludeTables.Contains(tableId)
+		return HasExactOrWildcardMatch(syncer.config.Pg.IncludeTables, fullTableName)
 	}
 
 	if syncer.config.Pg.ExcludeTables != nil {
-		return !syncer.config.Pg.ExcludeTables.Contains(tableId)
+		return !HasExactOrWildcardMatch(syncer.config.Pg.ExcludeTables, fullTableName)
 	}
 
 	return true
@@ -122,13 +130,13 @@ func (syncer *Syncer) listPgSchemas(conn *pgx.Conn) []string {
 		context.Background(),
 		"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'pg_toast', 'information_schema')",
 	)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer schemasRows.Close()
 
 	for schemasRows.Next() {
 		var schema string
 		err = schemasRows.Scan(&schema)
-		PanicIfError(err)
+		PanicIfError(err, syncer.config)
 		schemas = append(schemas, schema)
 	}
 
@@ -150,35 +158,58 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 		`,
 		schema,
 	)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer tablesRows.Close()
 
 	for tablesRows.Next() {
 		pgSchemaTable := PgSchemaTable{Schema: schema}
 		err = tablesRows.Scan(&pgSchemaTable.Table, &pgSchemaTable.ParentPartitionedTable)
-		PanicIfError(err)
+		PanicIfError(err, syncer.config)
 		pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
 	}
 
 	return pgSchemaTables
 }
 
-func (syncer *Syncer) syncFromPgTable(conn *pgx.Conn, pgSchemaTable PgSchemaTable) {
-	LogInfo(syncer.config, "Syncing "+pgSchemaTable.String()+"...")
+func (syncer *Syncer) syncFromPgTable(pgSchemaTable PgSchemaTable, structureConn *pgx.Conn, copyConn *pgx.Conn) {
+	// Identify the batch size dynamically based on the table stats
+	tableSize, rowCount := syncer.pgTableStats(pgSchemaTable, structureConn)
+	rowSize := tableSize / rowCount
+	batchSize := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
+	if batchSize == 0 {
+		batchSize = 1
+	}
+	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount, "Batch size:", batchSize)
 
-	csvFile, err := syncer.exportPgTableToCsv(conn, pgSchemaTable)
-	PanicIfError(err)
-	defer csvFile.Close()
+	// Create a capped buffer read and written in parallel
+	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
+	var waitGroup sync.WaitGroup
 
-	csvReader := csv.NewReader(csvFile)
+	// Copy from PG to cappedBuffer in a separate goroutine in parallel
+	waitGroup.Add(1)
+	go func() {
+		syncer.copyFromPgTable(pgSchemaTable, copyConn, cappedBuffer, &waitGroup)
+	}()
+
+	// Ping PG using structureConn in a separate goroutine in parallel to keep the connection alive
+	waitGroup.Add(1)
+	stopPingChannel := make(chan struct{})
+	go func() {
+		syncer.pingPg(structureConn, &stopPingChannel, &waitGroup)
+	}()
+
+	// Read the header to get the column names
+	csvReader := csv.NewReader(cappedBuffer)
 	csvHeader, err := csvReader.Read()
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 
-	pgSchemaColumns := syncer.pgTableSchemaColumns(conn, pgSchemaTable, csvHeader)
+	schemaTable := pgSchemaTable.ToIcebergSchemaTable()
+	pgSchemaColumns := syncer.pgTableSchemaColumns(structureConn, pgSchemaTable, csvHeader)
 	reachedEnd := false
 	totalRowCount := 0
 
-	schemaTable := pgSchemaTable.ToIcebergSchemaTable()
+	// Write to Iceberg in a separate goroutine in parallel
+	LogInfo(syncer.config, "Writing to Iceberg:", pgSchemaTable.String()+"...")
 	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
@@ -187,32 +218,48 @@ func (syncer *Syncer) syncFromPgTable(conn *pgx.Conn, pgSchemaTable PgSchemaTabl
 		var rows [][]string
 		for {
 			row, err := csvReader.Read()
-			if err != nil {
+
+			if err == io.EOF {
 				reachedEnd = true
 				break
 			}
+			if err != nil {
+				PanicIfError(err, syncer.config)
+			}
 
 			rows = append(rows, row)
-			if len(rows) >= BATCH_SIZE {
+			if len(rows) >= batchSize {
 				break
 			}
 		}
 
 		totalRowCount += len(rows)
 		LogDebug(syncer.config, "Writing", totalRowCount, "rows to Parquet...")
-
-		// Ping the database to prevent the connection from being closed
-		if totalRowCount%(BATCH_SIZE*PING_INTERVAL_BETWEEN_BATCHES) == 0 {
-			LogDebug(syncer.config, "Pinging the database...")
-			_, err := conn.Exec(context.Background(), "SELECT 1")
-			PanicIfError(err)
-		}
+		runtime.GC() // To reduce Parquet Go memory leakage
 
 		return rows
 	})
+
+	close(stopPingChannel) // Stop the pingPg goroutine
+	waitGroup.Wait()       // Wait for the Read goroutine to finish
+	LogInfo(syncer.config, "Finished writing to Iceberg:", pgSchemaTable.String())
+}
+
+func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pgx.Conn {
+	conn, err := pgx.Connect(ctx, databaseUrl)
+	PanicIfError(err, syncer.config)
+
+	_, err = conn.Exec(ctx, "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
+	PanicIfError(err, syncer.config)
+
+	return conn
 }
 
 func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
+	if len(csvHeader) == 0 {
+		PanicIfError(errors.New("couldn't read data from "+pgSchemaTable.String()), syncer.config)
+	}
+
 	var pgSchemaColumns []PgSchemaColumn
 
 	rows, err := conn.Query(
@@ -237,11 +284,11 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 		pgSchemaTable.Table,
 		csvHeader,
 	)
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 	defer rows.Close()
 
 	for rows.Next() {
-		var pgSchemaColumn PgSchemaColumn
+		pgSchemaColumn := NewPgSchemaColumn(syncer.config)
 		err = rows.Scan(
 			&pgSchemaColumn.ColumnName,
 			&pgSchemaColumn.DataType,
@@ -254,27 +301,68 @@ func (syncer *Syncer) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchem
 			&pgSchemaColumn.DatetimePrecision,
 			&pgSchemaColumn.Namespace,
 		)
-		PanicIfError(err)
-		pgSchemaColumns = append(pgSchemaColumns, pgSchemaColumn)
+		PanicIfError(err, syncer.config)
+		pgSchemaColumns = append(pgSchemaColumns, *pgSchemaColumn)
 	}
 
 	return pgSchemaColumns
 }
 
-func (syncer *Syncer) exportPgTableToCsv(conn *pgx.Conn, pgSchemaTable PgSchemaTable) (csvFile *os.File, err error) {
-	tempFile, err := CreateTemporaryFile(pgSchemaTable.String())
-	PanicIfError(err)
-	defer DeleteTemporaryFile(tempFile)
-
-	result, err := conn.PgConn().CopyTo(
+func (syncer *Syncer) pgTableStats(pgSchemaTable PgSchemaTable, conn *pgx.Conn) (tableSize int64, rowCount int64) {
+	rows, err := conn.Query(
 		context.Background(),
-		tempFile,
+		`
+		SELECT
+			pg_total_relation_size(c.oid) AS table_size,
+			c.reltuples::bigint AS row_count
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
+		pgSchemaTable.Schema,
+		pgSchemaTable.Table,
+	)
+
+	PanicIfError(err, syncer.config)
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&tableSize, &rowCount)
+		PanicIfError(err, syncer.config)
+	}
+
+	return tableSize, rowCount
+}
+
+func (syncer *Syncer) copyFromPgTable(pgSchemaTable PgSchemaTable, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
+	LogInfo(syncer.config, "Reading from PG:", pgSchemaTable.String()+"...")
+	result, err := copyConn.PgConn().CopyTo(
+		context.Background(),
+		cappedBuffer,
 		"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
 	)
-	PanicIfError(err)
-	LogDebug(syncer.config, "Copied", result.RowsAffected(), "row(s) into", tempFile.Name())
+	PanicIfError(err, syncer.config)
+	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)")
 
-	return os.Open(tempFile.Name())
+	cappedBuffer.Close()
+	waitGroup.Done()
+}
+
+func (syncer *Syncer) pingPg(conn *pgx.Conn, stopPingChannel *chan struct{}, waitGroup *sync.WaitGroup) {
+	ticker := time.NewTicker(PING_PG_INTERVAL_SECONDS * time.Second)
+
+	for {
+		select {
+		case <-*stopPingChannel:
+			LogDebug(syncer.config, "Stopping the ping...")
+			waitGroup.Done()
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			LogDebug(syncer.config, "Pinging the database...")
+			_, err := conn.Exec(context.Background(), "SELECT 1")
+			PanicIfError(err, syncer.config)
+		}
+	}
 }
 
 func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTable) {
@@ -287,7 +375,7 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 	}
 
 	icebergSchemas, err := syncer.icebergReader.Schemas()
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 
 	for _, icebergSchema := range icebergSchemas {
 		found := false
@@ -305,9 +393,9 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 	}
 
 	icebergSchemaTables, err := syncer.icebergReader.SchemaTables()
-	PanicIfError(err)
+	PanicIfError(err, syncer.config)
 
-	for _, icebergSchemaTable := range icebergSchemaTables {
+	for _, icebergSchemaTable := range icebergSchemaTables.Values() {
 		found := false
 		for _, pgSchemaTable := range prefixedPgSchemaTables {
 			if icebergSchemaTable.String() == pgSchemaTable.String() {
@@ -321,4 +409,42 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 			syncer.icebergWriter.DeleteSchemaTable(icebergSchemaTable)
 		}
 	}
+}
+
+type AnonymousAnalyticsData struct {
+	DbHost  string `json:"dbHost"`
+	OsName  string `json:"osName"`
+	Version string `json:"version"`
+}
+
+func (syncer *Syncer) sendAnonymousAnalytics(databaseUrl string) {
+	if syncer.config.DisableAnonymousAnalytics {
+		LogInfo(syncer.config, "Anonymous analytics is disabled")
+		return
+	}
+
+	dbUrl, err := url.Parse(databaseUrl)
+	if err != nil {
+		return
+	}
+
+	hostname := dbUrl.Hostname()
+	switch hostname {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+		return
+	}
+
+	data := AnonymousAnalyticsData{
+		DbHost:  hostname,
+		OsName:  runtime.GOOS + "-" + runtime.GOARCH,
+		Version: syncer.config.Version,
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	client := http.Client{Timeout: 5 * time.Second}
+	_, _ = client.Post("https://api.bemidb.com/api/analytics", "application/json", bytes.NewBuffer(jsonData))
 }

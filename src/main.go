@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-const VERSION = "0.31.4"
-
 func main() {
 	config := LoadConfig()
 
@@ -55,7 +53,7 @@ func start(config *Config) {
 	queryHandler := NewQueryHandler(config, duckdb, icebergReader)
 
 	for {
-		conn := AcceptConnection(tcpListener)
+		conn := AcceptConnection(config, tcpListener)
 		LogInfo(config, "BemiDB: Accepted connection from", conn.RemoteAddr())
 		postgres := NewPostgres(config, &conn)
 

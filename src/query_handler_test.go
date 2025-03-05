@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -17,14 +18,14 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT VERSION()": {
 			"description": {"version"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {"PostgreSQL 17.0, compiled by Bemi"},
+			"values":      {"PostgreSQL 17.0, compiled by BemiDB"},
 		},
 		"SELECT pg_catalog.pg_get_userbyid(p.proowner) AS owner, 'Foo' AS foo FROM pg_catalog.pg_proc p LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace LIMIT 1": {
 			"description": {"owner", "foo"},
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"bemidb", "Foo"},
 		},
-		"SELECT QUOTE_IDENT('fooBar')": {
+		"SELECT QUOTE_IDENT('fooBar') AS quote_ident": {
 			"description": {"quote_ident"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"\"fooBar\""},
@@ -39,7 +40,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"nulls_last"},
 		},
-		"SELECT pg_catalog.pg_get_partkeydef(c.oid) FROM pg_catalog.pg_class c LIMIT 1": {
+		"SELECT pg_catalog.pg_get_partkeydef(c.oid) AS pg_get_partkeydef FROM pg_catalog.pg_class c LIMIT 1": {
 			"description": {"pg_get_partkeydef"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
@@ -49,35 +50,43 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
 		},
+		"SELECT pg_catalog.pg_get_expr(adbin, drelid) AS def_value FROM pg_catalog.pg_attrdef": {
+			"description": {"def_value"},
+		},
 		"SELECT pg_catalog.pg_get_expr(adbin, drelid, TRUE) AS def_value FROM pg_catalog.pg_attrdef": {
 			"description": {"def_value"},
 		},
-		"SELECT set_config('bytea_output', 'hex', false)": {
+		"SELECT pg_catalog.pg_get_viewdef(NULL, TRUE) AS viewdef": {
+			"description": {"viewdef"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {""},
+		},
+		"SELECT set_config('bytea_output', 'hex', false) AS set_config": {
 			"description": {"set_config"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"hex"},
 		},
-		"SELECT pg_catalog.pg_encoding_to_char(6)": {
+		"SELECT pg_catalog.pg_encoding_to_char(6) AS pg_encoding_to_char": {
 			"description": {"pg_encoding_to_char"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"UTF8"},
 		},
-		"SELECT pg_backend_pid()": {
+		"SELECT pg_backend_pid() AS pg_backend_pid": {
 			"description": {"pg_backend_pid"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"0"},
 		},
 		"SELECT * from pg_is_in_recovery()": {
 			"description": {"pg_is_in_recovery"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"false"},
+			"values":      {"f"},
 		},
-		"SELECT row_to_json(t) FROM (SELECT usename, passwd FROM pg_shadow WHERE usename='bemidb') t": {
+		"SELECT row_to_json(t) AS row_to_json FROM (SELECT usename, passwd FROM pg_shadow WHERE usename='bemidb') t": {
 			"description": {"row_to_json"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {`{"usename":"bemidb","passwd":"bemidb-encrypted"}`},
 		},
-		"SELECT current_setting('default_tablespace')": {
+		"SELECT current_setting('default_tablespace') AS current_setting": {
 			"description": {"current_setting"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
@@ -112,6 +121,36 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"", "", "", ""},
 		},
+		"SELECT format('Hello %s, %s, %1$s', 'World', 'Earth') AS str": {
+			"description": {"str"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"Hello World, Earth, World"},
+		},
+		"SELECT format('%s', \"test_table\".\"varchar_column\") AS str FROM test_table LIMIT 1": {
+			"description": {"str"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"varchar"},
+		},
+		"SELECT jsonb_extract_path_text(json_column, 'key') AS jsonb_extract_path_text FROM test_table LIMIT 1": {
+			"description": {"jsonb_extract_path_text"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"value"},
+		},
+		"SELECT jsonb_extract_path_text(json_column, VARIADIC ARRAY['key']) AS jsonb_extract_path_text FROM test_table LIMIT 1": {
+			"description": {"jsonb_extract_path_text"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"value"},
+		},
+		"SELECT encode(sha256('foo'), 'hex'::text) AS encode": {
+			"description": {"encode"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"},
+		},
+		"SELECT json_build_object('min', 1, 'max', 2) AS json_build_object": {
+			"description": {"json_build_object"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"{\"min\":1,\"max\":2}"},
+		},
 
 		// PG system tables
 		"SELECT oid, typname AS typename FROM pg_type WHERE typname='geometry' OR typname='geography'": {
@@ -139,6 +178,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID)},
 			"values":      {"16388", "bemidb", "10"},
 		},
+		"SELECT COALESCE(NULL, (SELECT datname FROM pg_database WHERE datname = 'bemidb')) AS datname": {
+			"description": {"datname"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"bemidb"},
+		},
 		"SELECT * FROM pg_catalog.pg_stat_gssapi": {
 			"description": {"pid", "gss_authenticated", "principal", "encrypted", "credentials_delegated"},
 			"types":       {Uint32ToString(pgtype.Int4OID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID)},
@@ -147,7 +191,7 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT * FROM pg_catalog.pg_user": {
 			"description": {"usename", "usesysid", "usecreatedb", "usesuper", "userepl", "usebypassrls", "passwd", "valuntil", "useconfig"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {"bemidb", "10", "true", "true", "true", "true", "", "", ""},
+			"values":      {"bemidb", "10", "t", "t", "t", "t", "", "", ""},
 		},
 		"SELECT datid FROM pg_catalog.pg_stat_activity": {
 			"description": {"datid"},
@@ -163,12 +207,21 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"schemaname", "viewname", "viewowner", "definition"},
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 		},
-		"SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables": {
+		"SELECT oid FROM pg_collation": {
+			"description": {"oid"},
+			"types":       {Uint32ToString(pgtype.OIDOID)},
+			"values":      {"100"},
+		},
+		"SELECT * FROM pg_opclass": {
+			"description": {"oid", "opcmethod", "opcname", "opcnamespace", "opcowner", "opcfamily", "opcintype", "opcdefault", "opckeytype"},
+			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.Int8OID)},
+		},
+		"SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public'": {
 			"description": {"schemaname", "relname", "n_live_tup"},
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID)},
 			"values":      {"public", "test_table", "1"},
 		},
-		"SELECT DISTINCT(nspname) FROM pg_catalog.pg_namespace WHERE nspname != 'information_schema' AND nspname != 'pg_catalog'": {
+		"SELECT DISTINCT(nspname) FROM pg_catalog.pg_namespace WHERE nspname != 'information_schema' AND nspname != 'pg_catalog' ORDER BY nspname LIMIT 1": {
 			"description": {"nspname"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"public"},
@@ -181,7 +234,7 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT n.nspname FROM pg_catalog.pg_namespace n LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid = n.oid ORDER BY n.oid DESC LIMIT 1": {
 			"description": {"nspname"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {"public"},
+			"values":      {"test_schema"},
 		},
 		"SELECT rel.oid FROM pg_class rel LEFT JOIN pg_extension ON rel.oid = pg_extension.oid ORDER BY rel.oid LIMIT 1;": {
 			"description": {"oid"},
@@ -190,11 +243,11 @@ func TestHandleQuery(t *testing.T) {
 		},
 		"SELECT pg_total_relation_size(relid) AS total_size FROM pg_catalog.pg_statio_user_tables WHERE schemaname = 'public'": {
 			"description": {"total_size"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
 		"SELECT pg_total_relation_size(relid) AS total_size FROM pg_catalog.pg_statio_user_tables WHERE schemaname = 'public' UNION SELECT NULL AS total_size FROM pg_catalog.pg_proc p LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'": {
 			"description": {"total_size"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
 		"SELECT * FROM pg_catalog.pg_shdescription": {
 			"description": {"objoid", "classoid", "description"},
@@ -212,12 +265,12 @@ func TestHandleQuery(t *testing.T) {
 				Uint32ToString(pgtype.BoolOID),
 				Uint32ToString(pgtype.BoolOID),
 				Uint32ToString(pgtype.Int4OID),
-				Uint32ToString(pgtype.Int4OID),
-				Uint32ToString(pgtype.Int4OID),
+				Uint32ToString(pgtype.TextOID),
+				Uint32ToString(pgtype.TimestampOID),
 				Uint32ToString(pgtype.BoolOID),
-				Uint32ToString(pgtype.Int4OID),
+				Uint32ToString(pgtype.TextArrayOID),
 			},
-			"values": {"10", "bemidb", "true", "true", "true", "true", "true", "false", "-1", "", "", "false", ""},
+			"values": {"10", "bemidb", "t", "t", "t", "t", "t", "f", "-1", "", "", "f", ""},
 		},
 		"SELECT * FROM pg_catalog.pg_inherits": {
 			"description": {"inhrelid", "inhparent", "inhseqno", "inhdetachpending"},
@@ -225,24 +278,31 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT * FROM pg_auth_members": {
 			"description": {"oid", "roleid", "member", "grantor", "admin_option", "inherit_option", "set_option"},
 		},
+		"SELECT ARRAY(select pg_get_indexdef(indexrelid, attnum, true) FROM pg_attribute WHERE attrelid = indexrelid ORDER BY attnum) AS expressions FROM pg_index": {
+			"description": {"expressions"},
+			"types":       {Uint32ToString(pgtype.TextArrayOID)},
+			"values":      {},
+		},
+		"SELECT indnullsnotdistinct FROM pg_index": {
+			"description": {"indnullsnotdistinct"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+		},
 
 		// Information schema
-		"SELECT * FROM information_schema.tables": {
+		"SELECT * FROM information_schema.tables WHERE table_schema = 'public'": {
 			"description": {"table_catalog", "table_schema", "table_name", "table_type", "self_referencing_column_name", "reference_generation", "user_defined_type_catalog", "user_defined_type_schema", "user_defined_type_name", "is_insertable_into", "is_typed", "commit_action", "TABLE_COMMENT"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"memory", "public", "test_table", "BASE TABLE", "", "", "", "", "", "YES", "NO", "", ""},
 		},
-		"SELECT table_catalog, table_schema, table_name AS table FROM information_schema.tables": {
+		"SELECT table_catalog, table_schema, table_name AS table FROM information_schema.tables WHERE table_schema = 'public'": {
 			"description": {"table_catalog", "table_schema", "table"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"memory", "public", "test_table"},
 		},
-
-		// DISCARD
-		"DISCARD ALL": {
-			"description": {"1"},
-			"types":       {Uint32ToString(pgtype.Int4OID)},
-			"values":      {"1"},
+		"SELECT column_name, udt_schema, udt_name FROM information_schema.columns WHERE table_schema = 'public' ORDER BY ordinal_position LIMIT 1": {
+			"description": {"column_name", "udt_schema", "udt_name"},
+			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+			"values":      {"id", "pg_catalog", "int4"},
 		},
 
 		// SHOW
@@ -254,6 +314,7 @@ func TestHandleQuery(t *testing.T) {
 		"SHOW timezone": {
 			"description": {"timezone"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"UTC"},
 		},
 
 		// Iceberg data
@@ -267,17 +328,32 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"2"},
 		},
-		"SELECT x.bit_column FROM public.test_table x WHERE x.bit_column IS NOT NULL": {
-			"description": {"bit_column"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+		"SELECT COUNT(DISTINCT public.test_table.id) AS count FROM public.test_table": {
+			"description": {"count"},
+			"types":       {Uint32ToString(pgtype.Int8OID)},
+			"values":      {"2"},
+		},
+		"SELECT x.id FROM public.test_table x WHERE x.id = 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"1"},
 		},
+		"SELECT public.test_table.id FROM public.test_table WHERE public.test_table.id = 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
+		},
+		"SELECT test_schema.simple_table.id FROM test_schema.simple_table": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+		},
+		"SELECT test_table.id FROM public.test_table WHERE id = 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
+		},
+		// Column types
 		"SELECT bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
-			"description": {"bit_column"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {"1"},
-		},
-		"SELECT test_table.bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
 			"description": {"bit_column"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"1"},
@@ -290,12 +366,12 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT bool_column FROM public.test_table WHERE bool_column = TRUE": {
 			"description": {"bool_column"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"true"},
+			"values":      {"t"},
 		},
 		"SELECT bool_column FROM public.test_table WHERE bool_column = FALSE": {
 			"description": {"bool_column"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"false"},
+			"values":      {"f"},
 		},
 		"SELECT bpchar_column FROM public.test_table WHERE bool_column = TRUE": {
 			"description": {"bpchar_column"},
@@ -417,15 +493,25 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.NumericOID)},
 			"values":      {"-12345"},
 		},
-		"SELECT date_column FROM public.test_table WHERE date_column IS NOT NULL": {
+		"SELECT numeric_column_without_precision FROM public.test_table WHERE numeric_column_without_precision IS NOT NULL": {
+			"description": {"numeric_column_without_precision"},
+			"types":       {Uint32ToString(pgtype.NumericOID)},
+			"values":      {"12345.67"},
+		},
+		"SELECT numeric_column_without_precision FROM public.test_table WHERE numeric_column_without_precision IS NULL": {
+			"description": {"numeric_column_without_precision"},
+			"types":       {Uint32ToString(pgtype.NumericOID)},
+			"values":      {""},
+		},
+		"SELECT date_column FROM public.test_table LIMIT 1": {
 			"description": {"date_column"},
 			"types":       {Uint32ToString(pgtype.DateOID)},
 			"values":      {"2021-01-01"},
 		},
-		"SELECT date_column FROM public.test_table WHERE date_column IS NULL": {
+		"SELECT date_column FROM public.test_table LIMIT 1 OFFSET 1": {
 			"description": {"date_column"},
 			"types":       {Uint32ToString(pgtype.DateOID)},
-			"values":      {""},
+			"values":      {"20025-11-12"},
 		},
 		"SELECT time_column FROM public.test_table WHERE bool_column = TRUE": {
 			"description": {"time_column"},
@@ -437,13 +523,13 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TimeOID)},
 			"values":      {"12:00:00.123"},
 		},
-		"SELECT time_ms_column FROM public.test_table WHERE time_ms_column IS NOT NULL": {
-			"description": {"time_ms_column"},
+		"SELECT timeMsColumn FROM public.test_table WHERE timeMsColumn IS NOT NULL": {
+			"description": {"timeMsColumn"},
 			"types":       {Uint32ToString(pgtype.TimeOID)},
 			"values":      {"12:00:00.123"},
 		},
-		"SELECT time_ms_column FROM public.test_table WHERE time_ms_column IS NULL": {
-			"description": {"time_ms_column"},
+		"SELECT timeMsColumn FROM public.test_table WHERE timeMsColumn IS NULL": {
+			"description": {"timeMsColumn"},
 			"types":       {Uint32ToString(pgtype.TimeOID)},
 			"values":      {""},
 		},
@@ -499,12 +585,12 @@ func TestHandleQuery(t *testing.T) {
 		},
 		"SELECT uuid_column FROM public.test_table WHERE uuid_column = '58a7c845-af77-44b2-8664-7ca613d92f04'": {
 			"description": {"uuid_column"},
-			"types":       {Uint32ToString(pgtype.UUIDOID)},
+			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"58a7c845-af77-44b2-8664-7ca613d92f04"},
 		},
 		"SELECT uuid_column FROM public.test_table WHERE uuid_column IS NULL": {
 			"description": {"uuid_column"},
-			"types":       {Uint32ToString(pgtype.UUIDOID)},
+			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
 		},
 		"SELECT bytea_column FROM public.test_table WHERE bytea_column IS NOT NULL": {
@@ -622,6 +708,16 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int4ArrayOID)},
 			"values":      {""},
 		},
+		"SELECT array_jsonb_column FROM public.test_table WHERE array_jsonb_column IS NOT NULL": {
+			"description": {"array_jsonb_column"},
+			"types":       {Uint32ToString(pgtype.TextArrayOID)},
+			"values":      {`{"{""key"": ""value1""}","{""key"": ""value2""}"}`},
+		},
+		"SELECT array_jsonb_column FROM public.test_table WHERE array_jsonb_column IS NULL": {
+			"description": {"array_jsonb_column"},
+			"types":       {Uint32ToString(pgtype.TextArrayOID)},
+			"values":      {""},
+		},
 		"SELECT array_ltree_column FROM public.test_table WHERE array_ltree_column IS NOT NULL": {
 			"description": {"array_ltree_column"},
 			"types":       {Uint32ToString(pgtype.TextArrayOID)},
@@ -644,10 +740,25 @@ func TestHandleQuery(t *testing.T) {
 		},
 
 		// Type casts
-		"SELECT 'public.test_table'::regclass::oid AS oid": {
+		"SELECT '\"public\".\"test_table\"'::regclass::oid > 0 AS oid": {
 			"description": {"oid"},
-			"types":       {Uint32ToString(pgtype.OIDOID)},
-			"values":      {"1270"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {"t"},
+		},
+		"SELECT FORMAT('%I.%I', 'public', 'test_table')::regclass::oid > 0 AS oid": { // NOTE: ::regclass::oid on non-constants is not fully supported yet
+			"description": {"oid"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {""},
+		},
+		"SELECT attrelid > 0 AS attrelid FROM pg_attribute WHERE attrelid = '\"public\".\"test_table\"'::regclass LIMIT 1": {
+			"description": {"attrelid"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {"t"},
+		},
+		"SELECT COUNT(*) AS count FROM pg_attribute WHERE attrelid = '\"public\".\"test_table\"'::regclass": {
+			"description": {"count"},
+			"types":       {Uint32ToString(pgtype.Int8OID)},
+			"values":      {"41"},
 		},
 		"SELECT objoid, classoid, objsubid, description FROM pg_description WHERE classoid = 'pg_class'::regclass": {
 			"description": {"objoid", "classoid", "objsubid", "description"},
@@ -684,6 +795,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"abort"},
 		},
+		"SELECT NULL::text AS word": {
+			"description": {"word"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {""},
+		},
 		"SELECT t.x FROM (VALUES (1::int2, 'pg_type'::regclass)) t(x, y)": {
 			"description": {"x"},
 			"types":       {Uint32ToString(pgtype.Int2OID)},
@@ -694,11 +810,26 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"array_in"},
 		},
+		"SELECT uuid_column FROM test_table WHERE uuid_column IN ('58a7c845-af77-44b2-8664-7ca613d92f04'::uuid)": {
+			"description": {"uuid_column"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"58a7c845-af77-44b2-8664-7ca613d92f04"},
+		},
+		"SELECT '1 week'::INTERVAL AS interval": {
+			"description": {"interval"},
+			"types":       {Uint32ToString(pgtype.IntervalOID)},
+			"values":      {"0 months 7 days 0 microseconds"},
+		},
+		"SELECT date_trunc('month', '2025-02-24 15:58:23-05'::timestamptz + '-1 month'::interval) AS date": {
+			"description": {"date"},
+			"types":       {Uint32ToString(pgtype.TimestamptzOID)},
+			"values":      {"2025-01-01 00:00:00+00:00"},
+		},
 
 		// SELECT * FROM function()
 		"SELECT * FROM pg_catalog.pg_get_keywords() LIMIT 1": {
 			"description": {"word", "catcode", "barelabel", "catdesc", "baredesc"},
-			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"abort", "U", "t", "unreserved", "can be bare label"},
 		},
 		"SELECT pg_get_keywords.word FROM pg_catalog.pg_get_keywords() LIMIT 1": {
@@ -716,10 +847,15 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"1"},
 		},
-		"SELECT (information_schema._pg_expandarray(ARRAY[1])).n": {
+		"SELECT (information_schema._pg_expandarray(ARRAY[10])).n": {
 			"description": {"n"},
-			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"types":       {Uint32ToString(pgtype.Int8OID)},
 			"values":      {"1"},
+		},
+		"SELECT (information_schema._pg_expandarray(ARRAY[10])).x AS value": {
+			"description": {"value"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"10"},
 		},
 
 		// Transformed JOIN's
@@ -732,6 +868,10 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"oid", "description"},
 			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"10", ""},
+		},
+		"SELECT (SELECT 1 FROM (SELECT 1 AS inner_val) JOIN (SELECT NULL) ON inner_val = indclass[1]) AS test FROM pg_index": {
+			"description": {"test"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
 
 		// CASE
@@ -767,13 +907,23 @@ func TestHandleQuery(t *testing.T) {
 		},
 		"SELECT CASE WHEN TRUE THEN pg_catalog.pg_is_in_recovery() END AS CASE": {
 			"description": {"case"},
-			"types":       {Uint32ToString(pgtype.TextOID)},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {"f"},
+		},
+		"SELECT CASE WHEN FALSE THEN true ELSE pg_catalog.pg_is_in_recovery() END AS CASE": {
+			"description": {"case"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
 			"values":      {"f"},
 		},
 		"SELECT CASE WHEN nsp.nspname = ANY('{information_schema}') THEN false ELSE true END AS db_support FROM pg_catalog.pg_namespace nsp WHERE nsp.oid = 1268::OID;": {
 			"description": {"db_support"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
-			"values":      {"true"},
+			"values":      {"t"},
+		},
+		"SELECT CASE WHEN FORMAT('%s', test_table.varchar_column) = 'varchar' THEN 1 ELSE 2 END AS test_case FROM test_table LIMIT 1": {
+			"description": {"test_case"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
 		},
 
 		// WHERE pg functions
@@ -782,12 +932,16 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID)},
 			"values":      {},
 		},
-
 		// WHERE with nested SELECT
 		"SELECT int2_column FROM test_table WHERE int2_column > 0 AND int2_column = (SELECT int2_column FROM test_table WHERE int2_column = 32767)": {
 			"description": {"int2_column"},
 			"types":       {Uint32ToString(pgtype.Int4OID)},
 			"values":      {"32767"},
+		},
+		// WHERE ANY(column reference)
+		"SELECT id FROM test_table WHERE id = ANY(id)": { // NOTE: ... = ANY() on non-constants is not fully supported yet
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
 		},
 
 		// WITH
@@ -795,6 +949,25 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"oid", "rolname"},
 			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"10", "bemidb"},
+		},
+
+		// ORDER BY
+		"SELECT ARRAY(SELECT 1 FROM pg_enum ORDER BY enumsortorder) AS array": {
+			"description": {"array"},
+			"types":       {Uint32ToString(pgtype.Int4ArrayOID)},
+			"values":      {"{}"},
+		},
+		"SELECT test_table.id FROM public.test_table ORDER BY public.test_table.id DESC LIMIT 1": {
+			"description": {"id"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"2"},
+		},
+
+		// GROUP BY
+		"SELECT MAX(id) AS max FROM public.test_table GROUP BY public.test_table.id LIMIT 1": {
+			"description": {"max"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
 		},
 
 		// Table alias
@@ -848,7 +1021,7 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {},
 		},
-		"SELECT tables.table_name FROM information_schema.tables": {
+		"SELECT tables.table_name FROM information_schema.tables WHERE table_schema = 'public'": {
 			"description": {"table_name"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"test_table"},
@@ -874,7 +1047,7 @@ func TestHandleQuery(t *testing.T) {
 				Uint32ToString(pgtype.Int8OID),
 				Uint32ToString(pgtype.TextOID),
 			},
-			"values": {"16388", "bemidb", "", "true", "false", "true", "10", ""},
+			"values": {"16388", "bemidb", "", "t", "f", "t", "10", ""},
 		},
 	}
 
@@ -882,7 +1055,7 @@ func TestHandleQuery(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			queryHandler := initQueryHandler()
 
-			messages, err := queryHandler.HandleQuery(query)
+			messages, err := queryHandler.HandleSimpleQuery(query)
 
 			testNoError(t, err)
 			testRowDescription(t, messages[0], responses["description"], responses["types"])
@@ -907,7 +1080,7 @@ func TestHandleQuery(t *testing.T) {
 	t.Run("Returns an error if a table does not exist", func(t *testing.T) {
 		queryHandler := initQueryHandler()
 
-		_, err := queryHandler.HandleQuery("SELECT * FROM non_existent_table")
+		_, err := queryHandler.HandleSimpleQuery("SELECT * FROM non_existent_table")
 
 		if err == nil {
 			t.Errorf("Expected an error, got nil")
@@ -927,7 +1100,7 @@ func TestHandleQuery(t *testing.T) {
 	t.Run("Returns a result without a row description for SET queries", func(t *testing.T) {
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+		messages, err := queryHandler.HandleSimpleQuery("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -938,9 +1111,9 @@ func TestHandleQuery(t *testing.T) {
 
 	t.Run("Allows setting and querying timezone", func(t *testing.T) {
 		queryHandler := initQueryHandler()
-		queryHandler.HandleQuery("SET timezone = 'UTC'")
+		queryHandler.HandleSimpleQuery("SET timezone = 'UTC'")
 
-		messages, err := queryHandler.HandleQuery("SHOW timezone")
+		messages, err := queryHandler.HandleSimpleQuery("show timezone")
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -956,12 +1129,36 @@ func TestHandleQuery(t *testing.T) {
 	t.Run("Handles an empty query", func(t *testing.T) {
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery("-- ping")
+		messages, err := queryHandler.HandleSimpleQuery("-- ping")
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
 			&pgproto3.EmptyQueryResponse{},
 		})
+	})
+
+	t.Run("Handles a DISCARD ALL query", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+
+		messages, err := queryHandler.HandleSimpleQuery("DISCARD ALL")
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.CommandComplete{},
+		})
+		testCommandCompleteTag(t, messages[0], "DISCARD ALL")
+	})
+
+	t.Run("Handles a BEGIN query", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+
+		messages, err := queryHandler.HandleSimpleQuery("BEGIN")
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.CommandComplete{},
+		})
+		testCommandCompleteTag(t, messages[0], "BEGIN")
 	})
 }
 
@@ -978,7 +1175,7 @@ func TestHandleParseQuery(t *testing.T) {
 			&pgproto3.ParseComplete{},
 		})
 
-		remappedQuery := "SELECT usename, passwd FROM (VALUES ('bemidb'::text, '10'::oid, 'FALSE'::bool, 'FALSE'::bool, 'TRUE'::bool, 'FALSE'::bool, 'bemidb-encrypted'::text, NULL, NULL)) pg_shadow(usename, usesysid, usecreatedb, usesuper, userepl, usebypassrls, passwd, valuntil, useconfig) WHERE usename = $1"
+		remappedQuery := "SELECT usename, passwd FROM main.pg_shadow WHERE usename = $1"
 		if preparedStatement.Query != remappedQuery {
 			t.Errorf("Expected the prepared statement query to be %v, got %v", remappedQuery, preparedStatement.Query)
 		}
@@ -986,13 +1183,31 @@ func TestHandleParseQuery(t *testing.T) {
 			t.Errorf("Expected the prepared statement to have a statement")
 		}
 	})
+
+	t.Run("Handles PARSE extended query step if query is empty", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+		message := &pgproto3.Parse{Query: ""}
+
+		messages, preparedStatement, err := queryHandler.HandleParseQuery(message)
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.ParseComplete{},
+		})
+
+		if preparedStatement.Query != "" {
+			t.Errorf("Expected the prepared statement query to be empty, got %v", preparedStatement.Query)
+		}
+		if preparedStatement.Statement != nil {
+			t.Errorf("Expected the prepared statement not to have a statement, got %v", preparedStatement.Statement)
+		}
+	})
 }
 
 func TestHandleBindQuery(t *testing.T) {
 	t.Run("Handles BIND extended query step with text format parameter", func(t *testing.T) {
 		queryHandler := initQueryHandler()
-		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
-		parseMessage := &pgproto3.Parse{Query: query}
+		parseMessage := &pgproto3.Parse{Query: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
 
@@ -1014,10 +1229,37 @@ func TestHandleBindQuery(t *testing.T) {
 		}
 	})
 
-	t.Run("Handles BIND extended query step with binary format parameter", func(t *testing.T) {
+	t.Run("Handles BIND extended query step with binary format 4-byte parameter", func(t *testing.T) {
 		queryHandler := initQueryHandler()
-		query := "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"
-		parseMessage := &pgproto3.Parse{Query: query}
+		parseMessage := &pgproto3.Parse{Query: "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"}
+		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
+		testNoError(t, err)
+
+		paramValue := int32(2200)
+		paramBytes := make([]byte, 4)
+		binary.BigEndian.PutUint32(paramBytes, uint32(paramValue))
+
+		bindMessage := &pgproto3.Bind{
+			Parameters:           [][]byte{paramBytes},
+			ParameterFormatCodes: []int16{1}, // Binary format
+		}
+		messages, preparedStatement, err := queryHandler.HandleBindQuery(bindMessage, preparedStatement)
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.BindComplete{},
+		})
+		if len(preparedStatement.Variables) != 1 {
+			t.Errorf("Expected the prepared statement to have 1 variable, got %v", len(preparedStatement.Variables))
+		}
+		if preparedStatement.Variables[0] != paramValue {
+			t.Errorf("Expected the prepared statement variable to be %v, got %v", paramValue, preparedStatement.Variables[0])
+		}
+	})
+
+	t.Run("Handles BIND extended query step with binary format 8-byte parameter", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+		parseMessage := &pgproto3.Parse{Query: "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
 
@@ -1040,6 +1282,33 @@ func TestHandleBindQuery(t *testing.T) {
 		}
 		if preparedStatement.Variables[0] != paramValue {
 			t.Errorf("Expected the prepared statement variable to be %v, got %v", paramValue, preparedStatement.Variables[0])
+		}
+	})
+
+	t.Run("Handles BIND extended query step with binary format 16-byte (uuid) parameter", func(t *testing.T) {
+		queryHandler := initQueryHandler()
+		parseMessage := &pgproto3.Parse{Query: "SELECT uuid_column FROM public.test_table WHERE uuid_column = $1"}
+		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
+		testNoError(t, err)
+
+		uuidParam := "58a7c845-af77-44b2-8664-7ca613d92f04"
+		paramBytes, _ := uuid.Must(uuid.Parse(uuidParam)).MarshalBinary()
+
+		bindMessage := &pgproto3.Bind{
+			Parameters:           [][]byte{paramBytes},
+			ParameterFormatCodes: []int16{1}, // Binary format
+		}
+		messages, preparedStatement, err := queryHandler.HandleBindQuery(bindMessage, preparedStatement)
+
+		testNoError(t, err)
+		testMessageTypes(t, messages, []pgproto3.Message{
+			&pgproto3.BindComplete{},
+		})
+		if len(preparedStatement.Variables) != 1 {
+			t.Errorf("Expected the prepared statement to have 1 variable, got %v", len(preparedStatement.Variables))
+		}
+		if preparedStatement.Variables[0] != uuidParam {
+			t.Errorf("Expected the prepared statement variable to be %v, got %v", uuidParam, preparedStatement.Variables[0])
 		}
 	})
 }
@@ -1146,7 +1415,7 @@ SET client_min_messages TO 'warning';
 SET standard_conforming_strings = on;`
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery(query)
+		messages, err := queryHandler.HandleSimpleQuery(query)
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1164,7 +1433,7 @@ SET standard_conforming_strings = on;`
 SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery(query)
+		messages, err := queryHandler.HandleSimpleQuery(query)
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1183,7 +1452,7 @@ SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 		queryHandler := initQueryHandler()
 
-		messages, err := queryHandler.HandleQuery(query)
+		messages, err := queryHandler.HandleSimpleQuery(query)
 
 		testNoError(t, err)
 		testMessageTypes(t, messages, []pgproto3.Message{
@@ -1206,7 +1475,7 @@ SELECT * FROM non_existent_table;
 SET standard_conforming_strings = on;`
 		queryHandler := initQueryHandler()
 
-		_, err := queryHandler.HandleQuery(query)
+		_, err := queryHandler.HandleSimpleQuery(query)
 
 		if err == nil {
 			t.Error("Expected an error for non-existent table, got nil")

@@ -186,15 +186,15 @@ psql postgres://localhost:54321/bemidb -c \
 
 #### `sync` command
 
-| CLI argument           | Environment variable | Default value | Description                                                               |
-|------------------------|----------------------|---------------|---------------------------------------------------------------------------|
-| `--pg-database-url`    | `PG_DATABASE_URL`    | Required      | PostgreSQL database URL to sync                                           |
-| `--pg-sync-interval`   | `PG_SYNC_INTERVAL`   |               | Interval between syncs. Valid units: `ns`, `us`/`µs`, `ms`, `s`, `m`, `h` |
-| `--pg-exclude-schemas` | `PG_EXCLUDE_SCHEMAS` |               | List of schemas to exclude from sync. Comma-separated                     |
-| `--pg-include-schemas` | `PG_INCLUDE_SCHEMAS` |               | List of schemas to include in sync. Comma-separated                       |
-| `--pg-exclude-tables`  | `PG_EXCLUDE_TABLES`  |               | List of tables to exclude from sync. Comma-separated `schema.table`       |
-| `--pg-include-tables`  | `PG_INCLUDE_TABLES`  |               | List of tables to include in sync. Comma-separated `schema.table`         |
-| `--pg-schema-prefix`   | `PG_SCHEMA_PREFIX`   |               | Prefix for PostgreSQL schema names                                        |
+| CLI argument           | Environment variable | Default value | Description                                                                                      |
+|------------------------|----------------------|---------------|--------------------------------------------------------------------------------------------------|
+| `--pg-database-url`    | `PG_DATABASE_URL`    | Required      | PostgreSQL database URL to sync                                                                  |
+| `--pg-sync-interval`   | `PG_SYNC_INTERVAL`   |               | Interval between syncs. Valid units: `ns`, `us`/`µs`, `ms`, `s`, `m`, `h`                        |
+| `--pg-exclude-schemas` | `PG_EXCLUDE_SCHEMAS` |               | List of schemas to exclude from sync. Comma-separated. May contain wildcards (`*`)               |
+| `--pg-include-schemas` | `PG_INCLUDE_SCHEMAS` |               | List of schemas to include in sync. Comma-separated. May contain wildcards (`*`)                 |
+| `--pg-exclude-tables`  | `PG_EXCLUDE_TABLES`  |               | List of tables to exclude from sync. Comma-separated `schema.table`. May contain wildcards (`*`) |
+| `--pg-include-tables`  | `PG_INCLUDE_TABLES`  |               | List of tables to include in sync. Comma-separated `schema.table`. May contain wildcards (`*`)   |
+| `--pg-schema-prefix`   | `PG_SCHEMA_PREFIX`   |               | Prefix for PostgreSQL schema names                                                               |
 
 #### `start` command
 
@@ -209,17 +209,18 @@ psql postgres://localhost:54321/bemidb -c \
 
 #### Other common options
 
-| CLI argument              | Environment variable    | Default value                                                     | Description                                          |
-|---------------------------|-------------------------|-------------------------------------------------------------------|------------------------------------------------------|
-| `--storage-type`          | `BEMIDB_STORAGE_TYPE`   | `LOCAL`                                                           | Storage type: `LOCAL` or `S3`                        |
-| `--storage-path`          | `BEMIDB_STORAGE_PATH`   | `iceberg`                                                         | Path to the storage folder                           |
-| `--log-level`             | `BEMIDB_LOG_LEVEL`      | `INFO`                                                            | Log level: `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE` |
-| `--aws-s3-endpoint`       | `AWS_S3_ENDPOINT`       | `s3.amazonaws.com`                                                | AWS S3 endpoint                                      |
-| `--aws-region`            | `AWS_REGION`            | Required with `S3` storage type                                   | AWS region                                           |
-| `--aws-s3-bucket`         | `AWS_S3_BUCKET`         | Required with `S3` storage type                                   | AWS S3 bucket name                                   |
-| `--aws-credentials-type`  | `AWS_CREDENTIALS_TYPE`  | `STATIC`                                                          | AWS credentials type: `STATIC`, `DEFAULT`.           |
-| `--aws-access-key-id`     | `AWS_ACCESS_KEY_ID`     | Required with `S3` storage type and aws credentials type `STATIC` | AWS access key ID                                    |
-| `--aws-secret-access-key` | `AWS_SECRET_ACCESS_KEY` | Required with `S3` storage type and aws credentials type `STATIC` | AWS secret access key                                |
+| CLI argument                   | Environment variable          | Default value                  | Description                                                                |
+|--------------------------------|-------------------------------|--------------------------------|----------------------------------------------------------------------------|
+| `--storage-type`               | `BEMIDB_STORAGE_TYPE`         | `LOCAL`                        | Storage type: `LOCAL` or `S3`                                              |
+| `--storage-path`               | `BEMIDB_STORAGE_PATH`         | `iceberg`                      | Path to the storage folder                                                 |
+| `--log-level`                  | `BEMIDB_LOG_LEVEL`            | `INFO`                         | Log level: `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`                       |
+| `--disable-anonymous-analytics`| `DISABLE_ANONYMOUS_ANALYTICS` | `false`                        | Disable collection of anonymous usage metadata (OS type, database host)    |
+| `--aws-s3-endpoint`            | `AWS_S3_ENDPOINT`             | `s3.amazonaws.com`             | AWS S3 endpoint                                                            |
+| `--aws-region`                 | `AWS_REGION`                  | Required with `S3` storage type | AWS region                                                                |
+| `--aws-s3-bucket`              | `AWS_S3_BUCKET`               | Required with `S3` storage type | AWS S3 bucket name                                                        |
+| `--aws-credentials-type`       | `AWS_CREDENTIALS_TYPE`        | `STATIC`                        | AWS credentials type: `STATIC`, `DEFAULT`.                             |
+| `--aws-access-key-id`          | `AWS_ACCESS_KEY_ID`           | Required with `S3` storage type | AWS access key ID                                                         |
+| `--aws-secret-access-key`      | `AWS_SECRET_ACCESS_KEY`       | Required with `S3` storage type | AWS secret access key                                                     |
 
 Note that CLI arguments take precedence over environment variables. I.e. you can override the environment variables with CLI arguments.
 
@@ -269,7 +270,7 @@ Primitive data types are mapped as follows:
 | `time`, `timetz`                                            | `INT64` (`TIME_MICROS` / `TIME_MILLIS`)           | `time`                           |
 | `timestamp`                                                 | `INT64` (`TIMESTAMP_MICROS` / `TIMESTAMP_MILLIS`) | `timestamp` / `timestamp_ns`     |
 | `timestamptz`                                               | `INT64` (`TIMESTAMP_MICROS` / `TIMESTAMP_MILLIS`) | `timestamptz` / `timestamptz_ns` |
-| `uuid`                                                      | `FIXED_LEN_BYTE_ARRAY`                            | `uuid`                           |
+| `uuid`                                                      | `BYTE_ARRAY` (`UTF8`)                             | `uuid`                           |
 | `bytea`                                                     | `BYTE_ARRAY` (`UTF8`)                             | `binary`                         |
 | `interval`                                                  | `BYTE_ARRAY` (`UTF8`)                             | `string`                         |
 | `point`, `line`, `lseg`, `box`, `path`, `polygon`, `circle` | `BYTE_ARRAY` (`UTF8`)                             | `string`                         |
@@ -290,10 +291,6 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
 
 - [ ] Incremental data synchronization into Iceberg tables.
 - [ ] Support for parent partitioned tables.
-- [ ] Real-time replication from Postgres using CDC.
-- [ ] Direct Postgres-compatible write operations.
-- [ ] Iceberg table compaction and partitioning.
-- [ ] Cache layer for frequently accessed data.
 - [ ] Materialized views.
 
 ## Alternatives

@@ -18,8 +18,8 @@ const (
 	PARQUET_SCHEMA_REPETITION_TYPE_REQUIRED = "REQUIRED"
 	PARQUET_SCHEMA_REPETITION_TYPE_OPTIONAL = "OPTIONAL"
 
-	PARQUET_NAN           = "NaN"
-	PARQUET_MAX_PRECISION = 38
+	PARQUET_NAN                   = "NaN"
+	PARQUET_MAX_DECIMAL_PRECISION = 38
 
 	// 0000-01-01 00:00:00 +0000 UTC
 	EPOCH_TIME_MS = -62167219200000
@@ -36,6 +36,13 @@ type PgSchemaColumn struct {
 	NumericScale           string
 	DatetimePrecision      string
 	Namespace              string
+	config                 *Config
+}
+
+func NewPgSchemaColumn(config *Config) *PgSchemaColumn {
+	return &PgSchemaColumn{
+		config: config,
+	}
 }
 
 type ParquetSchemaField struct {
@@ -143,14 +150,17 @@ func (pgSchemaColumn *PgSchemaColumn) FormatParquetValue(value string) interface
 	if pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY {
 		var values []interface{}
 
-		csvString := strings.Trim(value, "{}")
+		csvString := strings.TrimPrefix(value, "{")
+		csvString = strings.TrimSuffix(csvString, "}")
 		if csvString == "" {
 			return values
 		}
 
+		// Replace escaped double quotes with double quotes according to CSV format rules
+		csvString = strings.ReplaceAll(csvString, "\\\"", "\"\"")
 		csvReader := csv.NewReader(strings.NewReader(csvString))
 		stringValues, err := csvReader.Read()
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 
 		for _, stringValue := range stringValues {
 			values = append(values, pgSchemaColumn.parquetPrimitiveValue(stringValue))
@@ -183,18 +193,19 @@ func (pgSchemaColumn *PgSchemaColumn) toParquetSchemaField() ParquetSchemaField 
 	switch pgSchemaColumn.UdtName {
 	case "numeric":
 		scale, err := StringToInt(pgSchemaColumn.NumericScale)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		precision, err := StringToInt(pgSchemaColumn.NumericPrecision)
-		PanicIfError(err)
-		if precision > PARQUET_MAX_PRECISION {
-			precision = PARQUET_MAX_PRECISION
+		PanicIfError(err, pgSchemaColumn.config)
+		if precision > PARQUET_MAX_DECIMAL_PRECISION {
+			precision = PARQUET_MAX_DECIMAL_PRECISION
+		} else if precision == 0 {
+			precision = PARQUET_MAX_DECIMAL_PRECISION / 2
+			scale = PARQUET_MAX_DECIMAL_PRECISION / 2
 		}
 
 		parquetSchemaField.Scale = IntToString(scale)
 		parquetSchemaField.Precision = IntToString(precision)
 		parquetSchemaField.Length = IntToString(scale + precision)
-	case "uuid":
-		parquetSchemaField.Length = "36"
 	default:
 		if pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY {
 			parquetSchemaField.NestedType = parquetSchemaField.Type
@@ -219,46 +230,46 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveValue(value string) interf
 		return trimmedValue
 	case "int2", "int4":
 		intValue, err := StringToInt(value)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		return int32(intValue)
 	case "int8":
 		intValue, err := strconv.ParseInt(value, 10, 64)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		return intValue
 	case "xid":
 		intValue, err := strconv.ParseUint(value, 10, 32)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		return intValue
 	case "xid8":
 		intValue, err := strconv.ParseUint(value, 10, 64)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		return intValue
 	case "float4":
 		floatValue, err := strconv.ParseFloat(value, 32)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		if math.IsNaN(floatValue) {
 			return PARQUET_NAN
 		}
 		return float32(floatValue)
 	case "float8":
 		floatValue, err := strconv.ParseFloat(value, 64)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		if math.IsNaN(floatValue) {
 			return PARQUET_NAN
 		}
 		return floatValue
 	case "bool":
 		boolValue, err := strconv.ParseBool(value)
-		PanicIfError(err)
+		PanicIfError(err, pgSchemaColumn.config)
 		return boolValue
 	case "timestamp":
 		if pgSchemaColumn.DatetimePrecision == "6" {
 			parsedTime, err := time.Parse("2006-01-02 15:04:05.999999", value)
-			PanicIfError(err)
+			PanicIfError(err, pgSchemaColumn.config)
 			return parsedTime.UnixMicro()
 		} else {
 			parsedTime, err := time.Parse("2006-01-02 15:04:05.999", value)
-			PanicIfError(err)
+			PanicIfError(err, pgSchemaColumn.config)
 			return parsedTime.UnixMilli()
 		}
 	case "timestamptz":
@@ -266,40 +277,40 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveValue(value string) interf
 			parsedTime, err := time.Parse("2006-01-02 15:04:05.999999-07:00", value)
 			if err != nil {
 				parsedTime, err = time.Parse("2006-01-02 15:04:05.999999-07", value)
-				PanicIfError(err)
+				PanicIfError(err, pgSchemaColumn.config)
 			}
 			return parsedTime.UnixMicro()
 		} else {
 			parsedTime, err := time.Parse("2006-01-02 15:04:05.999-07:00", value)
 			if err != nil {
 				parsedTime, err = time.Parse("2006-01-02 15:04:05.999-07", value)
-				PanicIfError(err)
+				PanicIfError(err, pgSchemaColumn.config)
 			}
 			return parsedTime.UnixMilli()
 		}
 	case "time":
 		if pgSchemaColumn.DatetimePrecision == "6" {
 			parsedTime, err := time.Parse("15:04:05.999999", value)
-			PanicIfError(err)
+			PanicIfError(err, pgSchemaColumn.config)
 			return int64(-EPOCH_TIME_MS*1000 + parsedTime.UnixMicro())
 		} else {
 			parsedTime, err := time.Parse("15:04:05.999", value)
-			PanicIfError(err)
+			PanicIfError(err, pgSchemaColumn.config)
 			return -EPOCH_TIME_MS + parsedTime.UnixMilli()
 		}
 	case "timetz":
 		if pgSchemaColumn.DatetimePrecision == "6" {
 			parsedTime, err := time.Parse("15:04:05.999999-07", value)
-			PanicIfError(err)
+			PanicIfError(err, pgSchemaColumn.config)
 			return int64(-EPOCH_TIME_MS*1000 + parsedTime.UnixMicro())
 		} else {
 			parsedTime, err := time.Parse("15:04:05.999-07", value)
-			PanicIfError(err)
+			PanicIfError(err, pgSchemaColumn.config)
 			return -EPOCH_TIME_MS + parsedTime.UnixMilli()
 		}
 	case "date":
-		parsedTime, err := time.Parse("2006-01-02", value)
-		PanicIfError(err)
+		parsedTime, err := StringDateToTime(value)
+		PanicIfError(err, pgSchemaColumn.config)
 		return parsedTime.Unix() / 86400
 	default:
 		// User-defined types
@@ -316,6 +327,7 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveTypes() (primitiveType str
 	case "varchar", "char", "text", "bpchar", "bit", "bytea", "interval", "jsonb", "json",
 		"point", "line", "lseg", "box", "path", "polygon", "circle",
 		"cidr", "inet", "macaddr", "macaddr8",
+		"uuid", // DuckDB doesn't support BLOB (FIXED_LEN_BYTE_ARRAY) -> UUID type casting, use a string instead
 		"tsvector", "xml", "pg_snapshot":
 		return "BYTE_ARRAY", "UTF8"
 	case "date":
@@ -334,8 +346,6 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveTypes() (primitiveType str
 		return "INT32", "UINT_32"
 	case "xid8":
 		return "INT64", "UINT_64"
-	case "uuid":
-		return "FIXED_LEN_BYTE_ARRAY", ""
 	case "bool":
 		return "BOOLEAN", ""
 	case "time", "timetz":
@@ -376,7 +386,16 @@ func (pgSchemaColumn *PgSchemaColumn) icebergPrimitiveType() string {
 	case "float4", "float8":
 		return "float"
 	case "numeric":
-		return "decimal(" + pgSchemaColumn.NumericPrecision + ", " + pgSchemaColumn.NumericScale + ")"
+		if pgSchemaColumn.NumericScale == "0" {
+			return "decimal"
+		}
+
+		precision, err := StringToInt(pgSchemaColumn.NumericPrecision)
+		PanicIfError(err, pgSchemaColumn.config)
+		if precision > PARQUET_MAX_DECIMAL_PRECISION {
+			precision = PARQUET_MAX_DECIMAL_PRECISION
+		}
+		return "decimal(" + IntToString(precision) + ", " + pgSchemaColumn.NumericScale + ")"
 	case "bool":
 		return "boolean"
 	case "date":

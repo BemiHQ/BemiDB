@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	VERSION = "0.37.2"
+
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
 	ENV_USER              = "BEMIDB_USER"
@@ -32,6 +34,8 @@ const (
 	ENV_PG_EXCLUDE_SCHEMAS = "PG_EXCLUDE_SCHEMAS"
 	ENV_PG_INCLUDE_TABLES  = "PG_INCLUDE_TABLES"
 	ENV_PG_EXCLUDE_TABLES  = "PG_EXCLUDE_TABLES"
+
+	ENV_DISABLE_ANONYMOUS_ANALYTICS = "DISABLE_ANONYMOUS_ANALYTICS"
 
 	DEFAULT_PORT              = "54321"
 	DEFAULT_DATABASE          = "bemidb"
@@ -64,26 +68,28 @@ type AwsConfig struct {
 
 type PgConfig struct {
 	DatabaseUrl    string
-	SyncInterval   string // optional
-	SchemaPrefix   string // optional
-	IncludeSchemas *Set   // optional
-	ExcludeSchemas *Set   // optional
-	IncludeTables  *Set   // optional
-	ExcludeTables  *Set   // optional
+	SyncInterval   string   // optional
+	SchemaPrefix   string   // optional
+	IncludeSchemas []string // optional
+	ExcludeSchemas []string // optional
+	IncludeTables  []string // optional
+	ExcludeTables  []string // optional
 }
 
 type Config struct {
-	Host              string
-	Port              string
-	Database          string
-	User              string
-	EncryptedPassword string
-	InitSqlFilepath   string
-	LogLevel          string
-	StorageType       string
-	StoragePath       string
-	Aws               AwsConfig
-	Pg                PgConfig
+	Host                      string
+	Port                      string
+	Database                  string
+	User                      string
+	EncryptedPassword         string
+	InitSqlFilepath           string
+	LogLevel                  string
+	StorageType               string
+	StoragePath               string
+	Aws                       AwsConfig
+	Pg                        PgConfig
+	DisableAnonymousAnalytics bool
+	Version                   string
 }
 
 type configParseValues struct {
@@ -94,7 +100,7 @@ type configParseValues struct {
 	pgExcludeTables  string
 }
 
-var _config Config
+var _config = Config{Version: VERSION}
 var _configParseValues configParseValues
 
 func init() {
@@ -124,6 +130,7 @@ func registerFlags() {
 	flag.StringVar(&_config.Aws.CredentialsType, "aws-credentials-type", os.Getenv(ENV_AWS_CREDENTIALS_TYPE), "AWS credentials type: \"STATIC\", \"DEFAULT\". Default: \""+DEFAULT_AWS_CREDENTIALS_TYPE+"\"")
 	flag.StringVar(&_config.Aws.AccessKeyId, "aws-access-key-id", os.Getenv(ENV_AWS_ACCESS_KEY_ID), "AWS access key ID")
 	flag.StringVar(&_config.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
+	flag.BoolVar(&_config.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
 }
 
 func parseFlags() {
@@ -194,19 +201,19 @@ func parseFlags() {
 		panic("Cannot specify both --pg-include-schemas and --pg-exclude-schemas")
 	}
 	if _configParseValues.pgIncludeSchemas != "" {
-		_config.Pg.IncludeSchemas = NewSet(strings.Split(_configParseValues.pgIncludeSchemas, ","))
+		_config.Pg.IncludeSchemas = strings.Split(_configParseValues.pgIncludeSchemas, ",")
 	}
 	if _configParseValues.pgExcludeSchemas != "" {
-		_config.Pg.ExcludeSchemas = NewSet(strings.Split(_configParseValues.pgExcludeSchemas, ","))
+		_config.Pg.ExcludeSchemas = strings.Split(_configParseValues.pgExcludeSchemas, ",")
 	}
 	if _configParseValues.pgIncludeTables != "" && _configParseValues.pgExcludeTables != "" {
 		panic("Cannot specify both --pg-include-tables and --pg-exclude-tables")
 	}
 	if _configParseValues.pgIncludeTables != "" {
-		_config.Pg.IncludeTables = NewSet(strings.Split(_configParseValues.pgIncludeTables, ","))
+		_config.Pg.IncludeTables = strings.Split(_configParseValues.pgIncludeTables, ",")
 	}
 	if _configParseValues.pgExcludeTables != "" {
-		_config.Pg.ExcludeTables = NewSet(strings.Split(_configParseValues.pgExcludeTables, ","))
+		_config.Pg.ExcludeTables = strings.Split(_configParseValues.pgExcludeTables, ",")
 	}
 
 	_configParseValues = configParseValues{}

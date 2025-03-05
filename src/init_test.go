@@ -5,7 +5,14 @@ import (
 	"os"
 )
 
-var TEST_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+var PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+	{
+		ColumnName:       "id",
+		DataType:         "integer",
+		UdtName:          "int4",
+		IsNullable:       "NO",
+		NumericPrecision: "32",
+	},
 	{
 		ColumnName:             "bit_column",
 		DataType:               "bit",
@@ -105,6 +112,14 @@ var TEST_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 		Namespace:        "pg_catalog",
 	},
 	{
+		ColumnName:       "numeric_column_without_precision",
+		DataType:         "numeric",
+		UdtName:          "numeric",
+		NumericPrecision: "0", // Will be changed to 19
+		NumericScale:     "0", // Will be changed to 19
+		Namespace:        "pg_catalog",
+	},
+	{
 		ColumnName:        "date_column",
 		DataType:          "date",
 		UdtName:           "date",
@@ -119,7 +134,7 @@ var TEST_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 		Namespace:         "pg_catalog",
 	},
 	{
-		ColumnName:        "time_ms_column",
+		ColumnName:        "timeMsColumn",
 		DataType:          "time without time zone",
 		UdtName:           "time",
 		DatetimePrecision: "3",
@@ -248,6 +263,12 @@ var TEST_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 		Namespace:  "pg_catalog",
 	},
 	{
+		ColumnName: "array_jsonb_column",
+		DataType:   "ARRAY",
+		UdtName:    "_jsonb",
+		Namespace:  "pg_catalog",
+	},
+	{
 		ColumnName: "array_ltree_column",
 		DataType:   "ARRAY",
 		UdtName:    "_ltree",
@@ -261,8 +282,9 @@ var TEST_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 	},
 }
 
-var TEST_LOADED_ROWS = [][]string{
+var PUBLIC_TEST_TABLE_LOADED_ROWS = [][]string{
 	{
+		"1",                                    // id
 		"1",                                    // bit_column
 		"true",                                 // bool_column
 		"bpchar",                               // bpchar_column
@@ -277,9 +299,10 @@ var TEST_LOADED_ROWS = [][]string{
 		"3.14",                                 // float4_column
 		"3.141592653589793",                    // float8_column
 		"12345.67",                             // numeric_column
+		"12345.67",                             // numeric_column_without_precision
 		"2021-01-01",                           // date_column
 		"12:00:00.123456",                      // time_column
-		"12:00:00.123",                         // time_ms_column
+		"12:00:00.123",                         // timeMsColumn
 		"12:00:00.123456-05",                   // timetz_column
 		"12:00:00.123-05",                      // timetz_ms_column
 		"2024-01-01 12:00:00.123456",           // timestamp_column
@@ -299,10 +322,12 @@ var TEST_LOADED_ROWS = [][]string{
 		"{\"key\": \"value\"}",                 // jsonb_column
 		"{one,two,three}",                      // array_text_column
 		"{1,2,3}",                              // array_int_column
-		"{\"a.b\",\"c.d\"}",                    // array_ltree_column
-		"(Toronto)",                            // user_defined_column
+		`{"{\"key\": \"value1\"}","{\"key\": \"value2\"}"}`, // array_jsonb_column
+		"{\"a.b\",\"c.d\"}", // array_ltree_column
+		"(Toronto)",         // user_defined_column
 	},
 	{
+		"2",                                // id
 		PG_NULL_STRING,                     // bit_column
 		"false",                            // bool_column
 		"",                                 // bpchar_column
@@ -317,9 +342,10 @@ var TEST_LOADED_ROWS = [][]string{
 		"NaN",                              // float4_column
 		"-3.141592653589793",               // float8_column
 		"-12345.00",                        // numeric_column
-		PG_NULL_STRING,                     // date_column
+		PG_NULL_STRING,                     // numeric_column_without_precision
+		"20025-11-12",                      // date_column
 		"12:00:00.123",                     // time_column
-		PG_NULL_STRING,                     // time_ms_column
+		PG_NULL_STRING,                     // timeMsColumn
 		"12:00:00.12300+05",                // timetz_column
 		"12:00:00.1+05",                    // timetz_ms_column
 		"2024-01-01 12:00:00",              // timestamp_column
@@ -339,31 +365,63 @@ var TEST_LOADED_ROWS = [][]string{
 		"{}",                               // jsonb_column
 		PG_NULL_STRING,                     // array_text_column
 		"{}",                               // array_int_column
+		PG_NULL_STRING,                     // array_jsonb_column
 		PG_NULL_STRING,                     // array_ltree_column
 		PG_NULL_STRING,                     // user_defined_column
 	},
 }
 
+var TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+	{
+		ColumnName:             "id",
+		DataType:               "integer",
+		UdtName:                "int4",
+		IsNullable:             "NO",
+		OrdinalPosition:        "1",
+		CharacterMaximumLength: "0",
+		NumericPrecision:       "32",
+		NumericScale:           "0",
+		DatetimePrecision:      "0",
+		Namespace:              "pg_catalog",
+	},
+}
+
+var TEST_SCHEMA_SIMPLE_TABLE_LOADED_ROWS = [][]string{{}}
+
 func init() {
 	config := loadTestConfig()
 	icebergWriter := NewIcebergWriter(config)
 
-	for i := range TEST_PG_SCHEMA_COLUMNS {
-		TEST_PG_SCHEMA_COLUMNS[i].OrdinalPosition = IntToString(i + 1)
-		TEST_PG_SCHEMA_COLUMNS[i].IsNullable = "YES"
+	for i := range PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS {
+		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].OrdinalPosition = IntToString(i + 1)
+		if PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].IsNullable == "" {
+			PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].IsNullable = "YES"
+		}
 	}
 
 	i := 0
 	icebergWriter.Write(
 		IcebergSchemaTable{Schema: "public", Table: "test_table"},
-		TEST_PG_SCHEMA_COLUMNS,
+		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS,
 		func() [][]string {
 			if i > 0 {
 				return [][]string{}
 			}
 
 			i++
-			return TEST_LOADED_ROWS
+			return PUBLIC_TEST_TABLE_LOADED_ROWS
+		},
+	)
+	icebergWriter.Write(
+		IcebergSchemaTable{Schema: "test_schema", Table: "simple_table"},
+		TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS,
+		func() [][]string {
+			if i > 0 {
+				return [][]string{}
+			}
+
+			i++
+			return TEST_SCHEMA_SIMPLE_TABLE_LOADED_ROWS
 		},
 	)
 }
@@ -383,7 +441,7 @@ func loadTestConfig() *Config {
 
 func setTestArgs(args []string) {
 	// Reset state
-	_config = Config{}
+	_config = Config{Version: VERSION}
 	_configParseValues = configParseValues{}
 
 	os.Args = append([]string{"cmd"}, args...)

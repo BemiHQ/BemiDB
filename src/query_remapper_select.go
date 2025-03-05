@@ -5,148 +5,37 @@ import (
 )
 
 type QueryRemapperSelect struct {
-	parserSelect   *ParserSelect
-	parserFunction *ParserFunction
-	config         *Config
+	remapperFunction *QueryRemapperFunction
+	parserSelect     *ParserSelect
+	parserFunction   *ParserFunction
+	config           *Config
 }
 
 func NewQueryRemapperSelect(config *Config) *QueryRemapperSelect {
 	return &QueryRemapperSelect{
-		parserSelect:   NewParserSelect(config),
-		parserFunction: NewParserFunction(config),
-		config:         config,
+		remapperFunction: NewQueryRemapperFunction(config),
+		parserSelect:     NewParserSelect(config),
+		parserFunction:   NewParserFunction(config),
+		config:           config,
 	}
 }
 
-func (remapper *QueryRemapperSelect) RemapFunctionToConstant(functionCall *pgQuery.FuncCall) *pgQuery.Node {
-	return remapper.parserFunction.RemapToConstant(functionCall)
-}
-
-// SELECT [PG_FUNCTION()]
-func (remapper *QueryRemapperSelect) RemapSelect(targetNode *pgQuery.Node) *pgQuery.Node {
-	newTargetNode := remapper.remappedInderectionFunctionCall(targetNode)
-	if newTargetNode != nil {
-		return newTargetNode
-	}
-
+// SELECT FUNCTION(...) -> SELECT FUNCTION(...) AS FUNCTION
+func (remapper *QueryRemapperSelect) SetDefaultTargetNameToFunctionName(targetNode *pgQuery.Node) *pgQuery.Node {
 	functionCall := remapper.parserFunction.FunctionCall(targetNode)
-	if functionCall == nil {
+	if functionCall != nil {
+		schemaFunction := remapper.remapperFunction.SchemaFunction(functionCall)
+		// FUNCTION(...) -> FUNCTION(...) AS FUNCTION
+		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
 		return targetNode
 	}
 
-	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
-
-	// set_config(setting_name, new_value, is_local) -> new_value
-	if schemaFunction.Function == PG_FUNCTION_SET_CONFIG {
-		valueNode := remapper.parserFunction.SetConfigValueNode(targetNode, functionCall)
-		remapper.parserSelect.OverrideTargetValue(targetNode, valueNode)
-		remapper.parserSelect.SetDefaultTargetName(targetNode, PG_FUNCTION_SET_CONFIG)
+	indirectionName := remapper.parserFunction.IndirectionName(targetNode)
+	if indirectionName != "" {
+		// (FUNCTION()).n -> (FUNCTION()).n AS n
+		remapper.parserSelect.SetDefaultTargetName(targetNode, indirectionName)
 		return targetNode
 	}
-
-	renamedNameFunction := remapper.remappedFunctionName(functionCall)
-	if renamedNameFunction != nil {
-		functionCall = renamedNameFunction
-		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
-	}
-
-	remappedArgsFunction := remapper.remappedFunctionArgs(functionCall)
-	if remappedArgsFunction != nil {
-		functionCall = remappedArgsFunction
-	}
-
-	constantNode := remapper.parserFunction.RemapToConstant(functionCall)
-	if constantNode != nil {
-		remapper.parserSelect.OverrideTargetValue(targetNode, constantNode)
-		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
-	}
-
-	remapper.remapNestedFunctionCalls(functionCall) // recursive
 
 	return targetNode
-}
-
-func (remapper *QueryRemapperSelect) remappedInderectionFunctionCall(targetNode *pgQuery.Node) *pgQuery.Node {
-	parser := remapper.parserFunction
-
-	functionCall := parser.InderectionFunctionCall(targetNode)
-	if functionCall == nil {
-		return nil
-	}
-
-	schemaFunction := parser.SchemaFunction(functionCall)
-
-	switch {
-
-	// (information_schema._pg_expandarray(array)).n -> unnest(anyarray) AS n
-	case schemaFunction.Schema == PG_SCHEMA_INFORMATION_SCHEMA && schemaFunction.Function == PG_FUNCTION_PG_EXPANDARRAY:
-		inderectionColumnName := parser.InderectionColumnName(targetNode)
-		newTargetNode := parser.RemapInderectionToFunctionCall(targetNode, parser.RemapPgExpandArray(functionCall))
-		remapper.parserSelect.SetDefaultTargetName(newTargetNode, inderectionColumnName)
-		return newTargetNode
-
-	default:
-		return nil
-	}
-}
-
-func (remapper *QueryRemapperSelect) remappedFunctionName(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
-
-	switch {
-
-	// quote_ident(str) -> concat("\""+str+"\"")
-	case schemaFunction.Function == PG_FUNCTION_QUOTE_INDENT:
-		return remapper.parserFunction.RemapQuoteIdentToConcat(functionCall)
-
-	// array_to_string(array, separator) -> main.array_to_string(array, separator)
-	case schemaFunction.Function == PG_FUNCTION_ARRAY_TO_STRING:
-		return remapper.parserFunction.RemapArrayToString(functionCall)
-
-	// row_to_json(col) -> to_json(col)
-	case schemaFunction.Function == PG_FUNCTION_ROW_TO_JSON:
-		return remapper.parserFunction.RemapRowToJson(functionCall)
-
-	// aclexplode(acl) -> json
-	case schemaFunction.Function == PG_FUNCTION_ACLEXPLODE:
-		return remapper.parserFunction.RemapAclExplode(functionCall)
-
-	default:
-		return nil
-	}
-}
-
-func (remapper *QueryRemapperSelect) remappedFunctionArgs(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
-
-	// pg_catalog.pg_get_expr(pg_node_tree, relation_oid, pretty_bool) -> pg_catalog.pg_get_expr(pg_node_tree, relation_oid)
-	if (schemaFunction.Schema == PG_SCHEMA_PG_CATALOG || schemaFunction.Schema == "") && schemaFunction.Function == PG_FUNCTION_PG_GET_EXPR {
-		return remapper.parserFunction.RemoveThirdArgumentFromPgGetExpr(functionCall)
-	}
-
-	return nil
-}
-
-func (remapper *QueryRemapperSelect) remapNestedFunctionCalls(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	nestedFunctionCalls := remapper.parserFunction.NestedFunctionCalls(functionCall)
-
-	for i, nestedFunctionCall := range nestedFunctionCalls {
-		if nestedFunctionCall == nil {
-			continue
-		}
-
-		renamedFunctionCall := remapper.remappedFunctionName(nestedFunctionCall)
-		if renamedFunctionCall != nil {
-			nestedFunctionCall = renamedFunctionCall
-		}
-
-		constantNode := remapper.parserFunction.RemapToConstant(nestedFunctionCall)
-		if constantNode != nil {
-			remapper.parserFunction.OverrideFunctionCallArg(functionCall, i, constantNode)
-		}
-
-		remapper.remapNestedFunctionCalls(nestedFunctionCall)
-	}
-
-	return functionCall
 }

@@ -6,12 +6,12 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	duckDb "github.com/marcboeker/go-duckdb"
@@ -33,14 +33,23 @@ type QueryHandler struct {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 type PreparedStatement struct {
+	// Parse
 	Name          string
 	OriginalQuery string
 	Query         string
 	Statement     *sql.Stmt
 	ParameterOIDs []uint32
-	Variables     []interface{}
-	Portal        string
-	Rows          *sql.Rows
+
+	// Bind
+	Bound     bool
+	Variables []interface{}
+	Portal    string
+
+	// Describe
+	Described bool
+
+	// Describe/Execute
+	Rows *sql.Rows
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -64,6 +73,31 @@ func (nullDecimal *NullDecimal) Scan(value interface{}) error {
 func (nullDecimal NullDecimal) String() string {
 	if nullDecimal.Present {
 		return fmt.Sprintf("%v", nullDecimal.Value.Float64())
+	}
+	return ""
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+type NullInterval struct {
+	Present bool
+	Value   duckDb.Interval
+}
+
+func (nullInterval *NullInterval) Scan(value interface{}) error {
+	if value == nil {
+		nullInterval.Present = false
+		return nil
+	}
+
+	nullInterval.Present = true
+	nullInterval.Value = value.(duckDb.Interval)
+	return nil
+}
+
+func (nullInterval NullInterval) String() string {
+	if nullInterval.Present {
+		return fmt.Sprintf("%d months %d days %d microseconds", nullInterval.Value.Months, nullInterval.Value.Days, nullInterval.Value.Micros)
 	}
 	return ""
 }
@@ -145,6 +179,32 @@ func (nullBigInt NullBigInt) String() string {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+type NullUuid struct {
+	Present bool
+	Value   []uint8
+}
+
+func (nullUuid *NullUuid) Scan(value interface{}) error {
+	if value == nil {
+		nullUuid.Present = false
+		return nil
+	}
+
+	nullUuid.Present = true
+	nullUuid.Value = value.([]uint8)
+	return nil
+}
+
+func (nullUuid NullUuid) String() string {
+	if nullUuid.Present {
+		uuidString := string(nullUuid.Value)
+		return fmt.Sprintf("%x-%x-%x-%x-%x", uuidString[:4], uuidString[4:6], uuidString[6:8], uuidString[8:10], uuidString[10:])
+	}
+	return ""
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 type NullArray struct {
 	Present bool
 	Value   []interface{}
@@ -199,10 +259,9 @@ func NewQueryHandler(config *Config, duckdb *Duckdb, icebergReader *IcebergReade
 	return queryHandler
 }
 
-func (queryHandler *QueryHandler) HandleQuery(originalQuery string) ([]pgproto3.Message, error) {
+func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgproto3.Message, error) {
 	queryStatements, originalQueryStatements, err := queryHandler.parseAndRemapQuery(originalQuery)
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't map query:", originalQuery+"\n"+err.Error())
 		return nil, err
 	}
 	if len(queryStatements) == 0 {
@@ -218,21 +277,20 @@ func (queryHandler *QueryHandler) HandleQuery(originalQuery string) ([]pgproto3.
 			if errorMessage == "Binder Error: UNNEST requires a single list as input" {
 				// https://github.com/duckdb/duckdb/issues/11693
 				LogWarn(queryHandler.config, "Couldn't handle query via DuckDB:", queryStatement+"\n"+err.Error())
-				queriesMsgs, err := queryHandler.HandleQuery(FALLBACK_SQL_QUERY) // self-recursion
+				queriesMsgs, err := queryHandler.HandleSimpleQuery(FALLBACK_SQL_QUERY) // self-recursion
 				if err != nil {
 					return nil, err
 				}
 				queriesMessages = append(queriesMessages, queriesMsgs...)
 				continue
 			} else {
-				LogError(queryHandler.config, "Couldn't handle query via DuckDB:", queryStatement+"\n"+err.Error())
 				return nil, err
 			}
 		}
 		defer rows.Close()
 
 		var queryMessages []pgproto3.Message
-		descriptionMessages, err := queryHandler.rowsToDescriptionMessages(rows, queryStatement)
+		descriptionMessages, err := queryHandler.rowsToDescriptionMessages(rows, originalQueryStatements[i])
 		if err != nil {
 			return nil, err
 		}
@@ -254,11 +312,10 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 	originalQuery := string(message.Query)
 	queryStatements, _, err := queryHandler.parseAndRemapQuery(originalQuery)
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't map query:", originalQuery+"\n"+err.Error())
 		return nil, nil, err
 	}
 	if len(queryStatements) > 1 {
-		return nil, nil, errors.New("multiple queries in a single parse message are not supported")
+		return nil, nil, fmt.Errorf("multiple queries in a single parse message are not supported: %s", originalQuery)
 	}
 
 	preparedStatement := &PreparedStatement{
@@ -267,7 +324,7 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 		ParameterOIDs: message.ParameterOIDs,
 	}
 	if len(queryStatements) == 0 {
-		return []pgproto3.Message{&pgproto3.EmptyQueryResponse{}}, preparedStatement, nil
+		return []pgproto3.Message{&pgproto3.ParseComplete{}}, preparedStatement, nil
 	}
 
 	query := queryStatements[0]
@@ -275,7 +332,6 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 	statement, err := queryHandler.duckdb.PrepareContext(ctx, query)
 	preparedStatement.Statement = statement
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't prepare query via DuckDB:", query+"\n"+err.Error())
 		return nil, nil, err
 	}
 
@@ -284,8 +340,7 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 
 func (queryHandler *QueryHandler) HandleBindQuery(message *pgproto3.Bind, preparedStatement *PreparedStatement) ([]pgproto3.Message, *PreparedStatement, error) {
 	if message.PreparedStatement != preparedStatement.Name {
-		LogError(queryHandler.config, "Prepared statement mismatch:", message.PreparedStatement, "instead of", preparedStatement.Name)
-		return nil, nil, errors.New("prepared statement mismatch")
+		return nil, nil, fmt.Errorf("prepared statement mismatch, %s instead of %s: %s", message.PreparedStatement, preparedStatement.Name, preparedStatement.OriginalQuery)
 	}
 
 	var variables []interface{}
@@ -309,10 +364,15 @@ func (queryHandler *QueryHandler) HandleBindQuery(message *pgproto3.Bind, prepar
 			variables = append(variables, int32(binary.BigEndian.Uint32(param)))
 		} else if len(param) == 8 {
 			variables = append(variables, int64(binary.BigEndian.Uint64(param)))
+		} else if len(param) == 16 {
+			variables = append(variables, uuid.UUID(param).String())
+		} else {
+			return nil, nil, fmt.Errorf("unsupported parameter format: %v (length %d). Original query: %s", param, len(param), preparedStatement.OriginalQuery)
 		}
 	}
 
 	LogDebug(queryHandler.config, "Bound variables:", variables)
+	preparedStatement.Bound = true
 	preparedStatement.Variables = variables
 	preparedStatement.Portal = message.DestinationPortal
 
@@ -325,32 +385,26 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 	switch message.ObjectType {
 	case 'S': // Statement
 		if message.Name != preparedStatement.Name {
-			LogError(queryHandler.config, "Statement mismatch:", message.Name, "instead of", preparedStatement.Name)
-			return nil, nil, errors.New("statement mismatch")
+			return nil, nil, fmt.Errorf("statement mismatch, %s instead of %s: %s", message.Name, preparedStatement.Name, preparedStatement.OriginalQuery)
 		}
 	case 'P': // Portal
 		if message.Name != preparedStatement.Portal {
-			LogError(queryHandler.config, "Portal mismatch:", message.Name, "instead of", preparedStatement.Portal)
-			return nil, nil, errors.New("portal mismatch")
+			return nil, nil, fmt.Errorf("portal mismatch, %s instead of %s: %s", message.Name, preparedStatement.Portal, preparedStatement.OriginalQuery)
 		}
 	}
 
-	if preparedStatement.Query == "" {
-		return []pgproto3.Message{&pgproto3.NoData{}}, preparedStatement, nil
-	}
-
-	if len(preparedStatement.ParameterOIDs) > 0 && len(preparedStatement.ParameterOIDs) != len(preparedStatement.Variables) { // Parse passed the parameters, but Bind didn't happen after
+	preparedStatement.Described = true
+	if preparedStatement.Query == "" || !preparedStatement.Bound { // Empty query or Parse->[No Bind]->Describe
 		return []pgproto3.Message{&pgproto3.NoData{}}, preparedStatement, nil
 	}
 
 	rows, err := preparedStatement.Statement.QueryContext(context.Background(), preparedStatement.Variables...)
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't execute prepared statement via DuckDB:", preparedStatement.Query+"\n"+err.Error())
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("couldn't execute statement: %w. Original query: %s", err, preparedStatement.OriginalQuery)
 	}
 	preparedStatement.Rows = rows
 
-	messages, err := queryHandler.rowsToDescriptionMessages(preparedStatement.Rows, preparedStatement.Query)
+	messages, err := queryHandler.rowsToDescriptionMessages(preparedStatement.Rows, preparedStatement.OriginalQuery)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -359,18 +413,16 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 
 func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, preparedStatement *PreparedStatement) ([]pgproto3.Message, error) {
 	if message.Portal != preparedStatement.Portal {
-		LogError(queryHandler.config, "Portal mismatch:", message.Portal, "instead of", preparedStatement.Portal)
-		return nil, errors.New("portal mismatch")
+		return nil, fmt.Errorf("portal mismatch, %s instead of %s: %s", message.Portal, preparedStatement.Portal, preparedStatement.OriginalQuery)
 	}
 
 	if preparedStatement.Query == "" {
 		return []pgproto3.Message{&pgproto3.EmptyQueryResponse{}}, nil
 	}
 
-	if preparedStatement.Rows == nil { // If Describe step didn't have Bind step before
+	if preparedStatement.Rows == nil { // Parse->[No Bind]->Describe->Execute or Parse->Bind->[No Describe]->Execute
 		rows, err := preparedStatement.Statement.QueryContext(context.Background(), preparedStatement.Variables...)
 		if err != nil {
-			LogError(queryHandler.config, "Couldn't execute prepared statement via DuckDB:", preparedStatement.Query+"\n"+err.Error())
 			return nil, err
 		}
 		preparedStatement.Rows = rows
@@ -384,7 +436,7 @@ func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, 
 func (queryHandler *QueryHandler) createSchemas() {
 	ctx := context.Background()
 	schemas, err := queryHandler.icebergReader.Schemas()
-	PanicIfError(err)
+	PanicIfError(err, queryHandler.config)
 
 	for _, schema := range schemas {
 		_, err := queryHandler.duckdb.ExecContext(
@@ -392,15 +444,14 @@ func (queryHandler *QueryHandler) createSchemas() {
 			"CREATE SCHEMA IF NOT EXISTS \"$schema\"",
 			map[string]string{"schema": schema},
 		)
-		PanicIfError(err)
+		PanicIfError(err, queryHandler.config)
 	}
 }
 
-func (queryHandler *QueryHandler) rowsToDescriptionMessages(rows *sql.Rows, query string) ([]pgproto3.Message, error) {
+func (queryHandler *QueryHandler) rowsToDescriptionMessages(rows *sql.Rows, originalQuery string) ([]pgproto3.Message, error) {
 	cols, err := rows.ColumnTypes()
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't get column types", query+"\n"+err.Error())
-		return nil, err
+		return nil, fmt.Errorf("couldn't get column types: %w. Original query: %s", err, originalQuery)
 	}
 
 	var messages []pgproto3.Message
@@ -413,31 +464,32 @@ func (queryHandler *QueryHandler) rowsToDescriptionMessages(rows *sql.Rows, quer
 	return messages, nil
 }
 
-func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQueryStatement string) ([]pgproto3.Message, error) {
+func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQuery string) ([]pgproto3.Message, error) {
 	cols, err := rows.ColumnTypes()
 	if err != nil {
-		LogError(queryHandler.config, "Couldn't get column types", originalQueryStatement+"\n"+err.Error())
-		return nil, err
+		return nil, fmt.Errorf("couldn't get column types: %w. Original query: %s", err, originalQuery)
 	}
 
 	var messages []pgproto3.Message
 	for rows.Next() {
 		dataRow, err := queryHandler.generateDataRow(rows, cols)
 		if err != nil {
-			LogError(queryHandler.config, "Couldn't get data row", originalQueryStatement+"\n"+err.Error())
-			return nil, err
+			return nil, fmt.Errorf("couldn't get data row: %w. Original query: %s", err, originalQuery)
 		}
 		messages = append(messages, dataRow)
 	}
 
 	commandTag := FALLBACK_SQL_QUERY
+	upperOriginalQueryStatement := strings.ToUpper(originalQuery)
 	switch {
-	case strings.HasPrefix(originalQueryStatement, "SET "):
+	case strings.HasPrefix(upperOriginalQueryStatement, "SET "):
 		commandTag = "SET"
-	case strings.HasPrefix(originalQueryStatement, "SHOW "):
+	case strings.HasPrefix(upperOriginalQueryStatement, "SHOW "):
 		commandTag = "SHOW"
-	case strings.HasPrefix(originalQueryStatement, "DISCARD ALL"):
+	case strings.HasPrefix(upperOriginalQueryStatement, "DISCARD ALL"):
 		commandTag = "DISCARD ALL"
+	case strings.HasPrefix(upperOriginalQueryStatement, "BEGIN"):
+		commandTag = "BEGIN"
 	}
 
 	messages = append(messages, &pgproto3.CommandComplete{CommandTag: []byte(commandTag)})
@@ -447,8 +499,7 @@ func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQue
 func (queryHandler *QueryHandler) parseAndRemapQuery(query string) ([]string, []string, error) {
 	queryTree, err := pgQuery.Parse(query)
 	if err != nil {
-		LogError(queryHandler.config, "Error parsing query:", query+"\n"+err.Error())
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("couldn't parse query: %s. %w", query, err)
 	}
 
 	if strings.HasSuffix(query, INSPECT_SQL_COMMENT) {
@@ -459,21 +510,21 @@ func (queryHandler *QueryHandler) parseAndRemapQuery(query string) ([]string, []
 	for _, stmt := range queryTree.Stmts {
 		originalQueryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{stmt}})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("couldn't deparse query: %s. %w", query, err)
 		}
 		originalQueryStatements = append(originalQueryStatements, originalQueryStatement)
 	}
 
 	remappedStatements, err := queryHandler.queryRemapper.RemapStatements(queryTree.Stmts)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("couldn't remap query: %s. %w", query, err)
 	}
 
 	var queryStatements []string
 	for _, remappedStatement := range remappedStatements {
 		queryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{remappedStatement}})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("couldn't deparse remapped query: %s. %w", query, err)
 		}
 		queryStatements = append(queryStatements, queryStatement)
 	}
@@ -563,10 +614,18 @@ func (queryHandler *QueryHandler) columnTypeOid(col *sql.ColumnType) uint32 {
 		return pgtype.TimestampOID
 	case "TIMESTAMP[]":
 		return pgtype.TimestampArrayOID
-	case "BLOB":
+	case "TIMESTAMPTZ":
+		return pgtype.TimestamptzOID
+	case "TIMESTAMPTZ[]":
+		return pgtype.TimestamptzArrayOID
+	case "UUID":
 		return pgtype.UUIDOID
-	case "BLOB[]":
+	case "UUID[]":
 		return pgtype.UUIDArrayOID
+	case "INTERVAL":
+		return pgtype.IntervalOID
+	case "INTERVAL[]":
+		return pgtype.IntervalArrayOID
 	default:
 		if strings.HasPrefix(col.DatabaseTypeName(), "DECIMAL") {
 			if strings.HasSuffix(col.DatabaseTypeName(), "[]") {
@@ -576,7 +635,7 @@ func (queryHandler *QueryHandler) columnTypeOid(col *sql.ColumnType) uint32 {
 			}
 		}
 
-		panic("Unsupported column type: " + col.DatabaseTypeName())
+		panic("Unsupported serialized column type: " + col.DatabaseTypeName())
 	}
 }
 
@@ -617,8 +676,11 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 		case "float64", "float32":
 			var value sql.NullFloat64
 			valuePtrs[i] = &value
-		case "string", "[]uint8": // []uint8 is for uuid
+		case "string":
 			var value sql.NullString
+			valuePtrs[i] = &value
+		case "[]uint8": // uuid
+			var value NullUuid
 			valuePtrs[i] = &value
 		case "bool":
 			var value sql.NullBool
@@ -632,11 +694,14 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 		case "duckdb.Decimal":
 			var value NullDecimal
 			valuePtrs[i] = &value
+		case "duckdb.Interval":
+			var value NullInterval
+			valuePtrs[i] = &value
 		case "[]interface {}":
 			var value NullArray
 			valuePtrs[i] = &value
 		default:
-			panic("Unsupported queried type: " + col.ScanType().String())
+			panic("Unsupported data row type: " + col.ScanType().String())
 		}
 	}
 
@@ -692,7 +757,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 			}
 		case *sql.NullBool:
 			if value.Valid {
-				values = append(values, []byte(fmt.Sprintf("%v", value.Bool)))
+				values = append(values, []byte(fmt.Sprintf("%v", value.Bool)[0:1]))
 			} else {
 				values = append(values, nil)
 			}
@@ -705,8 +770,10 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 					values = append(values, []byte(value.Time.Format("15:04:05.999999")))
 				case "TIMESTAMP":
 					values = append(values, []byte(value.Time.Format("2006-01-02 15:04:05.999999")))
+				case "TIMESTAMPTZ":
+					values = append(values, []byte(value.Time.Format("2006-01-02 15:04:05.999999-07:00")))
 				default:
-					panic("Unsupported type: " + cols[i].DatabaseTypeName())
+					panic("Unsupported scanned time type: " + cols[i].DatabaseTypeName())
 				}
 			} else {
 				values = append(values, nil)
@@ -723,7 +790,19 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 			} else {
 				values = append(values, nil)
 			}
+		case *NullInterval:
+			if value.Present {
+				values = append(values, []byte(value.String()))
+			} else {
+				values = append(values, nil)
+			}
 		case *NullArray:
+			if value.Present {
+				values = append(values, []byte(value.String()))
+			} else {
+				values = append(values, nil)
+			}
+		case *NullUuid:
 			if value.Present {
 				values = append(values, []byte(value.String()))
 			} else {
@@ -732,7 +811,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 		case *string:
 			values = append(values, []byte(*value))
 		default:
-			panic("Unsupported type: " + cols[i].ScanType().Name())
+			panic("Unsupported scanned row type: " + cols[i].ScanType().Name())
 		}
 	}
 	dataRow := pgproto3.DataRow{Values: values}

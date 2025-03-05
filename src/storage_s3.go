@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -49,7 +50,7 @@ func NewS3Storage(config *Config) *StorageS3 {
 		context.Background(),
 		awsConfigOptions...,
 	)
-	PanicIfError(err)
+	PanicIfError(err, config)
 
 	return &StorageS3{
 		s3Client:    s3.NewFromConfig(loadedAwsConfig),
@@ -79,7 +80,8 @@ func (storage *StorageS3) IcebergSchemas() (icebergSchemas []string, err error) 
 	return icebergSchemas, nil
 }
 
-func (storage *StorageS3) IcebergSchemaTables() (icebergSchemaTables []IcebergSchemaTable, err error) {
+func (storage *StorageS3) IcebergSchemaTables() (Set[IcebergSchemaTable], error) {
+	icebergSchemaTables := make(Set[IcebergSchemaTable])
 	icebergSchemas, err := storage.IcebergSchemas()
 	if err != nil {
 		return nil, err
@@ -95,11 +97,31 @@ func (storage *StorageS3) IcebergSchemaTables() (icebergSchemaTables []IcebergSc
 			tableParts := strings.Split(tablePrefix, "/")
 			table := tableParts[len(tableParts)-2]
 
-			icebergSchemaTables = append(icebergSchemaTables, IcebergSchemaTable{Schema: icebergSchema, Table: table})
+			icebergSchemaTables.Add(IcebergSchemaTable{Schema: icebergSchema, Table: table})
 		}
 	}
 
 	return icebergSchemaTables, nil
+}
+
+func (storage *StorageS3) IcebergTableFields(icebergSchemaTable IcebergSchemaTable) ([]IcebergTableField, error) {
+	metadataPath := storage.tablePrefix(icebergSchemaTable, true) + "metadata/v1.metadata.json"
+
+	ctx := context.Background()
+	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(metadataPath),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	metadataContent, err := io.ReadAll(getObjectResponse.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageBase.ParseIcebergTableFields(metadataContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------

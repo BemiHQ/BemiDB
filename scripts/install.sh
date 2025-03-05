@@ -28,9 +28,9 @@ curl -L "$DOWNLOAD_URL" -o ./bemidb
 
 if [ "$ARCH" = "arm64" ] && [ "$OS" = "darwin" ]; then
   # Download the libc++ dynamic libraries for macOS (can't be statically linked)
-  curl -sL "https://github.com/BemiHQ/BemiDB/releases/download/v$VERSION/libc++.1.0.dylib" -o ./libc++.1.0.dylib
+  curl -sL "https://github.com/BemiHQ/BemiDB/releases/latest/download/libc++.1.0.dylib" -o ./libc++.1.0.dylib
   sudo mv ./libc++.1.0.dylib /usr/local/lib/libc++.1.0.dylib
-  curl -sL "https://github.com/BemiHQ/BemiDB/releases/download/v$VERSION/libc++abi.1.dylib" -o ./libc++abi.1.dylib
+  curl -sL "https://github.com/BemiHQ/BemiDB/releases/latest/download/libc++abi.1.dylib" -o ./libc++abi.1.dylib
   sudo mv ./libc++abi.1.dylib /usr/local/lib/libc++abi.1.dylib
 fi
 

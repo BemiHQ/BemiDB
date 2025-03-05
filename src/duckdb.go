@@ -6,18 +6,27 @@ import (
 	"database/sql"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	_ "github.com/marcboeker/go-duckdb"
 )
 
-var DEFAULT_BOOT_QUERIES = []string{
+var DUCKDB_SCHEMA_MAIN = "main"
+
+var DUCKDB_INIT_BOOT_QUERIES = []string{
+	// Set up Iceberg
 	"INSTALL iceberg",
 	"LOAD iceberg",
+
+	// Set up schemas
 	"SELECT oid FROM pg_catalog.pg_namespace",
 	"CREATE SCHEMA public",
-	"USE public",
+
+	// Configure DuckDB
+	"SET scalar_subquery_error_on_multiple_rows=false",
+	"SET timezone='UTC'",
 }
 
 type Duckdb struct {
@@ -29,7 +38,7 @@ type Duckdb struct {
 func NewDuckdb(config *Config) *Duckdb {
 	ctx := context.Background()
 	db, err := sql.Open("duckdb", "")
-	PanicIfError(err)
+	PanicIfError(err, config)
 
 	duckdb := &Duckdb{
 		db:          db,
@@ -37,13 +46,25 @@ func NewDuckdb(config *Config) *Duckdb {
 		refreshQuit: make(chan struct{}),
 	}
 
-	bootQueries := readDuckdbInitFile(config)
-	if bootQueries == nil {
-		bootQueries = DEFAULT_BOOT_QUERIES
-	}
+	bootQueries := slices.Concat(
+		// Set up DuckDB
+		DUCKDB_INIT_BOOT_QUERIES,
+
+		// Create pg-compatible functions
+		CreatePgCatalogMacroQueries(config),
+		CreateInformationSchemaMacroQueries(config),
+
+		// Create pg-compatible tables and views
+		CreatePgCatalogTableQueries(config),
+		CreateInformationSchemaTableQueries(config),
+
+		// Use the public schema
+		[]string{"USE public"},
+	)
+
 	for _, query := range bootQueries {
 		_, err := duckdb.ExecContext(ctx, query, nil)
-		PanicIfError(err)
+		PanicIfError(err, config)
 	}
 
 	switch config.StorageType {
@@ -65,7 +86,7 @@ func NewDuckdb(config *Config) *Duckdb {
 
 		if config.LogLevel == LOG_LEVEL_TRACE {
 			_, err = duckdb.ExecContext(ctx, "SET enable_http_logging=true", nil)
-			PanicIfError(err)
+			PanicIfError(err, config)
 		}
 	}
 
@@ -84,7 +105,7 @@ func (duckdb *Duckdb) setAwsCredentials(ctx context.Context) {
 			"endpoint":        config.Aws.S3Endpoint,
 			"s3Bucket":        "s3://" + config.Aws.S3Bucket,
 		})
-		PanicIfError(err)
+		PanicIfError(err, config)
 	case AWS_CREDENTIALS_TYPE_DEFAULT:
 		query := "CREATE OR REPLACE SECRET aws_s3_secret (TYPE S3, PROVIDER CREDENTIAL_CHAIN, REGION '$region', ENDPOINT '$endpoint', SCOPE '$s3Bucket')"
 		_, err := duckdb.ExecContext(ctx, query, map[string]string{
@@ -92,7 +113,7 @@ func (duckdb *Duckdb) setAwsCredentials(ctx context.Context) {
 			"endpoint": config.Aws.S3Endpoint,
 			"s3Bucket": "s3://" + config.Aws.S3Bucket,
 		})
-		PanicIfError(err)
+		PanicIfError(err, config)
 	}
 }
 
@@ -116,6 +137,39 @@ func (duckdb *Duckdb) Close() {
 	duckdb.db.Close()
 }
 
+func (duckdb *Duckdb) ExecTransactionContext(ctx context.Context, queries []string) error {
+	tx, err := duckdb.db.Begin()
+	LogDebug(duckdb.config, "Querying DuckDB: BEGIN")
+	if err != nil {
+		return err
+	}
+
+	for _, query := range queries {
+		LogDebug(duckdb.config, "Querying DuckDB:", query)
+		_, err := tx.ExecContext(ctx, query)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	LogDebug(duckdb.config, "Querying DuckDB: COMMIT")
+	return tx.Commit()
+}
+
+func (duckdb *Duckdb) ExecInitFile() {
+	initFileQueries := readInitFile(duckdb.config)
+	if initFileQueries == nil {
+		return
+	}
+
+	ctx := context.Background()
+	for _, query := range initFileQueries {
+		_, err := duckdb.ExecContext(ctx, query, nil)
+		PanicIfError(err, duckdb.config)
+	}
+}
+
 func replaceNamedStringArgs(query string, args map[string]string) string {
 	re := regexp.MustCompile(`['";]`) // Escape single quotes, double quotes, and semicolons from args
 
@@ -125,19 +179,19 @@ func replaceNamedStringArgs(query string, args map[string]string) string {
 	return query
 }
 
-func readDuckdbInitFile(config *Config) []string {
+func readInitFile(config *Config) []string {
 	_, err := os.Stat(config.InitSqlFilepath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			LogDebug(config, "DuckDB: No init file found at", config.InitSqlFilepath)
 			return nil
 		}
-		PanicIfError(err)
+		PanicIfError(err, config)
 	}
 
 	LogInfo(config, "DuckDB: Reading init file", config.InitSqlFilepath)
 	file, err := os.Open(config.InitSqlFilepath)
-	PanicIfError(err)
+	PanicIfError(err, config)
 	defer file.Close()
 
 	lines := []string{}
@@ -145,6 +199,6 @@ func readDuckdbInitFile(config *Config) []string {
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-	PanicIfError(scanner.Err())
+	PanicIfError(scanner.Err(), config)
 	return lines
 }

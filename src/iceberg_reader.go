@@ -15,9 +15,14 @@ func (reader *IcebergReader) Schemas() (icebergSchemas []string, err error) {
 	return reader.storage.IcebergSchemas()
 }
 
-func (reader *IcebergReader) SchemaTables() (icebergSchemaTables []IcebergSchemaTable, err error) {
+func (reader *IcebergReader) SchemaTables() (icebergSchemaTables Set[IcebergSchemaTable], err error) {
 	LogDebug(reader.config, "Reading Iceberg tables...")
 	return reader.storage.IcebergSchemaTables()
+}
+
+func (reader *IcebergReader) TableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error) {
+	LogDebug(reader.config, "Reading Iceberg table "+icebergSchemaTable.String()+" fields...")
+	return reader.storage.IcebergTableFields(icebergSchemaTable)
 }
 
 func (reader *IcebergReader) MetadataFilePath(icebergSchemaTable IcebergSchemaTable) string {

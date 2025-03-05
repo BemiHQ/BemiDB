@@ -45,13 +45,13 @@ func NewTcpListener(config *Config) net.Listener {
 	}
 
 	tcpListener, err := net.Listen(network, host+":"+config.Port)
-	PanicIfError(err)
+	PanicIfError(err, config)
 	return tcpListener
 }
 
-func AcceptConnection(listener net.Listener) net.Conn {
+func AcceptConnection(config *Config, listener net.Listener) net.Conn {
 	conn, err := listener.Accept()
-	PanicIfError(err)
+	PanicIfError(err, config)
 	return conn
 }
 
@@ -92,9 +92,9 @@ func (postgres *Postgres) Close() error {
 
 func (postgres *Postgres) handleSimpleQuery(queryHandler *QueryHandler, queryMessage *pgproto3.Query) {
 	LogDebug(postgres.config, "Received query:", queryMessage.String)
-	messages, err := queryHandler.HandleQuery(queryMessage.String)
+	messages, err := queryHandler.HandleSimpleQuery(queryMessage.String)
 	if err != nil {
-		postgres.writeError(err.Error())
+		postgres.writeError(err)
 		return
 	}
 	messages = append(messages, &pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE})
@@ -105,11 +105,12 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 	LogDebug(postgres.config, "Parsing query", parseMessage.Query)
 	messages, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 	if err != nil {
-		postgres.writeError("Failed to parse query")
+		postgres.writeError(err)
 		return nil
 	}
 	postgres.writeMessages(messages...)
 
+	var previousErr error
 	for {
 		message, err := postgres.backend.Receive()
 		if err != nil {
@@ -118,28 +119,40 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 
 		switch message := message.(type) {
 		case *pgproto3.Bind:
+			if previousErr != nil { // Skip processing the next message if there was an error in the previous message
+				continue
+			}
+
 			LogDebug(postgres.config, "Binding query", message.PreparedStatement)
 			messages, preparedStatement, err = queryHandler.HandleBindQuery(message, preparedStatement)
 			if err != nil {
-				postgres.writeError("Failed to bind query")
-				continue
+				postgres.writeError(err)
+				previousErr = err
 			}
 			postgres.writeMessages(messages...)
 		case *pgproto3.Describe:
+			if previousErr != nil { // Skip processing the next message if there was an error in the previous message
+				continue
+			}
+
 			LogDebug(postgres.config, "Describing query", message.Name, "("+string(message.ObjectType)+")")
 			var messages []pgproto3.Message
 			messages, preparedStatement, err = queryHandler.HandleDescribeQuery(message, preparedStatement)
 			if err != nil {
-				postgres.writeError("Failed to describe query")
-				continue
+				postgres.writeError(err)
+				previousErr = err
 			}
 			postgres.writeMessages(messages...)
 		case *pgproto3.Execute:
+			if previousErr != nil { // Skip processing the next message if there was an error in the previous message
+				continue
+			}
+
 			LogDebug(postgres.config, "Executing query", message.Portal)
 			messages, err := queryHandler.HandleExecuteQuery(message, preparedStatement)
 			if err != nil {
-				postgres.writeError("Failed to execute query")
-				continue
+				postgres.writeError(err)
+				previousErr = err
 			}
 			postgres.writeMessages(messages...)
 		case *pgproto3.Sync:
@@ -147,7 +160,14 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 			postgres.writeMessages(
 				&pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE},
 			)
-			return nil
+
+			// If there was an error or Parse->Bind->Sync (...) or Parse->Describe->Sync (e.g., Metabase)
+			// it means that sync is the last message in the extended query protocol, we can exit handleExtendedQuery
+			if previousErr != nil || preparedStatement.Bound || preparedStatement.Described {
+				return nil
+			}
+			// Otherwise, wait for Bind/Describe/Execute/Sync.
+			// For example, psycopg sends Parse->[extra Sync]->Bind->Describe->Execute->Sync
 		}
 	}
 }
@@ -157,15 +177,20 @@ func (postgres *Postgres) writeMessages(messages ...pgproto3.Message) {
 	var err error
 	for _, message := range messages {
 		buf, err = message.Encode(buf)
-		PanicIfError(err, "Error encoding messages")
+		PanicIfError(err, nil, "Error encoding messages")
 	}
 	_, err = (*postgres.conn).Write(buf)
-	PanicIfError(err, "Error writing messages")
+	PanicIfError(err, nil, "Error writing messages")
 }
 
-func (postgres *Postgres) writeError(message string) {
+func (postgres *Postgres) writeError(err error) {
+	LogError(postgres.config, err.Error())
+
 	postgres.writeMessages(
-		&pgproto3.ErrorResponse{Message: message},
+		&pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Message:  err.Error(),
+		},
 		&pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE},
 	)
 }
@@ -182,12 +207,12 @@ func (postgres *Postgres) handleStartup() error {
 		LogDebug(postgres.config, "BemiDB: startup message", params)
 
 		if params["database"] != postgres.config.Database {
-			postgres.writeError("database " + params["database"] + " does not exist")
+			postgres.writeError(errors.New("database " + params["database"] + " does not exist"))
 			return errors.New("database does not exist")
 		}
 
 		if postgres.config.User != "" && params["user"] != postgres.config.User && params["user"] != SYSTEM_AUTH_USER {
-			postgres.writeError("role \"" + params["user"] + "\" does not exist")
+			postgres.writeError(errors.New("role \"" + params["user"] + "\" does not exist"))
 			return errors.New("role does not exist")
 		}
 

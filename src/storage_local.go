@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -34,7 +35,8 @@ func (storage *StorageLocal) IcebergSchemas() (icebergSchemas []string, err erro
 	return icebergSchemas, nil
 }
 
-func (storage *StorageLocal) IcebergSchemaTables() (icebergSchemaTables []IcebergSchemaTable, err error) {
+func (storage *StorageLocal) IcebergSchemaTables() (Set[IcebergSchemaTable], error) {
+	icebergSchemaTables := make(Set[IcebergSchemaTable])
 	schemasPath := storage.absoluteIcebergPath()
 	icebergSchemas, err := storage.IcebergSchemas()
 	if err != nil {
@@ -49,16 +51,32 @@ func (storage *StorageLocal) IcebergSchemaTables() (icebergSchemaTables []Iceber
 		}
 
 		for _, table := range tables {
-			icebergSchemaTables = append(icebergSchemaTables, IcebergSchemaTable{Schema: icebergSchema, Table: table})
+			icebergSchemaTables.Add(IcebergSchemaTable{Schema: icebergSchema, Table: table})
 		}
 	}
 
 	return icebergSchemaTables, nil
 }
 
+func (storage *StorageLocal) IcebergTableFields(icebergSchemaTable IcebergSchemaTable) ([]IcebergTableField, error) {
+	metadataPath := storage.IcebergMetadataFilePath(icebergSchemaTable)
+	metadataFile, err := os.Open(metadataPath)
+	if err != nil {
+		return nil, err
+	}
+	defer metadataFile.Close()
+
+	metadataContent, err := io.ReadAll(metadataFile)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageBase.ParseIcebergTableFields(metadataContent)
+}
+
 func (storage *StorageLocal) absoluteIcebergPath(relativePaths ...string) string {
 	execPath, err := os.Getwd()
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 
 	return filepath.Join(execPath, storage.config.StoragePath, filepath.Join(relativePaths...))
 }
@@ -93,7 +111,7 @@ func (storage *StorageLocal) CreateDataDir(schemaTable IcebergSchemaTable) strin
 	tablePath := storage.tablePath(schemaTable)
 	dataPath := filepath.Join(tablePath, "data")
 	err := os.MkdirAll(dataPath, os.ModePerm)
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 	return dataPath
 }
 
@@ -101,7 +119,7 @@ func (storage *StorageLocal) CreateMetadataDir(schemaTable IcebergSchemaTable) s
 	tablePath := storage.tablePath(schemaTable)
 	metadataPath := filepath.Join(tablePath, "metadata")
 	err := os.MkdirAll(metadataPath, os.ModePerm)
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 	return metadataPath
 }
 
@@ -211,7 +229,7 @@ func (storage *StorageLocal) fileSystemPrefix() string {
 func (storage *StorageLocal) nestedDirectories(path string) (dirs []string, err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %v", err)
+		return nil, fmt.Errorf("failed to read directory: %s.\nPlease make sure to run 'bemidb sync' first", path)
 	}
 
 	for _, file := range files {

@@ -25,9 +25,10 @@ CREATE TABLE test_table (
   float4_column FLOAT4,
   float8_column FLOAT8,
   numeric_column NUMERIC(40, 2),
+  numeric_column_without_precision NUMERIC,
   date_column DATE,
   time_column TIME,
-  time_ms_column TIME(3),
+  timeMsColumn TIME(3),
   timetz_column TIMETZ,
   timetz_ms_column TIMETZ(3),
   timestamp_column TIMESTAMP,
@@ -46,6 +47,7 @@ CREATE TABLE test_table (
   pg_snapshot_column PG_SNAPSHOT,
   array_text_column TEXT[],
   array_int_column INT[],
+  array_jsonb_column JSONB[],
   array_ltree_column LTREE[],
   user_defined_column address
 );
@@ -65,9 +67,10 @@ INSERT INTO test_table (
   float4_column,
   float8_column,
   numeric_column,
+  numeric_column_without_precision,
   date_column,
   time_column,
-  time_ms_column,
+  timeMsColumn,
   timetz_column,
   timetz_ms_column,
   timestamp_column,
@@ -86,6 +89,7 @@ INSERT INTO test_table (
   pg_snapshot_column,
   array_text_column,
   array_int_column,
+  array_jsonb_column,
   array_ltree_column,
   user_defined_column
 ) VALUES (
@@ -103,9 +107,10 @@ INSERT INTO test_table (
   3.14::FLOAT4,                             -- float4_column
   3.141592653589793::FLOAT8,                -- float8_column
   12345.67::NUMERIC(10, 2),                 -- numeric_column
+  12345.67,                                 -- numeric_column_without_precision
   '2024-01-01',                             -- date_column
   '12:00:00.123456',                        -- time_column
-  '12:00:00.123',                           -- time_ms_column
+  '12:00:00.123',                           -- timeMsColumn
   '12:00:00.123456-05',                     -- timetz_column
   '12:00:00.123-05',                        -- timetz_ms_column
   '2024-01-01 12:00:00.123456',             -- timestamp_column
@@ -124,6 +129,7 @@ INSERT INTO test_table (
   pg_current_snapshot(),                    -- pg_snapshot_column
   '{"one", "two", "three"}',                -- array_text_column
   '{1, 2, 3}',                              -- array_int_column
+  '{"{\"key\": \"value1\"}", "{\"key\": \"value2\"}"}'::JSONB[], -- array_jsonb_column
   '{"a.b", "c.d"}'::LTREE[],                -- array_ltree_column
   ROW('Toronto')                            -- user_defined_column
 ), (
@@ -141,9 +147,10 @@ INSERT INTO test_table (
   'NaN',                                    -- float4_column
   -3.141592653589793::FLOAT8,               -- float8_column
   -12345.00::NUMERIC(10, 2),                -- numeric_column
-  NULL,                                     -- date_column
+  NULL,                                     -- numeric_column_without_precision
+  '20025-11-12',                            -- date_column
   '12:00:00.123',                           -- time_column
-  NULL,                                     -- time_ms_column
+  NULL,                                     -- timeMsColumn
   '12:00:00.12300+05',                      -- timetz_column
   '12:00:00.1+05',                          -- timetz_ms_column
   '2024-01-01 12:00:00',                    -- timestamp_column
@@ -162,6 +169,7 @@ INSERT INTO test_table (
   NULL,                                     -- pg_snapshot_column
   NULL,                                     -- array_text_column
   '{}',                                     -- array_int_column
+  NULL,                                     -- array_jsonb_column
   NULL,                                     -- array_ltree_column
   NULL                                      -- user_defined_column
 );
@@ -178,5 +186,5 @@ SELECT
   numeric_scale,
   datetime_precision
 FROM information_schema.columns
-WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+WHERE table_schema = 'public'
 ORDER BY table_schema, table_name, ordinal_position;

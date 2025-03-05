@@ -29,18 +29,26 @@ func (parser *ParserTypeCast) TypeCast(node *pgQuery.Node) *pgQuery.TypeCast {
 }
 
 func (parser *ParserTypeCast) TypeName(typeCast *pgQuery.TypeCast) string {
-	return typeCast.TypeName.Names[0].GetString_().Sval
+	typeNameNode := typeCast.TypeName
+	typeName := typeNameNode.Names[0].GetString_().Sval
+
+	if typeNameNode.ArrayBounds != nil {
+		return typeName + "[]"
+	}
+
+	return typeName
 }
 
 func (parser *ParserTypeCast) ArgStringValue(typeCast *pgQuery.TypeCast) string {
 	return typeCast.Arg.GetAConst().GetSval().Sval
 }
 
-func (parser *ParserTypeCast) MakeCaseTypeCastNode(arg *pgQuery.Node, typeName string) *pgQuery.Node {
-	if existingType := parser.inferNodeType(arg); existingType == typeName {
-		return arg
+func (parser *ParserTypeCast) SetTypeCast(typeCast *pgQuery.TypeCast, typeName string) {
+	if len(typeCast.TypeName.Names) != 1 {
+		return
 	}
-	return parser.utils.MakeTypeCastNode(arg, typeName)
+
+	typeCast.TypeName.Names[0].GetString_().Sval = typeName
 }
 
 func (parser *ParserTypeCast) MakeListValueFromArray(node *pgQuery.Node) *pgQuery.Node {
@@ -70,7 +78,7 @@ func (parser *ParserTypeCast) MakeListValueFromArray(node *pgQuery.Node) *pgQuer
 // FROM pg_class c
 // JOIN pg_namespace n ON n.oid = c.relnamespace
 // WHERE n.nspname = 'schema' AND c.relname = 'table'
-func (parser *ParserTypeCast) MakeSubselectOidBySchemaTable(argumentNode *pgQuery.Node) *pgQuery.Node {
+func (parser *ParserTypeCast) MakeSubselectOidBySchemaTableArg(argumentNode *pgQuery.Node) *pgQuery.Node {
 	targetNode := pgQuery.MakeResTargetNodeWithVal(
 		pgQuery.MakeColumnRefNode([]*pgQuery.Node{
 			pgQuery.MakeStrNode("c"),
@@ -100,13 +108,16 @@ func (parser *ParserTypeCast) MakeSubselectOidBySchemaTable(argumentNode *pgQuer
 		),
 	)
 
-	value := argumentNode.GetAConst().GetSval().Sval
-	parts := strings.Split(value, ".")
-	schema := PG_SCHEMA_PUBLIC
-	if len(parts) > 1 {
-		schema = parts[0]
+	if argumentNode.GetAConst() == nil {
+		// NOTE: ::regclass::oid on non-constants is not fully supported yet
+		return parser.utils.MakeNullNode()
 	}
-	table := parts[len(parts)-1]
+
+	value := argumentNode.GetAConst().GetSval().Sval
+	qSchemaTable := NewQuerySchemaTableFromString(value)
+	if qSchemaTable.Schema == "" {
+		qSchemaTable.Schema = PG_SCHEMA_PUBLIC
+	}
 
 	whereNode := pgQuery.MakeBoolExprNode(
 		pgQuery.BoolExprType_AND_EXPR,
@@ -120,7 +131,7 @@ func (parser *ParserTypeCast) MakeSubselectOidBySchemaTable(argumentNode *pgQuer
 					pgQuery.MakeStrNode("n"),
 					pgQuery.MakeStrNode("nspname"),
 				}, 0),
-				pgQuery.MakeAConstStrNode(schema, 0),
+				pgQuery.MakeAConstStrNode(qSchemaTable.Schema, 0),
 				0,
 			),
 			pgQuery.MakeAExprNode(
@@ -132,7 +143,7 @@ func (parser *ParserTypeCast) MakeSubselectOidBySchemaTable(argumentNode *pgQuer
 					pgQuery.MakeStrNode("c"),
 					pgQuery.MakeStrNode("relname"),
 				}, 0),
-				pgQuery.MakeAConstStrNode(table, 0),
+				pgQuery.MakeAConstStrNode(qSchemaTable.Table, 0),
 				0,
 			),
 		},
@@ -156,22 +167,4 @@ func (parser *ParserTypeCast) MakeSubselectOidBySchemaTable(argumentNode *pgQuer
 		},
 	}
 
-}
-
-func (parser *ParserTypeCast) inferNodeType(node *pgQuery.Node) string {
-	if typeCast := node.GetTypeCast(); typeCast != nil {
-		return typeCast.TypeName.Names[0].GetString_().Sval
-	}
-
-	if aConst := node.GetAConst(); aConst != nil {
-		switch {
-		case aConst.GetBoolval() != nil:
-			return "boolean"
-		case aConst.GetIval() != nil:
-			return "int8"
-		case aConst.GetSval() != nil:
-			return "text"
-		}
-	}
-	return ""
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -20,14 +21,58 @@ import (
 
 const (
 	PARQUET_PARALLEL_NUMBER  = 4
-	PARQUET_ROW_GROUP_SIZE   = 64 * 1024 * 1024 // 64 MB
+	PARQUET_ROW_GROUP_SIZE   = 128 * 1024 * 1024 // 128 MB
 	PARQUET_COMPRESSION_TYPE = parquet.CompressionCodec_ZSTD
 
 	VERSION_HINT_FILE_NAME = "version-hint.text"
 )
 
+type MetadataJson struct {
+	Schemas []struct {
+		Fields []struct {
+			ID       int         `json:"id"`
+			Name     string      `json:"name"`
+			Type     interface{} `json:"type"`
+			Required bool        `json:"required"`
+		} `json:"fields"`
+	} `json:"schemas"`
+}
+
 type StorageBase struct {
 	config *Config
+}
+
+func (storage *StorageBase) ParseIcebergTableFields(metadataContent []byte) ([]IcebergTableField, error) {
+	var metadataJson MetadataJson
+	err := json.Unmarshal(metadataContent, &metadataJson)
+	if err != nil {
+		return nil, err
+	}
+
+	var icebergTableFields []IcebergTableField
+	for _, schema := range metadataJson.Schemas {
+		if schema.Fields != nil {
+			for _, field := range schema.Fields {
+				icebergTableField := IcebergTableField{
+					Name: field.Name,
+				}
+
+				if reflect.TypeOf(field.Type).Kind() == reflect.String {
+					icebergTableField.Type = field.Type.(string)
+					icebergTableField.Required = field.Required
+				} else {
+					listType := field.Type.(map[string]interface{})
+					icebergTableField.Type = listType["element"].(string)
+					icebergTableField.Required = listType["element-required"].(bool)
+					icebergTableField.IsList = true
+				}
+
+				icebergTableFields = append(icebergTableFields, icebergTableField)
+			}
+		}
+	}
+
+	return icebergTableFields, nil
 }
 
 func (storage *StorageBase) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
@@ -42,7 +87,7 @@ func (storage *StorageBase) WriteParquetFile(fileWriter source.ParquetFile, pgSc
 		schemaMap["Fields"] = append(schemaMap["Fields"].([]map[string]interface{}), fieldMap)
 	}
 	schemaJson, err := json.Marshal(schemaMap)
-	PanicIfError(err)
+	PanicIfError(err, storage.config)
 
 	LogDebug(storage.config, "Parquet schema:", string(schemaJson))
 	parquetWriter, err := writer.NewJSONWriter(string(schemaJson), fileWriter, PARQUET_PARALLEL_NUMBER)
@@ -61,7 +106,7 @@ func (storage *StorageBase) WriteParquetFile(fileWriter source.ParquetFile, pgSc
 				rowMap[pgSchemaColumns[i].ColumnName] = pgSchemaColumns[i].FormatParquetValue(rowValue)
 			}
 			rowJson, err := json.Marshal(rowMap)
-			PanicIfError(err)
+			PanicIfError(err, storage.config)
 
 			if err = parquetWriter.Write(string(rowJson)); err != nil {
 				return 0, fmt.Errorf("Write error: %v", err)
