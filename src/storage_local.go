@@ -75,9 +75,12 @@ func (storage *StorageLocal) IcebergTableFields(icebergSchemaTable IcebergSchema
 }
 
 func (storage *StorageLocal) absoluteIcebergPath(relativePaths ...string) string {
+	if filepath.IsAbs(storage.config.StoragePath) {
+		return filepath.Join(storage.config.StoragePath, filepath.Join(relativePaths...))
+	}
+
 	execPath, err := os.Getwd()
 	PanicIfError(err, storage.config)
-
 	return filepath.Join(execPath, storage.config.StoragePath, filepath.Join(relativePaths...))
 }
 
