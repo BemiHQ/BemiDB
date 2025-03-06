@@ -313,7 +313,10 @@ func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, con
 		`
 		SELECT
 			pg_total_relation_size(c.oid) AS table_size,
-			c.reltuples::bigint AS row_count
+			CASE
+				WHEN c.reltuples >= 0 THEN c.reltuples::bigint
+				ELSE (SELECT count(*) FROM `+pgSchemaTable.String()+`)
+			END AS row_count
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
