@@ -305,6 +305,14 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"oid", "stxrelid", "stxname", "stxnamespace", "stxowner", "stxstattarget", "stxkeys", "stxkind", "stxexprs"},
 			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int4OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 		},
+		"SELECT * FROM pg_catalog.pg_publication": {
+			"description": {"oid", "pubname", "pubowner", "puballtables", "pubinsert", "pubupdate", "pubdelete", "pubtruncate", "pubviaroot"},
+			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID)},
+		},
+		"SELECT * FROM pg_catalog.pg_publication_rel": {
+			"description": {"oid", "prpubid", "prrelid", "prqual", "prattrs"},
+			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+		},
 
 		// Information schema
 		"SELECT * FROM information_schema.tables WHERE table_schema = 'public'": {
