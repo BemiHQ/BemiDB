@@ -24,6 +24,8 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		"CREATE TABLE pg_views(schemaname text, viewname text, viewowner text, definition text)",
 		"CREATE TABLE pg_matviews(schemaname text, matviewname text, matviewowner text, tablespace text, hasindexes bool, ispopulated bool, definition text)",
 		"CREATE TABLE pg_opclass(oid oid, opcmethod oid, opcname text, opcnamespace oid, opcowner oid, opcfamily oid, opcintype oid, opcdefault bool, opckeytype oid)",
+		"CREATE TABLE pg_policy(oid oid, polname text, polrelid oid, polcmd text, polpermissive bool, polroles oid, polqual text, polwithcheck text)",
+		"CREATE TABLE pg_statistic_ext(oid oid, stxrelid oid, stxname text, stxnamespace oid, stxowner oid, stxstattarget int4, stxkeys oid, stxkind text, stxexprs text)",
 
 		// Dynamic tables
 		// DuckDB doesn't handle dynamic view replacement properly

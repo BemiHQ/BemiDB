@@ -292,6 +292,14 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 			"values":      {"public", "test_table"},
 		},
+		"SELECT * FROM pg_catalog.pg_policy": {
+			"description": {"oid", "polname", "polrelid", "polcmd", "polpermissive", "polroles", "polqual", "polwithcheck"},
+			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+		},
+		"SELECT * FROM pg_catalog.pg_statistic_ext": {
+			"description": {"oid", "stxrelid", "stxname", "stxnamespace", "stxowner", "stxstattarget", "stxkeys", "stxkind", "stxexprs"},
+			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int4OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+		},
 
 		// Information schema
 		"SELECT * FROM information_schema.tables WHERE table_schema = 'public'": {
