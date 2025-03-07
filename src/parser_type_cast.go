@@ -39,6 +39,17 @@ func (parser *ParserTypeCast) TypeName(typeCast *pgQuery.TypeCast) string {
 	return typeName
 }
 
+// "value" COLLATE pg_catalog.default -> "value"
+func (parser *ParserTypeCast) RemovedDefaultCollateClause(node *pgQuery.Node) *pgQuery.Node {
+	collname := node.GetCollateClause().Collname
+
+	if len(collname) == 2 && collname[0].GetString_().Sval == "pg_catalog" && collname[1].GetString_().Sval == "default" {
+		return node.GetCollateClause().Arg
+	}
+
+	return node
+}
+
 func (parser *ParserTypeCast) ArgStringValue(typeCast *pgQuery.TypeCast) string {
 	return typeCast.Arg.GetAConst().GetSval().Sval
 }

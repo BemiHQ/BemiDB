@@ -282,9 +282,7 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, indentLev
 	// Comparison
 	aExpr := node.GetAExpr()
 	if aExpr != nil {
-		if aExpr.Kind == pgQuery.A_Expr_Kind_AEXPR_OP_ANY {
-			node = remapper.remapperSelect.parserSelect.ConvertRightAnyToIn(aExpr)
-		}
+		node = remapper.remapperExpression.RemappedExpression(node)
 		if aExpr.Lexpr != nil {
 			aExpr.Lexpr = remapper.remappedExpressions(aExpr.Lexpr, indentLevel+1) // self-recursion
 		}

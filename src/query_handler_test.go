@@ -287,6 +287,11 @@ func TestHandleQuery(t *testing.T) {
 			"description": {"indnullsnotdistinct"},
 			"types":       {Uint32ToString(pgtype.BoolOID)},
 		},
+		"SELECT n.nspname, c.relname FROM pg_catalog.pg_class c LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relname OPERATOR(pg_catalog.~) '^(test_table)$' COLLATE pg_catalog.default AND n.nspname OPERATOR(pg_catalog.~) '^(public)$' COLLATE pg_catalog.default": {
+			"description": {"nspname", "relname"},
+			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+			"values":      {"public", "test_table"},
+		},
 
 		// Information schema
 		"SELECT * FROM information_schema.tables WHERE table_schema = 'public'": {

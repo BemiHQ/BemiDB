@@ -9,6 +9,7 @@ import (
 type QueryRemapperExpression struct {
 	parserTypeCast  *ParserTypeCast
 	parserColumnRef *ParserColumnRef
+	parserAExpr     *ParserAExpr
 	config          *Config
 }
 
@@ -16,6 +17,7 @@ func NewQueryRemapperExpression(config *Config) *QueryRemapperExpression {
 	remapper := &QueryRemapperExpression{
 		parserTypeCast:  NewParserTypeCast(config),
 		parserColumnRef: NewParserColumnRef(config),
+		parserAExpr:     NewParserAExpr(config),
 		config:          config,
 	}
 	return remapper
@@ -23,7 +25,10 @@ func NewQueryRemapperExpression(config *Config) *QueryRemapperExpression {
 
 func (remapper *QueryRemapperExpression) RemappedExpression(node *pgQuery.Node) *pgQuery.Node {
 	node = remapper.remappedTypeCast(node)
+	node = remapper.remappedArithmeticExpression(node)
+	node = remapper.remappedCollateClause(node)
 	remapper.remapColumnReference(node)
+
 	return node
 }
 
@@ -64,6 +69,21 @@ func (remapper *QueryRemapperExpression) remappedTypeCast(node *pgQuery.Node) *p
 	return node
 }
 
+func (remapper *QueryRemapperExpression) remappedArithmeticExpression(node *pgQuery.Node) *pgQuery.Node {
+	aExpr := remapper.parserAExpr.AExpr(node)
+	if aExpr == nil {
+		return node
+	}
+
+	// = ANY({schema_information}) -> IN (schema_information)
+	node = remapper.parserAExpr.ConvertedRightAnyToIn(node)
+
+	// pg_catalog.[operator] -> [operator]
+	remapper.parserAExpr.RemovePgCatalog(node)
+
+	return node
+}
+
 // public.table.column -> table.column
 // schema.table.column -> schema_table.column
 func (remapper *QueryRemapperExpression) remapColumnReference(node *pgQuery.Node) {
@@ -85,4 +105,13 @@ func (remapper *QueryRemapperExpression) remapColumnReference(node *pgQuery.Node
 	}
 
 	remapper.parserColumnRef.SetFields(node, []string{schema + "_" + table, column})
+}
+
+// "value" COLLATE pg_catalog.default -> "value"
+func (remapper *QueryRemapperExpression) remappedCollateClause(node *pgQuery.Node) *pgQuery.Node {
+	if node.GetCollateClause() == nil {
+		return node
+	}
+
+	return remapper.parserTypeCast.RemovedDefaultCollateClause(node)
 }
