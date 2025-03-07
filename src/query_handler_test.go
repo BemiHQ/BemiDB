@@ -871,6 +871,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"1"},
 		},
+		"SELECT 1 AS value ORDER BY 1::pg_catalog.regclass::pg_catalog.text": {
+			"description": {"value"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {"1"},
+		},
 		"SELECT stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS text FROM pg_catalog.pg_statistic_ext": {
 			"description": {"text"},
 			"types":       {Uint32ToString(pgtype.TextOID)},

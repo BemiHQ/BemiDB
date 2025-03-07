@@ -63,12 +63,11 @@ func (remapper *QueryRemapperExpression) remappedTypeCast(node *pgQuery.Node) *p
 		}
 		return remapper.parserTypeCast.MakeSubselectOidBySchemaTableArg(nestedTypeCast.Arg)
 	case "text":
-		// 0::regtype::text -> 0::text
-		// value::regnamespace::text -> value::text
+		// value::(regtype|regnamespace|regclass)::text -> value::text
 		nestedTypeCast := remapper.parserTypeCast.NestedTypeCast(typeCast)
 		remapper.parserTypeCast.RemovePgCatalog(nestedTypeCast)
 		nestedTypeName := remapper.parserTypeCast.TypeName(nestedTypeCast)
-		if nestedTypeName != "regtype" && nestedTypeName != "regnamespace" {
+		if nestedTypeName != "regtype" && nestedTypeName != "regnamespace" && nestedTypeName != "regclass" {
 			return node
 		}
 		remapper.parserTypeCast.SetTypeCastArg(typeCast, nestedTypeCast.Arg)
