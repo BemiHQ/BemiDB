@@ -32,6 +32,7 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 		"CREATE MACRO set_config(setting_name, new_value, is_local) AS new_value",
 		"CREATE MACRO version() AS 'PostgreSQL " + PG_VERSION + ", compiled by BemiDB'",
 		"CREATE MACRO pg_get_statisticsobjdef_columns(oid) AS NULL",
+		"CREATE MACRO pg_relation_is_publishable(val) AS NULL",
 		`CREATE MACRO jsonb_extract_path_text(from_json, path_elems) AS
 			CASE typeof(path_elems) LIKE '%[]'
 			WHEN true THEN json_extract_path_text(from_json, path_elems)[1]::varchar
