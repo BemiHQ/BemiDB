@@ -151,6 +151,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"{\"min\":1,\"max\":2}"},
 		},
+		"SELECT pg_catalog.pg_get_statisticsobjdef_columns(1) AS pg_get_statisticsobjdef_columns": {
+			"description": {"pg_get_statisticsobjdef_columns"},
+			"types":       {Uint32ToString(pgtype.Int4OID)},
+			"values":      {""},
+		},
 
 		// PG system tables
 		"SELECT oid, typname AS typename FROM pg_type WHERE typname='geometry' OR typname='geography'": {
