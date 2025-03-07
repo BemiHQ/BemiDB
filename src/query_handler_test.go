@@ -743,6 +743,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {""},
 		},
+		"SELECT relforcerowsecurity FROM pg_catalog.pg_class LIMIT 1": {
+			"description": {"relforcerowsecurity"},
+			"types":       {Uint32ToString(pgtype.BoolOID)},
+			"values":      {"f"},
+		},
 
 		// Type casts
 		"SELECT '\"public\".\"test_table\"'::regclass::oid > 0 AS oid": {

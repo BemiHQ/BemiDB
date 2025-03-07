@@ -42,6 +42,8 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		"CREATE VIEW pg_index AS SELECT *, FALSE AS indnullsnotdistinct FROM pg_catalog.pg_index",
 		// Hide DuckDB's system and duplicate schemas
 		"CREATE VIEW pg_namespace AS SELECT * FROM pg_catalog.pg_namespace WHERE oid > 1265",
+		// DuckDB does not support relforcerowsecurity column
+		"CREATE VIEW pg_class AS SELECT *, FALSE AS relforcerowsecurity FROM pg_catalog.pg_class",
 	}
 	PG_CATALOG_TABLE_NAMES = extractTableNames(result)
 	return result
