@@ -22,7 +22,7 @@ var KNOWN_SET_STATEMENTS = NewSet([]string{
 	"session characteristics",     // SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED
 })
 
-var NOOP_QUERY_TREE, r = pgQuery.Parse("SET TimeZone = 'UTC'")
+var NOOP_QUERY_TREE, _ = pgQuery.Parse("SET TimeZone = 'UTC'")
 
 type QueryRemapper struct {
 	parserTypeCast     *ParserTypeCast

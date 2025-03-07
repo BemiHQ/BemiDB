@@ -835,6 +835,16 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TimestamptzOID)},
 			"values":      {"2025-01-01 00:00:00+00:00"},
 		},
+		"SELECT 'foo'::pg_catalog.text AS text": {
+			"description": {"text"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"foo"},
+		},
+		"SELECT 1::pg_catalog.regtype::pg_catalog.text AS text": {
+			"description": {"text"},
+			"types":       {Uint32ToString(pgtype.TextOID)},
+			"values":      {"1"},
+		},
 
 		// SELECT * FROM function()
 		"SELECT * FROM pg_catalog.pg_get_keywords() LIMIT 1": {

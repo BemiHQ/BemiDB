@@ -29,16 +29,6 @@ func (parser *ParserFunction) IndirectionName(targetNode *pgQuery.Node) string {
 	return ""
 }
 
-// FUNCTION() from (FUNCTION()).n
-func (parser *ParserFunction) InderectionFunctionCall(targetNode *pgQuery.Node) *pgQuery.FuncCall {
-	indirection := targetNode.GetResTarget().Val.GetAIndirection()
-	if indirection != nil && indirection.Arg.GetFuncCall() != nil {
-		return indirection.Arg.GetFuncCall()
-	}
-
-	return nil
-}
-
 func (parser *ParserFunction) NestedFunctionCalls(functionCall *pgQuery.FuncCall) []*pgQuery.FuncCall {
 	nestedFunctionCalls := []*pgQuery.FuncCall{}
 

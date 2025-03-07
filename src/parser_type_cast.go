@@ -29,14 +29,28 @@ func (parser *ParserTypeCast) TypeCast(node *pgQuery.Node) *pgQuery.TypeCast {
 }
 
 func (parser *ParserTypeCast) TypeName(typeCast *pgQuery.TypeCast) string {
+	if typeCast == nil {
+		return ""
+	}
+
 	typeNameNode := typeCast.TypeName
-	typeName := typeNameNode.Names[0].GetString_().Sval
+	var typeNames []string
+
+	for _, name := range typeNameNode.Names {
+		typeNames = append(typeNames, name.GetString_().Sval)
+	}
+
+	typeName := strings.Join(typeNames, ".")
 
 	if typeNameNode.ArrayBounds != nil {
-		return typeName + "[]"
+		typeName += "[]"
 	}
 
 	return typeName
+}
+
+func (parser *ParserTypeCast) NestedTypeCast(typeCast *pgQuery.TypeCast) *pgQuery.TypeCast {
+	return parser.TypeCast(typeCast.Arg)
 }
 
 // "value" COLLATE pg_catalog.default -> "value"
@@ -54,12 +68,15 @@ func (parser *ParserTypeCast) ArgStringValue(typeCast *pgQuery.TypeCast) string 
 	return typeCast.Arg.GetAConst().GetSval().Sval
 }
 
-func (parser *ParserTypeCast) SetTypeCast(typeCast *pgQuery.TypeCast, typeName string) {
-	if len(typeCast.TypeName.Names) != 1 {
-		return
+// pg_catalog.[type] -> [type]
+func (parser *ParserTypeCast) RemovePgCatalog(typeCast *pgQuery.TypeCast) {
+	if typeCast != nil && len(typeCast.TypeName.Names) == 2 && typeCast.TypeName.Names[0].GetString_().Sval == PG_SCHEMA_PG_CATALOG {
+		typeCast.TypeName.Names = typeCast.TypeName.Names[1:]
 	}
+}
 
-	typeCast.TypeName.Names[0].GetString_().Sval = typeName
+func (parser *ParserTypeCast) SetTypeCastArg(typeCast *pgQuery.TypeCast, arg *pgQuery.Node) {
+	typeCast.Arg = arg
 }
 
 func (parser *ParserTypeCast) MakeListValueFromArray(node *pgQuery.Node) *pgQuery.Node {
