@@ -39,11 +39,11 @@ type MetadataJson struct {
 	} `json:"schemas"`
 }
 
-type StorageBase struct {
+type StorageUtils struct {
 	config *Config
 }
 
-func (storage *StorageBase) ParseIcebergTableFields(metadataContent []byte) ([]IcebergTableField, error) {
+func (storage *StorageUtils) ParseIcebergTableFields(metadataContent []byte) ([]IcebergTableField, error) {
 	var metadataJson MetadataJson
 	err := json.Unmarshal(metadataContent, &metadataJson)
 	if err != nil {
@@ -76,7 +76,7 @@ func (storage *StorageBase) ParseIcebergTableFields(metadataContent []byte) ([]I
 	return icebergTableFields, nil
 }
 
-func (storage *StorageBase) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
+func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
 	defer fileWriter.Close()
 
 	schemaMap := map[string]interface{}{
@@ -126,7 +126,7 @@ func (storage *StorageBase) WriteParquetFile(fileWriter source.ParquetFile, pgSc
 	return recordCount, nil
 }
 
-func (storage *StorageBase) ReadParquetStats(fileReader source.ParquetFile) (parquetFileStats ParquetFileStats, err error) {
+func (storage *StorageUtils) ReadParquetStats(fileReader source.ParquetFile) (parquetFileStats ParquetFileStats, err error) {
 	defer fileReader.Close()
 
 	pr, err := reader.NewParquetReader(fileReader, nil, 1)
@@ -185,7 +185,7 @@ func (storage *StorageBase) ReadParquetStats(fileReader source.ParquetFile) (par
 	return parquetStats, nil
 }
 
-func (storage *StorageBase) WriteManifestFile(fileSystemPrefix string, filePath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
+func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
 	snapshotId := time.Now().UnixNano()
 	codec, err := goavro.NewCodec(MANIFEST_SCHEMA)
 	if err != nil {
@@ -306,7 +306,7 @@ func (storage *StorageBase) WriteManifestFile(fileSystemPrefix string, filePath 
 	}, nil
 }
 
-func (storage *StorageBase) WriteManifestListFile(fileSystemPrefix string, filePath string, parquetFile ParquetFile, manifestFile ManifestFile) (err error) {
+func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, filePath string, parquetFile ParquetFile, manifestFile ManifestFile) (err error) {
 	codec, err := goavro.NewCodec(MANIFEST_LIST_SCHEMA)
 	if err != nil {
 		return fmt.Errorf("failed to create Avro codec for manifest list: %v", err)
@@ -353,7 +353,7 @@ func (storage *StorageBase) WriteManifestListFile(fileSystemPrefix string, fileP
 	return nil
 }
 
-func (storage *StorageBase) WriteMetadataFile(fileSystemPrefix string, filePath string, pgSchemaColumns []PgSchemaColumn, parquetFile ParquetFile, manifestFile ManifestFile, manifestListFile ManifestListFile) (err error) {
+func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath string, pgSchemaColumns []PgSchemaColumn, parquetFile ParquetFile, manifestFile ManifestFile, manifestListFile ManifestListFile) (err error) {
 	tableUuid := uuid.New().String()
 	lastColumnID := 3
 	currentTimestampMs := time.Now().UnixNano() / int64(time.Millisecond)
@@ -448,7 +448,7 @@ func (storage *StorageBase) WriteMetadataFile(fileSystemPrefix string, filePath 
 	return nil
 }
 
-func (storage *StorageBase) WriteVersionHintFile(filePath string, metadataFile MetadataFile) (err error) {
+func (storage *StorageUtils) WriteVersionHintFile(filePath string, metadataFile MetadataFile) (err error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create version hint file: %v", err)
@@ -463,7 +463,7 @@ func (storage *StorageBase) WriteVersionHintFile(filePath string, metadataFile M
 	return nil
 }
 
-func (storage *StorageBase) WriteInternalTableMetadataFile(filePath string, internalTableMetadata InternalTableMetadata) error {
+func (storage *StorageUtils) WriteInternalTableMetadataFile(filePath string, internalTableMetadata InternalTableMetadata) error {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create internal table metadata file: %v", err)
@@ -484,7 +484,7 @@ func (storage *StorageBase) WriteInternalTableMetadataFile(filePath string, inte
 
 }
 
-func (storage *StorageBase) buildFieldIDMap(schemaHandler *schema.SchemaHandler) map[string]int {
+func (storage *StorageUtils) buildFieldIDMap(schemaHandler *schema.SchemaHandler) map[string]int {
 	fieldIDMap := make(map[string]int)
 	for _, schema := range schemaHandler.SchemaElements {
 		if schema.FieldID != nil {

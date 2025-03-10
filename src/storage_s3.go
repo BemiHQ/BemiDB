@@ -18,9 +18,9 @@ import (
 )
 
 type StorageS3 struct {
-	s3Client    *s3.Client
-	config      *Config
-	storageBase *StorageBase
+	s3Client     *s3.Client
+	config       *Config
+	storageUtils *StorageUtils
 }
 
 func NewS3Storage(config *Config) *StorageS3 {
@@ -41,9 +41,9 @@ func NewS3Storage(config *Config) *StorageS3 {
 	PanicIfError(err, config)
 
 	return &StorageS3{
-		s3Client:    s3.NewFromConfig(loadedAwsConfig),
-		config:      config,
-		storageBase: &StorageBase{config: config},
+		s3Client:     s3.NewFromConfig(loadedAwsConfig),
+		config:       config,
+		storageUtils: &StorageUtils{config: config},
 	}
 }
 
@@ -109,7 +109,7 @@ func (storage *StorageS3) IcebergTableFields(icebergSchemaTable IcebergSchemaTab
 		return nil, err
 	}
 
-	return storage.storageBase.ParseIcebergTableFields(metadataContent)
+	return storage.storageUtils.ParseIcebergTableFields(metadataContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -144,7 +144,7 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, err := storage.storageBase.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows)
+	recordCount, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -163,7 +163,7 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 	if err != nil {
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
 	}
-	parquetStats, err := storage.storageBase.ReadParquetStats(fileReader)
+	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -187,7 +187,7 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	manifestFile, err = storage.storageBase.WriteManifestFile(storage.fullBucketPath(), tempFile.Name(), parquetFile)
+	manifestFile, err = storage.storageUtils.WriteManifestFile(storage.fullBucketPath(), tempFile.Name(), parquetFile)
 	if err != nil {
 		return ManifestFile{}, err
 	}
@@ -212,7 +212,7 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	err = storage.storageBase.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), parquetFile, manifestFile)
+	err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), parquetFile, manifestFile)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
@@ -237,7 +237,7 @@ func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	err = storage.storageBase.WriteMetadataFile(storage.fullBucketPath(), tempFile.Name(), pgSchemaColumns, parquetFile, manifestFile, manifestListFile)
+	err = storage.storageUtils.WriteMetadataFile(storage.fullBucketPath(), tempFile.Name(), pgSchemaColumns, parquetFile, manifestFile, manifestListFile)
 	if err != nil {
 		return MetadataFile{}, err
 	}
@@ -260,7 +260,7 @@ func (storage *StorageS3) CreateVersionHint(metadataDirPath string, metadataFile
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	err = storage.storageBase.WriteVersionHintFile(tempFile.Name(), metadataFile)
+	err = storage.storageUtils.WriteVersionHintFile(tempFile.Name(), metadataFile)
 	if err != nil {
 		return err
 	}
@@ -285,7 +285,7 @@ func (storage *StorageS3) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	err = storage.storageBase.WriteInternalTableMetadataFile(tempFile.Name(), internalTableMetadata)
+	err = storage.storageUtils.WriteInternalTableMetadataFile(tempFile.Name(), internalTableMetadata)
 	if err != nil {
 		return err
 	}
