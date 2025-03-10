@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -57,12 +58,11 @@ func (syncer *Syncer) SyncFromPostgres() {
 	copyConn := syncer.newConnection(ctx, databaseUrl)
 	defer copyConn.Close(ctx)
 
-	pgSchemaTables := []PgSchemaTable{}
+	syncedPgSchemaTables := []PgSchemaTable{}
+
 	for _, schema := range syncer.listPgSchemas(structureConn) {
 		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
-				pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
-
 				if icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) && false {
 					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, structureConn, copyConn)
 				} else {
@@ -70,12 +70,13 @@ func (syncer *Syncer) SyncFromPostgres() {
 				}
 
 				syncer.writeInternalMetadata(pgSchemaTable, structureConn)
+				syncedPgSchemaTables = append(syncedPgSchemaTables, pgSchemaTable)
 			}
 		}
 	}
 
 	if syncer.config.Pg.SchemaPrefix == "" {
-		syncer.deleteOldIcebergSchemaTables(pgSchemaTables)
+		syncer.deleteOldIcebergSchemaTables(syncedPgSchemaTables)
 	}
 }
 
@@ -247,6 +248,11 @@ func (syncer *Syncer) writeInternalMetadata(pgSchemaTable PgSchemaTable, conn *p
 		context.Background(),
 		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) ASC LIMIT 1",
 	).Scan(&xmin)
+
+	if err != nil && errors.Is(err, pgx.ErrNoRows) {
+		return
+	}
+
 	PanicIfError(err, syncer.config)
 
 	err = syncer.icebergWriter.storage.WriteInternalTableMetadata(pgSchemaTable, InternalTableMetadata{
