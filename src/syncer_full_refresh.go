@@ -17,10 +17,10 @@ type SyncerFullRefresh struct {
 	icebergWriter *IcebergWriter
 }
 
-func NewSyncerFullRefresh(config *Config) *SyncerFullRefresh {
+func NewSyncerFullRefresh(config *Config, icebergWriter *IcebergWriter) *SyncerFullRefresh {
 	return &SyncerFullRefresh{
 		config:        config,
-		icebergWriter: NewIcebergWriter(config),
+		icebergWriter: icebergWriter,
 	}
 }
 

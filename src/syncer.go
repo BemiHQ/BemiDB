@@ -25,6 +25,7 @@ type Syncer struct {
 	icebergWriter     *IcebergWriter
 	icebergReader     *IcebergReader
 	syncerFullRefresh *SyncerFullRefresh
+	syncerIncremental *SyncerIncremental
 }
 
 func NewSyncer(config *Config) *Syncer {
@@ -38,7 +39,8 @@ func NewSyncer(config *Config) *Syncer {
 		config:            config,
 		icebergWriter:     icebergWriter,
 		icebergReader:     icebergReader,
-		syncerFullRefresh: NewSyncerFullRefresh(config),
+		syncerFullRefresh: NewSyncerFullRefresh(config, icebergWriter),
+		syncerIncremental: NewSyncerIncremental(config, icebergWriter),
 	}
 }
 
@@ -46,6 +48,8 @@ func (syncer *Syncer) SyncFromPostgres() {
 	ctx := context.Background()
 	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
 	syncer.sendAnonymousAnalytics(databaseUrl)
+
+	icebergSchemaTables, icebergSchemaTablesErr := syncer.icebergReader.SchemaTables()
 
 	structureConn := syncer.newConnection(ctx, databaseUrl)
 	defer structureConn.Close(ctx)
@@ -58,7 +62,12 @@ func (syncer *Syncer) SyncFromPostgres() {
 		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
 				pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
-				syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, structureConn, copyConn)
+
+				if icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) {
+					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, structureConn, copyConn)
+				} else {
+					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, structureConn, copyConn)
+				}
 			}
 		}
 	}
