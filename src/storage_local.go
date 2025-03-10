@@ -74,16 +74,6 @@ func (storage *StorageLocal) IcebergTableFields(icebergSchemaTable IcebergSchema
 	return storage.storageBase.ParseIcebergTableFields(metadataContent)
 }
 
-func (storage *StorageLocal) absoluteIcebergPath(relativePaths ...string) string {
-	if filepath.IsAbs(storage.config.StoragePath) {
-		return filepath.Join(storage.config.StoragePath, filepath.Join(relativePaths...))
-	}
-
-	execPath, err := os.Getwd()
-	PanicIfError(err, storage.config)
-	return filepath.Join(execPath, storage.config.StoragePath, filepath.Join(relativePaths...))
-}
-
 // Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) DeleteSchema(schema string) error {
@@ -218,11 +208,38 @@ func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataF
 	return nil
 }
 
-func (storage *StorageLocal) tablePath(schemaTable IcebergSchemaTable, isIcebergSchemaTable ...bool) string {
-	if len(isIcebergSchemaTable) > 0 && isIcebergSchemaTable[0] {
+// Write (internal) ----------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
+	tablePath := storage.tablePath(pgSchemaTable.ToIcebergSchemaTable())
+	filePath := filepath.Join(tablePath, "metadata", INTERNAL_METADATA_FILE_NAME)
+
+	err := storage.storageBase.WriteInternalTableMetadataFile(filePath, internalTableMetadata)
+	if err != nil {
+		return err
+	}
+	LogDebug(storage.config, "Internal table metadata file created at:", filePath)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) tablePath(schemaTable IcebergSchemaTable, readWithoutSchemaPrefix ...bool) string {
+	if len(readWithoutSchemaPrefix) > 0 && readWithoutSchemaPrefix[0] {
 		return storage.absoluteIcebergPath(schemaTable.Schema, schemaTable.Table)
 	}
 	return storage.absoluteIcebergPath(storage.config.Pg.SchemaPrefix+schemaTable.Schema, schemaTable.Table)
+}
+
+func (storage *StorageLocal) absoluteIcebergPath(relativePaths ...string) string {
+	if filepath.IsAbs(storage.config.StoragePath) {
+		return filepath.Join(storage.config.StoragePath, filepath.Join(relativePaths...))
+	}
+
+	execPath, err := os.Getwd()
+	PanicIfError(err, storage.config)
+	return filepath.Join(execPath, storage.config.StoragePath, filepath.Join(relativePaths...))
 }
 
 func (storage *StorageLocal) fileSystemPrefix() string {

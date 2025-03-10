@@ -34,6 +34,11 @@ type MetadataFile struct {
 	Path    string
 }
 
+type InternalTableMetadata struct {
+	LastSyncedAt int64  `json:"last-synced-at"`
+	Xmin         uint32 `json:"xmin"`
+}
+
 type Storage interface {
 	// Read
 	IcebergSchemas() (icebergSchemas []string, err error)
@@ -51,6 +56,9 @@ type Storage interface {
 	CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFile ManifestFile) (manifestListFile ManifestListFile, err error)
 	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, parquetFile ParquetFile, manifestFile ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error)
 	CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error)
+
+	// Write (internal)
+	WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) (err error)
 }
 
 func NewStorage(config *Config) Storage {

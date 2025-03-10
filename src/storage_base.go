@@ -24,7 +24,8 @@ const (
 	PARQUET_ROW_GROUP_SIZE   = 128 * 1024 * 1024 // 128 MB
 	PARQUET_COMPRESSION_TYPE = parquet.CompressionCodec_ZSTD
 
-	VERSION_HINT_FILE_NAME = "version-hint.text"
+	VERSION_HINT_FILE_NAME      = "version-hint.text"
+	INTERNAL_METADATA_FILE_NAME = "bemidb.json"
 )
 
 type MetadataJson struct {
@@ -448,18 +449,39 @@ func (storage *StorageBase) WriteMetadataFile(fileSystemPrefix string, filePath 
 }
 
 func (storage *StorageBase) WriteVersionHintFile(filePath string, metadataFile MetadataFile) (err error) {
-	versionHintFile, err := os.Create(filePath)
+	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create version hint file: %v", err)
 	}
-	defer versionHintFile.Close()
+	defer file.Close()
 
-	_, err = versionHintFile.WriteString(fmt.Sprintf("%d", metadataFile.Version))
+	_, err = file.WriteString(fmt.Sprintf("%d", metadataFile.Version))
 	if err != nil {
 		return fmt.Errorf("failed to write to version hint file: %v", err)
 	}
 
 	return nil
+}
+
+func (storage *StorageBase) WriteInternalTableMetadataFile(filePath string, internalTableMetadata InternalTableMetadata) error {
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create internal table metadata file: %v", err)
+	}
+	defer file.Close()
+
+	jsonData, err := json.Marshal(internalTableMetadata)
+	if err != nil {
+		return fmt.Errorf("failed to serialize internal table metadata to JSON: %v", err)
+	}
+
+	_, err = file.Write(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to write internal table metadata to file: %v", err)
+	}
+
+	return nil
+
 }
 
 func (storage *StorageBase) buildFieldIDMap(schemaHandler *schema.SchemaHandler) map[string]int {
