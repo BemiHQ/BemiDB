@@ -274,6 +274,33 @@ func (storage *StorageS3) CreateVersionHint(metadataDirPath string, metadataFile
 	return nil
 }
 
+// Write (internal) ----------------------------------------------------------------------------------------------------
+
+func (storage *StorageS3) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
+	filePath := storage.tablePrefix(pgSchemaTable.ToIcebergSchemaTable()) + "metadata/" + INTERNAL_METADATA_FILE_NAME
+
+	tempFile, err := CreateTemporaryFile("internal-metadata")
+	if err != nil {
+		return err
+	}
+	defer DeleteTemporaryFile(tempFile)
+
+	err = storage.storageBase.WriteInternalTableMetadataFile(tempFile.Name(), internalTableMetadata)
+	if err != nil {
+		return err
+	}
+
+	err = storage.uploadFile(filePath, tempFile)
+	if err != nil {
+		return err
+	}
+	LogDebug(storage.config, "Internal metadata file created at:", filePath)
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
 func (storage *StorageS3) uploadFile(filePath string, file *os.File) (err error) {
 	uploader := manager.NewUploader(storage.s3Client)
 

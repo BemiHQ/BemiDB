@@ -151,7 +151,7 @@ func (syncer *SyncerFullRefresh) calculateRowCountPerBatch(pgSchemaTable PgSchem
 	var tableSize int64
 	var rowCount int64
 
-	rows, err := conn.Query(
+	err := conn.QueryRow(
 		context.Background(),
 		`
 		SELECT
@@ -165,14 +165,8 @@ func (syncer *SyncerFullRefresh) calculateRowCountPerBatch(pgSchemaTable PgSchem
 		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
 		pgSchemaTable.Schema,
 		pgSchemaTable.Table,
-	)
+	).Scan(&tableSize, &rowCount)
 	PanicIfError(err, syncer.config)
-	defer rows.Close()
-
-	for rows.Next() {
-		err = rows.Scan(&tableSize, &rowCount)
-		PanicIfError(err, syncer.config)
-	}
 	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount)
 
 	if tableSize == 0 || rowCount == 0 {

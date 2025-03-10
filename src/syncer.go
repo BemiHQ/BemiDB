@@ -63,11 +63,13 @@ func (syncer *Syncer) SyncFromPostgres() {
 			if syncer.shouldSyncTable(pgSchemaTable) {
 				pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
 
-				if icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) {
+				if icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) && false {
 					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, structureConn, copyConn)
 				} else {
 					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, structureConn, copyConn)
 				}
+
+				syncer.writeInternalMetadata(pgSchemaTable, structureConn)
 			}
 		}
 	}
@@ -236,6 +238,22 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 			syncer.icebergWriter.DeleteSchemaTable(icebergSchemaTable)
 		}
 	}
+}
+
+func (syncer *Syncer) writeInternalMetadata(pgSchemaTable PgSchemaTable, conn *pgx.Conn) {
+	var xmin uint32
+
+	err := conn.QueryRow(
+		context.Background(),
+		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) ASC LIMIT 1",
+	).Scan(&xmin)
+	PanicIfError(err, syncer.config)
+
+	err = syncer.icebergWriter.storage.WriteInternalTableMetadata(pgSchemaTable, InternalTableMetadata{
+		LastSyncedAt: time.Now().Unix(),
+		Xmin:         xmin,
+	})
+	PanicIfError(err, syncer.config)
 }
 
 type AnonymousAnalyticsData struct {
