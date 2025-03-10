@@ -274,10 +274,32 @@ func (storage *StorageS3) CreateVersionHint(metadataDirPath string, metadataFile
 	return nil
 }
 
+// Read (internal) -----------------------------------------------------------------------------------------------------
+
+func (storage *StorageS3) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
+	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
+
+	ctx := context.Background()
+	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(filePath),
+	})
+	if err != nil {
+		return InternalTableMetadata{}, err
+	}
+
+	fileContent, err := io.ReadAll(getObjectResponse.Body)
+	if err != nil {
+		return InternalTableMetadata{}, err
+	}
+
+	return storage.storageUtils.ParseInternalTableMetadata(fileContent)
+}
+
 // Write (internal) ----------------------------------------------------------------------------------------------------
 
 func (storage *StorageS3) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
-	filePath := storage.tablePrefix(pgSchemaTable.ToIcebergSchemaTable()) + "metadata/" + INTERNAL_METADATA_FILE_NAME
+	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
 
 	tempFile, err := CreateTemporaryFile("internal-metadata")
 	if err != nil {
@@ -314,6 +336,10 @@ func (storage *StorageS3) uploadFile(filePath string, file *os.File) (err error)
 	}
 
 	return nil
+}
+
+func (storage *StorageS3) internalTableMetadataFilePath(pgSchemaTable PgSchemaTable) string {
+	return storage.tablePrefix(pgSchemaTable.ToIcebergSchemaTable()) + "metadata/" + INTERNAL_METADATA_FILE_NAME
 }
 
 func (storage *StorageS3) tablePrefix(schemaTable IcebergSchemaTable, isIcebergSchemaTable ...bool) string {

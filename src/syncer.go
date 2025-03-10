@@ -63,10 +63,26 @@ func (syncer *Syncer) SyncFromPostgres() {
 	for _, schema := range syncer.listPgSchemas(structureConn) {
 		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
-				if icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) && false {
-					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, structureConn, copyConn)
+				syncedPreviously := icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) && false
+
+				// Read internal table metadata if it exists
+				var internalTableMetadata InternalTableMetadata
+				var err error
+				if syncedPreviously {
+					internalTableMetadata, err = syncer.icebergReader.storage.InternalTableMetadata(pgSchemaTable)
+					PanicIfError(err, syncer.config)
+					LogDebug(syncer.config, "Read internal table metadata to sync incrementally:", internalTableMetadata.String())
+				}
+
+				// Identify the batch size dynamically based on the table stats
+				rowCountPerBatch := syncer.calculateRowCountPerBatch(pgSchemaTable, structureConn)
+				LogDebug(syncer.config, "Row count per batch:", rowCountPerBatch)
+
+				// Sync the table
+				if internalTableMetadata.XminMax != nil && internalTableMetadata.XminMin != nil {
+					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, internalTableMetadata, rowCountPerBatch, structureConn, copyConn)
 				} else {
-					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, structureConn, copyConn)
+					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, rowCountPerBatch, structureConn, copyConn)
 				}
 
 				syncer.writeInternalMetadata(pgSchemaTable, structureConn)
@@ -183,6 +199,41 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 	}
 
 	return pgSchemaTables
+}
+
+func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, conn *pgx.Conn) int {
+	var tableSize int64
+	var rowCount int64
+
+	err := conn.QueryRow(
+		context.Background(),
+		`
+		SELECT
+			pg_total_relation_size(c.oid) AS table_size,
+			CASE
+				WHEN c.reltuples >= 0 THEN c.reltuples::bigint
+				ELSE (SELECT count(*) FROM `+pgSchemaTable.String()+`)
+			END AS row_count
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
+		pgSchemaTable.Schema,
+		pgSchemaTable.Table,
+	).Scan(&tableSize, &rowCount)
+	PanicIfError(err, syncer.config)
+	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount)
+
+	if tableSize == 0 || rowCount == 0 {
+		return 1
+	}
+
+	rowSize := tableSize / rowCount
+	rowCountPerBatch := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
+	if rowCountPerBatch == 0 {
+		return 1
+	}
+
+	return rowCountPerBatch
 }
 
 func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pgx.Conn {

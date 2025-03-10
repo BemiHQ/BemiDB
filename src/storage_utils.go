@@ -463,6 +463,15 @@ func (storage *StorageUtils) WriteVersionHintFile(filePath string, metadataFile 
 	return nil
 }
 
+func (storage *StorageUtils) ParseInternalTableMetadata(metadataContent []byte) (InternalTableMetadata, error) {
+	var internalTableMetadata InternalTableMetadata
+	err := json.Unmarshal(metadataContent, &internalTableMetadata)
+	if err != nil {
+		return InternalTableMetadata{}, err
+	}
+	return internalTableMetadata, nil
+}
+
 func (storage *StorageUtils) WriteInternalTableMetadataFile(filePath string, internalTableMetadata InternalTableMetadata) error {
 	file, err := os.Create(filePath)
 	if err != nil {

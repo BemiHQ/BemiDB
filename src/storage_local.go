@@ -22,7 +22,8 @@ func NewLocalStorage(config *Config) *StorageLocal {
 // Read ----------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) IcebergMetadataFilePath(icebergSchemaTable IcebergSchemaTable) string {
-	return storage.tablePath(icebergSchemaTable, true) + "/metadata/v1.metadata.json"
+	tablePath := storage.tablePath(icebergSchemaTable, true)
+	return filepath.Join(tablePath, "metadata", "v1.metadata.json")
 }
 
 func (storage *StorageLocal) IcebergSchemas() (icebergSchemas []string, err error) {
@@ -208,11 +209,29 @@ func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataF
 	return nil
 }
 
+// Read (internal) -----------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
+	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return InternalTableMetadata{}, err
+	}
+	defer file.Close()
+
+	fileContent, err := io.ReadAll(file)
+	if err != nil {
+		return InternalTableMetadata{}, err
+	}
+
+	return storage.storageUtils.ParseInternalTableMetadata(fileContent)
+}
+
 // Write (internal) ----------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
-	tablePath := storage.tablePath(pgSchemaTable.ToIcebergSchemaTable())
-	filePath := filepath.Join(tablePath, "metadata", INTERNAL_METADATA_FILE_NAME)
+	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
 
 	err := storage.storageUtils.WriteInternalTableMetadataFile(filePath, internalTableMetadata)
 	if err != nil {
@@ -224,6 +243,10 @@ func (storage *StorageLocal) WriteInternalTableMetadata(pgSchemaTable PgSchemaTa
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) internalTableMetadataFilePath(pgSchemaTable PgSchemaTable) string {
+	return filepath.Join(storage.tablePath(pgSchemaTable.ToIcebergSchemaTable()), "metadata", INTERNAL_METADATA_FILE_NAME)
+}
 
 func (storage *StorageLocal) tablePath(schemaTable IcebergSchemaTable, readWithoutSchemaPrefix ...bool) string {
 	if len(readWithoutSchemaPrefix) > 0 && readWithoutSchemaPrefix[0] {

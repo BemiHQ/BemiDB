@@ -1,5 +1,9 @@
 package main
 
+import (
+	"fmt"
+)
+
 var STORAGE_TYPES = []string{STORAGE_TYPE_LOCAL, STORAGE_TYPE_S3}
 
 type ParquetFileStats struct {
@@ -40,6 +44,24 @@ type InternalTableMetadata struct {
 	XminMin      *uint32 `json:"xmin-min"`
 }
 
+func (internalTableMetadata InternalTableMetadata) XminMaxString() string {
+	if internalTableMetadata.XminMax == nil {
+		return "null"
+	}
+	return fmt.Sprint(*internalTableMetadata.XminMax)
+}
+
+func (internalTableMetadata InternalTableMetadata) XminMinString() string {
+	if internalTableMetadata.XminMin == nil {
+		return "null"
+	}
+	return fmt.Sprint(*internalTableMetadata.XminMin)
+}
+
+func (internalTableMetadata InternalTableMetadata) String() string {
+	return fmt.Sprintf("LastSyncedAt: %d, XminMax: %s, XminMin: %s", internalTableMetadata.LastSyncedAt, internalTableMetadata.XminMaxString(), internalTableMetadata.XminMinString())
+}
+
 type Storage interface {
 	// Read
 	IcebergSchemas() (icebergSchemas []string, err error)
@@ -58,6 +80,8 @@ type Storage interface {
 	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, parquetFile ParquetFile, manifestFile ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error)
 	CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error)
 
+	// Read (internal)
+	InternalTableMetadata(pgSchemaTable PgSchemaTable) (internalTableMetadata InternalTableMetadata, err error)
 	// Write (internal)
 	WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) (err error)
 }
