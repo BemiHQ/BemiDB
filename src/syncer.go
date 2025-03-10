@@ -242,23 +242,31 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 }
 
 func (syncer *Syncer) writeInternalMetadata(pgSchemaTable PgSchemaTable, conn *pgx.Conn) {
-	var xmin uint32
+	var xminMax *uint32
+	var xminMin *uint32
 
 	err := conn.QueryRow(
 		context.Background(),
 		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) ASC LIMIT 1",
-	).Scan(&xmin)
-
-	if err != nil && errors.Is(err, pgx.ErrNoRows) {
-		return
+	).Scan(&xminMax)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		PanicIfError(err, syncer.config)
 	}
 
-	PanicIfError(err, syncer.config)
+	err = conn.QueryRow(
+		context.Background(),
+		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) DESC LIMIT 1",
+	).Scan(&xminMin)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		PanicIfError(err, syncer.config)
+	}
 
-	err = syncer.icebergWriter.storage.WriteInternalTableMetadata(pgSchemaTable, InternalTableMetadata{
+	metadata := InternalTableMetadata{
 		LastSyncedAt: time.Now().Unix(),
-		Xmin:         xmin,
-	})
+		XminMax:      xminMax,
+		XminMin:      xminMin,
+	}
+	err = syncer.icebergWriter.storage.WriteInternalTableMetadata(pgSchemaTable, metadata)
 	PanicIfError(err, syncer.config)
 }
 

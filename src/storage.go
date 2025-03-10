@@ -35,8 +35,9 @@ type MetadataFile struct {
 }
 
 type InternalTableMetadata struct {
-	LastSyncedAt int64  `json:"last-synced-at"`
-	Xmin         uint32 `json:"xmin"`
+	LastSyncedAt int64   `json:"last-synced-at"`
+	XminMax      *uint32 `json:"xmin-max"`
+	XminMin      *uint32 `json:"xmin-min"`
 }
 
 type Storage interface {
