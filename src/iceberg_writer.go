@@ -350,6 +350,13 @@ func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSche
 	PanicIfError(err, icebergWriter.config)
 }
 
+func (icebergWriter *IcebergWriter) Append(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) {
+	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
+
+	_, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
+	PanicIfError(err, icebergWriter.config)
+}
+
 func (icebergWriter *IcebergWriter) DeleteSchemaTable(schemaTable IcebergSchemaTable) {
 	err := icebergWriter.storage.DeleteSchemaTable(schemaTable)
 	PanicIfError(err, icebergWriter.config)

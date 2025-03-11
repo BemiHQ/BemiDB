@@ -55,7 +55,7 @@ func (syncer *SyncerIncremental) SyncPgTable(pgSchemaTable PgSchemaTable, intern
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing to Iceberg:", pgSchemaTable.String()+"...")
-	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, func() [][]string {
+	syncer.icebergWriter.Append(schemaTable, pgSchemaColumns, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
 		}
@@ -148,7 +148,7 @@ func (syncer *SyncerIncremental) copyFromPgTable(pgSchemaTable PgSchemaTable, in
 	result, err := copyConn.PgConn().CopyTo(
 		context.Background(),
 		cappedBuffer,
-		"COPY "+pgSchemaTable.String()+" WHERE xmin > "+internalTableMetadata.XminMaxString()+" OR xmin < "+internalTableMetadata.XminMinString()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
+		"COPY (SELECT * FROM "+pgSchemaTable.String()+" WHERE xmin::text::bigint > "+internalTableMetadata.XminMaxString()+" OR xmin::text::bigint < "+internalTableMetadata.XminMinString()+") TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
 	)
 	PanicIfError(err, syncer.config)
 	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)")
