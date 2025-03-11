@@ -381,6 +381,8 @@ Proprietary solutions cons:
 - Vendor lock-in and limited control over the data
 - Require separate systems for data syncing and schema mapping
 
+For a more detailed comparison of different approaches to running analytics with PostgreSQL, check out our [blog post](https://blog.bemi.io/analytics-with-postgresql/).
+
 ## Development
 
 We develop BemiDB using [Devbox](https://www.jetify.com/devbox) to ensure a consistent development environment without relying on Docker.
