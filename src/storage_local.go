@@ -157,6 +157,11 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 	}, nil
 }
 
+func (storage *StorageLocal) DeleteParquet(parquetFile ParquetFile) error {
+	err := os.Remove(parquetFile.Path)
+	return err
+}
+
 func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
 	fileName := fmt.Sprintf("%s-m0.avro", parquetFile.Uuid)
 	filePath := filepath.Join(metadataDirPath, fileName)

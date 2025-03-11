@@ -177,6 +177,15 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 	}, nil
 }
 
+func (storage *StorageS3) DeleteParquet(parquetFile ParquetFile) (err error) {
+	ctx := context.Background()
+	_, err = storage.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(parquetFile.Path),
+	})
+	return err
+}
+
 func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
 	fileName := fmt.Sprintf("%s-m0.avro", parquetFile.Uuid)
 	filePath := metadataDirPath + "/" + fileName

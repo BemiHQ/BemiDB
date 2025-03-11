@@ -353,7 +353,17 @@ func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSche
 func (icebergWriter *IcebergWriter) Append(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) {
 	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
 
-	_, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
+	parquetFile, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
+	PanicIfError(err, icebergWriter.config)
+	if parquetFile.RecordCount == 0 {
+		err = icebergWriter.storage.DeleteParquet(parquetFile)
+		PanicIfError(err, icebergWriter.config)
+		return
+	}
+
+	metadataDirPath := icebergWriter.storage.CreateMetadataDir(schemaTable)
+
+	_, err = icebergWriter.storage.CreateManifest(metadataDirPath, parquetFile)
 	PanicIfError(err, icebergWriter.config)
 }
 
