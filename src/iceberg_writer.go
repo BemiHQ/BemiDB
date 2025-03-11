@@ -2,7 +2,7 @@ package main
 
 type IcebergWriter struct {
 	config  *Config
-	storage Storage
+	storage StorageInterface
 }
 
 func NewIcebergWriter(config *Config) *IcebergWriter {

@@ -2,7 +2,7 @@ package main
 
 type IcebergReader struct {
 	config  *Config
-	storage Storage
+	storage StorageInterface
 }
 
 func NewIcebergReader(config *Config) *IcebergReader {

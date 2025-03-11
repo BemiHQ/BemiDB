@@ -62,7 +62,7 @@ func (internalTableMetadata InternalTableMetadata) String() string {
 	return fmt.Sprintf("LastSyncedAt: %d, XminMax: %s, XminMin: %s", internalTableMetadata.LastSyncedAt, internalTableMetadata.XminMaxString(), internalTableMetadata.XminMinString())
 }
 
-type Storage interface {
+type StorageInterface interface {
 	// Read
 	IcebergSchemas() (icebergSchemas []string, err error)
 	IcebergSchemaTables() (icebersSchemaTables Set[IcebergSchemaTable], err error)
@@ -86,7 +86,7 @@ type Storage interface {
 	WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) (err error)
 }
 
-func NewStorage(config *Config) Storage {
+func NewStorage(config *Config) StorageInterface {
 	switch config.StorageType {
 	case STORAGE_TYPE_LOCAL:
 		return NewLocalStorage(config)
