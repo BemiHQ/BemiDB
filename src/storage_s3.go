@@ -211,8 +211,8 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	return manifestFile, nil
 }
 
-func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFile.Uuid)
+func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
 	filePath := metadataDirPath + "/" + fileName
 
 	tempFile, err := CreateTemporaryFile("manifest")

@@ -114,6 +114,44 @@ func TestCreateManifest(t *testing.T) {
 	})
 }
 
+func TestCreateManifestList(t *testing.T) {
+	t.Run("Creates a manifest list file", func(t *testing.T) {
+		tempDir := os.TempDir()
+		config := loadTestConfig()
+		storage := NewLocalStorage(config)
+		parquetFile := createTestParquetFile(storage, tempDir)
+		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
+		PanicIfError(err, config)
+
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if manifestListFile.SnapshotId != manifestFile.SnapshotId {
+			t.Errorf("Expected a snapshot ID of %v, got %v", manifestFile.SnapshotId, manifestListFile.SnapshotId)
+		}
+		if manifestListFile.TimestampMs == 0 {
+			t.Errorf("Expected a non-zero timestamp, got %v", manifestListFile.TimestampMs)
+		}
+		if manifestListFile.Path == "" {
+			t.Errorf("Expected a non-empty path, got %v", manifestListFile.Path)
+		}
+		if manifestListFile.Operation != "append" {
+			t.Errorf("Expected an operation of append, got %v", manifestListFile.Operation)
+		}
+		if manifestListFile.AddedFilesSize != parquetFile.Size {
+			t.Errorf("Expected an added files size of %v, got %v", parquetFile.Size, manifestListFile.AddedFilesSize)
+		}
+		if manifestListFile.AddedDataFiles != 1 {
+			t.Errorf("Expected an added data files count of 1, got %v", manifestListFile.AddedDataFiles)
+		}
+		if manifestListFile.AddedRecords != parquetFile.RecordCount {
+			t.Errorf("Expected an added records count of %v, got %v", parquetFile.RecordCount, manifestListFile.AddedRecords)
+		}
+	})
+}
+
 func createTestParquetFile(storage *StorageLocal, dir string) ParquetFile {
 	pgSchemaColumns := []PgSchemaColumn{
 		{ColumnName: "id", DataType: "integer", UdtName: "int4", IsNullable: "NO", NumericPrecision: "32", OrdinalPosition: "1", Namespace: "pg_catalog"},

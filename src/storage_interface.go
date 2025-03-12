@@ -86,7 +86,7 @@ type StorageInterface interface {
 	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (parquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
-	CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error)
+	CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error)
 	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error)
 	CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error)
 

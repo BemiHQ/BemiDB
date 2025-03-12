@@ -175,8 +175,8 @@ func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile 
 	return manifestFile, nil
 }
 
-func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFile.Uuid)
+func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
 	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestFilesSortedDesc)
