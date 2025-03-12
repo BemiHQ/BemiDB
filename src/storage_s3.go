@@ -94,22 +94,22 @@ func (storage *StorageS3) IcebergSchemaTables() (Set[IcebergSchemaTable], error)
 
 func (storage *StorageS3) IcebergTableFields(icebergSchemaTable IcebergSchemaTable) ([]IcebergTableField, error) {
 	metadataPath := storage.tablePrefix(icebergSchemaTable, true) + "metadata/" + ICEBERG_METADATA_FILE_NAME
-
-	ctx := context.Background()
-	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(storage.config.Aws.S3Bucket),
-		Key:    aws.String(metadataPath),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	metadataContent, err := io.ReadAll(getObjectResponse.Body)
+	metadataContent, err := storage.readFileContent(metadataPath)
 	if err != nil {
 		return nil, err
 	}
 
 	return storage.storageUtils.ParseIcebergTableFields(metadataContent)
+}
+
+func (storage *StorageS3) ExistingManifestListFiles(metadataDirPath string) ([]ManifestListFile, error) {
+	metadataPath := metadataDirPath + "/" + ICEBERG_METADATA_FILE_NAME
+	metadataContent, err := storage.readFileContent(metadataPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageUtils.ParseManifestListFiles(metadataContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -236,9 +236,7 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 }
 
 func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
-	version := int64(1)
-	fileName := fmt.Sprintf("v%d.metadata.json", version)
-	filePath := metadataDirPath + "/" + fileName
+	filePath := metadataDirPath + "/" + ICEBERG_METADATA_FILE_NAME
 
 	tempFile, err := CreateTemporaryFile("manifest")
 	if err != nil {
@@ -257,7 +255,7 @@ func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns
 	}
 	LogDebug(storage.config, "Metadata file created at:", filePath)
 
-	return MetadataFile{Version: version, Path: filePath}, nil
+	return MetadataFile{Version: 1, Path: filePath}, nil
 }
 
 func (storage *StorageS3) CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error) {
@@ -286,23 +284,13 @@ func (storage *StorageS3) CreateVersionHint(metadataDirPath string, metadataFile
 // Read (internal) -----------------------------------------------------------------------------------------------------
 
 func (storage *StorageS3) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
-	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
-
-	ctx := context.Background()
-	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(storage.config.Aws.S3Bucket),
-		Key:    aws.String(filePath),
-	})
+	internalMetadataPath := storage.internalTableMetadataFilePath(pgSchemaTable)
+	internalMetadataContent, err := storage.readFileContent(internalMetadataPath)
 	if err != nil {
 		return InternalTableMetadata{}, err
 	}
 
-	fileContent, err := io.ReadAll(getObjectResponse.Body)
-	if err != nil {
-		return InternalTableMetadata{}, err
-	}
-
-	return storage.storageUtils.ParseInternalTableMetadata(fileContent)
+	return storage.storageUtils.ParseInternalTableMetadata(internalMetadataContent)
 }
 
 // Write (internal) ----------------------------------------------------------------------------------------------------
@@ -331,6 +319,24 @@ func (storage *StorageS3) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageS3) readFileContent(filePath string) ([]byte, error) {
+	ctx := context.Background()
+	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(filePath),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fileContent, err := io.ReadAll(getObjectResponse.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return fileContent, nil
+}
 
 func (storage *StorageS3) uploadFile(filePath string, file *os.File) (err error) {
 	uploader := manager.NewUploader(storage.s3Client)

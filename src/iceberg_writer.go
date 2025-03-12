@@ -365,7 +365,21 @@ func (icebergWriter *IcebergWriter) Append(schemaTable IcebergSchemaTable, pgSch
 
 	metadataDirPath := icebergWriter.storage.CreateMetadataDir(schemaTable)
 
-	_, err = icebergWriter.storage.CreateManifest(metadataDirPath, parquetFile)
+	manifestFile, err := icebergWriter.storage.CreateManifest(metadataDirPath, parquetFile)
+	PanicIfError(err, icebergWriter.config)
+
+	manifestListFilesSortedAsc, err := icebergWriter.storage.ExistingManifestListFiles(metadataDirPath)
+	PanicIfError(err, icebergWriter.config)
+
+	manifestFilesSortedDesc := []ManifestFile{manifestFile}
+	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile.Uuid, manifestFilesSortedDesc)
+	PanicIfError(err, icebergWriter.config)
+
+	manifestListFiles := append(manifestListFilesSortedAsc, manifestListFile)
+	metadataFile, err := icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, manifestListFiles)
+	PanicIfError(err, icebergWriter.config)
+
+	err = icebergWriter.storage.CreateVersionHint(metadataDirPath, metadataFile)
 	PanicIfError(err, icebergWriter.config)
 }
 

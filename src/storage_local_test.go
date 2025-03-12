@@ -6,26 +6,30 @@ import (
 	"testing"
 )
 
+var TEST_STORAGE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+	{ColumnName: "id", DataType: "integer", UdtName: "int4", IsNullable: "NO", NumericPrecision: "32", OrdinalPosition: "1", Namespace: "pg_catalog"},
+	{ColumnName: "name", DataType: "character varying", UdtName: "varchar", IsNullable: "YES", CharacterMaximumLength: "255", OrdinalPosition: "2", Namespace: "pg_catalog"},
+}
+var TEST_STORAGE_ROWS = [][]string{
+	{"1", "John"},
+	{"2", PG_NULL_STRING},
+}
+
 func TestCreateParquet(t *testing.T) {
 	t.Run("Creates a parquet file", func(t *testing.T) {
 		tempDir := os.TempDir()
 		config := loadTestConfig()
 		storage := NewLocalStorage(config)
-		pgSchemaColumns := []PgSchemaColumn{
-			{ColumnName: "id", DataType: "integer", UdtName: "int4", IsNullable: "NO", NumericPrecision: "32", OrdinalPosition: "1", Namespace: "pg_catalog"},
-			{ColumnName: "name", DataType: "character varying", UdtName: "varchar", IsNullable: "YES", CharacterMaximumLength: "255", OrdinalPosition: "2", Namespace: "pg_catalog"},
-		}
-		rows := [][]string{{"1", "John"}, {"2", PG_NULL_STRING}}
 		loadedRows := false
 		loadRows := func() [][]string {
 			if loadedRows {
 				return [][]string{}
 			}
 			loadedRows = true
-			return rows
+			return TEST_STORAGE_ROWS
 		}
 
-		parquetFile, err := storage.CreateParquet(tempDir, pgSchemaColumns, loadRows)
+		parquetFile, err := storage.CreateParquet(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -152,26 +156,87 @@ func TestCreateManifestList(t *testing.T) {
 	})
 }
 
-func createTestParquetFile(storage *StorageLocal, dir string) ParquetFile {
-	pgSchemaColumns := []PgSchemaColumn{
-		{ColumnName: "id", DataType: "integer", UdtName: "int4", IsNullable: "NO", NumericPrecision: "32", OrdinalPosition: "1", Namespace: "pg_catalog"},
-		{ColumnName: "name", DataType: "character varying", UdtName: "varchar", IsNullable: "YES", CharacterMaximumLength: "255", OrdinalPosition: "2", Namespace: "pg_catalog"},
-	}
-	rows := [][]string{
-		{"1", "John"},
-		{"2", PG_NULL_STRING},
-	}
+func TestCreateMetadata(t *testing.T) {
+	t.Run("Creates a metadata file", func(t *testing.T) {
+		tempDir := os.TempDir()
+		config := loadTestConfig()
+		storage := NewLocalStorage(config)
+		parquetFile := createTestParquetFile(storage, tempDir)
+		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
+		PanicIfError(err, config)
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+		PanicIfError(err, config)
 
+		metadataFile, err := storage.CreateMetadata(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, []ManifestListFile{manifestListFile})
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if metadataFile.Version != 1 {
+			t.Errorf("Expected a version of 1, got %v", metadataFile.Version)
+		}
+		if metadataFile.Path == "" {
+			t.Errorf("Expected a non-empty path, got %v", metadataFile.Path)
+		}
+	})
+}
+
+func TestExistingManifestListFiles(t *testing.T) {
+	t.Run("Returns existing manifest list files", func(t *testing.T) {
+		tempDir := os.TempDir()
+		config := loadTestConfig()
+		storage := NewLocalStorage(config)
+		parquetFile := createTestParquetFile(storage, tempDir)
+		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
+		PanicIfError(err, config)
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+		PanicIfError(err, config)
+		_, err = storage.CreateMetadata(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, []ManifestListFile{manifestListFile})
+		PanicIfError(err, config)
+
+		existingManifestListFiles, err := storage.ExistingManifestListFiles(tempDir)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(existingManifestListFiles) != 1 {
+			t.Errorf("Expected 1 existing manifest list file, got %v", len(existingManifestListFiles))
+		}
+		if existingManifestListFiles[0].SnapshotId != manifestListFile.SnapshotId {
+			t.Errorf("Expected a snapshot ID of %v, got %v", manifestListFile.SnapshotId, existingManifestListFiles[0].SnapshotId)
+		}
+		if existingManifestListFiles[0].TimestampMs != manifestListFile.TimestampMs {
+			t.Errorf("Expected a timestamp of %v, got %v", manifestListFile.TimestampMs, existingManifestListFiles[0].TimestampMs)
+		}
+		if existingManifestListFiles[0].Path != manifestListFile.Path {
+			t.Errorf("Expected a path of %v, got %v", manifestListFile.Path, existingManifestListFiles[0].Path)
+		}
+		if existingManifestListFiles[0].Operation != manifestListFile.Operation {
+			t.Errorf("Expected an operation of %v, got %v", manifestListFile.Operation, existingManifestListFiles[0].Operation)
+		}
+		if existingManifestListFiles[0].AddedFilesSize != manifestListFile.AddedFilesSize {
+			t.Errorf("Expected an added files size of %v, got %v", manifestListFile.AddedFilesSize, existingManifestListFiles[0].AddedFilesSize)
+		}
+		if existingManifestListFiles[0].AddedDataFiles != manifestListFile.AddedDataFiles {
+			t.Errorf("Expected an added data files count of %v, got %v", manifestListFile.AddedDataFiles, existingManifestListFiles[0].AddedDataFiles)
+		}
+		if existingManifestListFiles[0].AddedRecords != manifestListFile.AddedRecords {
+			t.Errorf("Expected an added records count of %v, got %v", manifestListFile.AddedRecords, existingManifestListFiles[0].AddedRecords)
+		}
+	})
+}
+
+func createTestParquetFile(storage *StorageLocal, dir string) ParquetFile {
 	loadedRows := false
 	loadRows := func() [][]string {
 		if loadedRows {
 			return [][]string{}
 		}
 		loadedRows = true
-		return rows
+		return TEST_STORAGE_ROWS
 	}
 
-	parquetFile, err := storage.CreateParquet(dir, pgSchemaColumns, loadRows)
+	parquetFile, err := storage.CreateParquet(dir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows)
 	if err != nil {
 		panic(err)
 	}

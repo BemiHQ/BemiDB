@@ -61,18 +61,22 @@ func (storage *StorageLocal) IcebergSchemaTables() (Set[IcebergSchemaTable], err
 
 func (storage *StorageLocal) IcebergTableFields(icebergSchemaTable IcebergSchemaTable) ([]IcebergTableField, error) {
 	metadataPath := storage.IcebergMetadataFilePath(icebergSchemaTable)
-	metadataFile, err := os.Open(metadataPath)
-	if err != nil {
-		return nil, err
-	}
-	defer metadataFile.Close()
-
-	metadataContent, err := io.ReadAll(metadataFile)
+	metadataContent, err := storage.readFileContent(metadataPath)
 	if err != nil {
 		return nil, err
 	}
 
 	return storage.storageUtils.ParseIcebergTableFields(metadataContent)
+}
+
+func (storage *StorageLocal) ExistingManifestListFiles(metadataDirPath string) ([]ManifestListFile, error) {
+	metadataPath := filepath.Join(metadataDirPath, ICEBERG_METADATA_FILE_NAME)
+	metadataContent, err := storage.readFileContent(metadataPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageUtils.ParseManifestListFiles(metadataContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -189,9 +193,7 @@ func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetF
 }
 
 func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
-	version := int64(1)
-	fileName := fmt.Sprintf("v%d.metadata.json", version)
-	filePath := filepath.Join(metadataDirPath, fileName)
+	filePath := filepath.Join(metadataDirPath, ICEBERG_METADATA_FILE_NAME)
 
 	err = storage.storageUtils.WriteMetadataFile(storage.fileSystemPrefix(), filePath, pgSchemaColumns, manifestListFilesSortedAsc)
 	if err != nil {
@@ -199,7 +201,7 @@ func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColu
 	}
 	LogDebug(storage.config, "Metadata file created at:", filePath)
 
-	return MetadataFile{Version: version, Path: filePath}, nil
+	return MetadataFile{Version: 1, Path: filePath}, nil
 }
 
 func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error) {
@@ -217,20 +219,13 @@ func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataF
 // Read (internal) -----------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
-	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
-
-	file, err := os.Open(filePath)
-	if err != nil {
-		return InternalTableMetadata{}, err
-	}
-	defer file.Close()
-
-	fileContent, err := io.ReadAll(file)
+	internalMetadataPath := storage.internalTableMetadataFilePath(pgSchemaTable)
+	internalMetadataContent, err := storage.readFileContent(internalMetadataPath)
 	if err != nil {
 		return InternalTableMetadata{}, err
 	}
 
-	return storage.storageUtils.ParseInternalTableMetadata(fileContent)
+	return storage.storageUtils.ParseInternalTableMetadata(internalMetadataContent)
 }
 
 // Write (internal) ----------------------------------------------------------------------------------------------------
@@ -248,6 +243,16 @@ func (storage *StorageLocal) WriteInternalTableMetadata(pgSchemaTable PgSchemaTa
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) readFileContent(filePath string) ([]byte, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	return io.ReadAll(file)
+}
 
 func (storage *StorageLocal) internalTableMetadataFilePath(pgSchemaTable PgSchemaTable) string {
 	return filepath.Join(storage.tablePath(pgSchemaTable.ToIcebergSchemaTable()), "metadata", INTERNAL_METADATA_FILE_NAME)

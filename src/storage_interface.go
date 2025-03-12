@@ -77,6 +77,8 @@ type StorageInterface interface {
 	IcebergSchemaTables() (icebersSchemaTables Set[IcebergSchemaTable], err error)
 	IcebergMetadataFilePath(icebergSchemaTable IcebergSchemaTable) (path string)
 	IcebergTableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error)
+	// ExistingManifestFiles(metadataDirPath string) (manifestFilesSortedDesc []ManifestFile, err error)
+	ExistingManifestListFiles(metadataDirPath string) (manifestListFilesSortedAsc []ManifestListFile, err error)
 
 	// Write
 	DeleteSchema(schema string) (err error)

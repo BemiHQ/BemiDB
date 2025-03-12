@@ -39,6 +39,20 @@ type MetadataJson struct {
 	} `json:"schemas"`
 }
 
+type ManifestListsJson struct {
+	Snapshots []struct {
+		SnapshotId  int64  `json:"snapshot-id"`
+		TimestampMs int64  `json:"timestamp-ms"`
+		Path        string `json:"manifest-list"`
+		Summary     struct {
+			Operation      string `json:"operation"`
+			AddedFilesSize string `json:"added-files-size"`
+			AddedDataFiles string `json:"added-data-files"`
+			AddedRecords   string `json:"added-records"`
+		} `json:"summary"`
+	} `json:"snapshots"`
+}
+
 type StorageUtils struct {
 	config *Config
 }
@@ -76,33 +90,51 @@ func (storage *StorageUtils) ParseIcebergTableFields(metadataContent []byte) ([]
 	return icebergTableFields, nil
 }
 
-func (storage *StorageUtils) ParseInternalTableMetadata(metadataContent []byte) (InternalTableMetadata, error) {
+func (storage *StorageUtils) ParseInternalTableMetadata(internalMetadataContent []byte) (InternalTableMetadata, error) {
 	var internalTableMetadata InternalTableMetadata
-	err := json.Unmarshal(metadataContent, &internalTableMetadata)
+	err := json.Unmarshal(internalMetadataContent, &internalTableMetadata)
 	if err != nil {
 		return InternalTableMetadata{}, err
 	}
 	return internalTableMetadata, nil
 }
 
-func (storage *StorageUtils) ParseManifestFiles(metadataContent []byte) ([]ManifestFile, error) {
-	metadataJson := make(map[string]interface{})
-	err := json.Unmarshal(metadataContent, &metadataJson)
+func (storage *StorageUtils) ParseManifestListFiles(metadataContent []byte) ([]ManifestListFile, error) {
+	var manifestListsJson ManifestListsJson
+	err := json.Unmarshal(metadataContent, &manifestListsJson)
 	if err != nil {
 		return nil, err
 	}
 
-	manifestFiles := []ManifestFile{}
-	for _, snapshot := range metadataJson["snapshots"].([]map[string]interface{}) {
-		manifestFile := ManifestFile{
-			Path:       snapshot["manifest-list"].(string),
-			SnapshotId: snapshot["snapshot-id"].(int64),
+	manifestListFiles := []ManifestListFile{}
+	for _, snapshot := range manifestListsJson.Snapshots {
+		addedFilesSize, err := StringToInt64(snapshot.Summary.AddedFilesSize)
+		if err != nil {
+			return nil, err
+		}
+		addedDataFiles, err := StringToInt64(snapshot.Summary.AddedDataFiles)
+		if err != nil {
+			return nil, err
+		}
+		addedRecords, err := StringToInt64(snapshot.Summary.AddedRecords)
+		if err != nil {
+			return nil, err
 		}
 
-		manifestFiles = append(manifestFiles, manifestFile)
+		manifestListFile := ManifestListFile{
+			SnapshotId:     snapshot.SnapshotId,
+			TimestampMs:    snapshot.TimestampMs,
+			Path:           snapshot.Path,
+			Operation:      snapshot.Summary.Operation,
+			AddedFilesSize: addedFilesSize,
+			AddedDataFiles: addedDataFiles,
+			AddedRecords:   addedRecords,
+		}
+
+		manifestListFiles = append(manifestListFiles, manifestListFile)
 	}
 
-	return manifestFiles, nil
+	return manifestListFiles, nil
 }
 
 func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
