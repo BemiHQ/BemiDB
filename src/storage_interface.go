@@ -24,9 +24,26 @@ type ParquetFile struct {
 }
 
 type ManifestFile struct {
-	SnapshotId int64
-	Path       string
-	Size       int64
+	SnapshotId       int64
+	ParentSnapshotId int64
+	SequenceNumber   int64
+	TimestampMs      int64
+	Path             string
+	Size             int64
+	ManifestSummary  ManifestSummary
+}
+
+type ManifestSummary struct {
+	Operation            string
+	AddedFilesSize       int64
+	AddedDataFiles       int64
+	AddedRecords         int64
+	TotalDataFiles       int64
+	TotalDeleteFiles     int64
+	TotalRecords         int64
+	TotalFilesSize       int64
+	TotalPositionDeletes int64
+	TotalEqualityDeletes int64
 }
 
 type ManifestListFile struct {
@@ -77,8 +94,8 @@ type StorageInterface interface {
 	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (parquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
-	CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFile ManifestFile) (manifestListFile ManifestListFile, err error)
-	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, parquetFile ParquetFile, manifestFile ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error)
+	CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error)
+	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestFilesSortedDesc []ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error)
 	CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error)
 
 	// Read (internal)

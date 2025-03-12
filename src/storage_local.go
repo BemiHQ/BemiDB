@@ -23,7 +23,7 @@ func NewLocalStorage(config *Config) *StorageLocal {
 
 func (storage *StorageLocal) IcebergMetadataFilePath(icebergSchemaTable IcebergSchemaTable) string {
 	tablePath := storage.tablePath(icebergSchemaTable, true)
-	return filepath.Join(tablePath, "metadata", "v1.metadata.json")
+	return filepath.Join(tablePath, "metadata", ICEBERG_METADATA_FILE_NAME)
 }
 
 func (storage *StorageLocal) IcebergSchemas() (icebergSchemas []string, err error) {
@@ -175,11 +175,11 @@ func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile 
 	return manifestFile, nil
 }
 
-func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFile ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFile.SnapshotId, parquetFile.Uuid)
+func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFiles []ManifestFile) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFiles[0].SnapshotId, parquetFile.Uuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, parquetFile, manifestFile)
+	err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestFiles)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
@@ -188,12 +188,12 @@ func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetF
 	return ManifestListFile{Path: filePath}, nil
 }
 
-func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, parquetFile ParquetFile, manifestFile ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error) {
+func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestFiles []ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error) {
 	version := int64(1)
 	fileName := fmt.Sprintf("v%d.metadata.json", version)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	err = storage.storageUtils.WriteMetadataFile(storage.fileSystemPrefix(), filePath, pgSchemaColumns, parquetFile, manifestFile, manifestListFile)
+	err = storage.storageUtils.WriteMetadataFile(storage.fileSystemPrefix(), filePath, pgSchemaColumns, manifestFiles, manifestListFile)
 	if err != nil {
 		return MetadataFile{}, err
 	}
