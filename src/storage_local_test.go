@@ -80,3 +80,63 @@ func TestCreateParquet(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateManifest(t *testing.T) {
+	t.Run("Creates a manifest file", func(t *testing.T) {
+		tempDir := os.TempDir()
+		config := loadTestConfig()
+		storage := NewLocalStorage(config)
+		parquetFile := createTestParquetFile(storage, tempDir)
+
+		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if manifestFile.Status != 1 {
+			t.Errorf("Expected a status of 1, got %v", manifestFile.Status)
+		}
+		if manifestFile.SnapshotId == 0 {
+			t.Errorf("Expected a non-zero snapshot ID, got %v", manifestFile.SnapshotId)
+		}
+		if manifestFile.Path == "" {
+			t.Errorf("Expected a non-empty path, got %v", manifestFile.Path)
+		}
+		if manifestFile.Size == 0 {
+			t.Errorf("Expected a non-zero size, got %v", manifestFile.Size)
+		}
+		if manifestFile.RecordCount != parquetFile.RecordCount {
+			t.Errorf("Expected a record count of %v, got %v", parquetFile.RecordCount, manifestFile.RecordCount)
+		}
+		if manifestFile.DataFileSize != parquetFile.Size {
+			t.Errorf("Expected a data file size of %v, got %v", parquetFile.Size, manifestFile.DataFileSize)
+		}
+	})
+}
+
+func createTestParquetFile(storage *StorageLocal, dir string) ParquetFile {
+	pgSchemaColumns := []PgSchemaColumn{
+		{ColumnName: "id", DataType: "integer", UdtName: "int4", IsNullable: "NO", NumericPrecision: "32", OrdinalPosition: "1", Namespace: "pg_catalog"},
+		{ColumnName: "name", DataType: "character varying", UdtName: "varchar", IsNullable: "YES", CharacterMaximumLength: "255", OrdinalPosition: "2", Namespace: "pg_catalog"},
+	}
+	rows := [][]string{
+		{"1", "John"},
+		{"2", PG_NULL_STRING},
+	}
+
+	loadedRows := false
+	loadRows := func() [][]string {
+		if loadedRows {
+			return [][]string{}
+		}
+		loadedRows = true
+		return rows
+	}
+
+	parquetFile, err := storage.CreateParquet(dir, pgSchemaColumns, loadRows)
+	if err != nil {
+		panic(err)
+	}
+
+	return parquetFile
+}
