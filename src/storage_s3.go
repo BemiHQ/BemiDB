@@ -211,8 +211,8 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	return manifestFile, nil
 }
 
-func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFiles []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFiles[0].SnapshotId, parquetFile.Uuid)
+func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFile.Uuid)
 	filePath := metadataDirPath + "/" + fileName
 
 	tempFile, err := CreateTemporaryFile("manifest")
@@ -221,7 +221,7 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestFiles)
+	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestFilesSortedDesc)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
@@ -232,10 +232,10 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	}
 	LogDebug(storage.config, "Manifest list file created at:", filePath)
 
-	return ManifestListFile{Path: filePath}, nil
+	return manifestListFile, nil
 }
 
-func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestFiles []ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error) {
+func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
 	version := int64(1)
 	fileName := fmt.Sprintf("v%d.metadata.json", version)
 	filePath := metadataDirPath + "/" + fileName
@@ -246,7 +246,7 @@ func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	err = storage.storageUtils.WriteMetadataFile(storage.fullBucketPath(), tempFile.Name(), pgSchemaColumns, manifestFiles, manifestListFile)
+	err = storage.storageUtils.WriteMetadataFile(storage.fullBucketPath(), tempFile.Name(), pgSchemaColumns, manifestListFilesSortedAsc)
 	if err != nil {
 		return MetadataFile{}, err
 	}

@@ -54,7 +54,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 	totalRowCount := 0
 
 	// Write to Iceberg in a separate goroutine in parallel
-	LogInfo(syncer.config, "Writing to Iceberg:", pgSchemaTable.String()+"...")
+	LogInfo(syncer.config, "Writing to Iceberg...")
 	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
@@ -87,7 +87,6 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 
 	close(stopPingChannel) // Stop the pingPg goroutine
 	waitGroup.Wait()       // Wait for the Read goroutine to finish
-	LogInfo(syncer.config, "Finished writing to Iceberg:", pgSchemaTable.String())
 }
 
 func (syncer *SyncerFullRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
@@ -144,14 +143,14 @@ func (syncer *SyncerFullRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTa
 }
 
 func (syncer *SyncerFullRefresh) copyFromPgTable(pgSchemaTable PgSchemaTable, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
-	LogInfo(syncer.config, "Reading from PG:", pgSchemaTable.String()+"...")
+	LogInfo(syncer.config, "Reading from Postgres:", pgSchemaTable.String()+"...")
 	result, err := copyConn.PgConn().CopyTo(
 		context.Background(),
 		cappedBuffer,
 		"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
 	)
 	PanicIfError(err, syncer.config)
-	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)")
+	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)...")
 
 	cappedBuffer.Close()
 	waitGroup.Done()

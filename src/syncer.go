@@ -85,7 +85,10 @@ func (syncer *Syncer) SyncFromPostgres() {
 					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, rowCountPerBatch, structureConn, copyConn)
 				}
 
+				LogDebug(syncer.config, "Writing internal metadata to Iceberg...")
 				syncer.writeInternalMetadata(pgSchemaTable, structureConn)
+
+				LogInfo(syncer.config, "Finished writing to Iceberg\n")
 				syncedPgSchemaTables = append(syncedPgSchemaTables, pgSchemaTable)
 			}
 		}

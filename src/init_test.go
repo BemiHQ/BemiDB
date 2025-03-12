@@ -12,12 +12,14 @@ var PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 		UdtName:          "int4",
 		IsNullable:       "NO",
 		NumericPrecision: "32",
+		Namespace:        "pg_catalog",
 	},
 	{
 		ColumnName:             "bit_column",
 		DataType:               "bit",
 		UdtName:                "bit",
 		CharacterMaximumLength: "1",
+		Namespace:              "pg_catalog",
 	},
 	{
 		ColumnName: "bool_column",

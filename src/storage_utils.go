@@ -294,8 +294,10 @@ func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath
 		"sort_order_id": nil,
 	}
 
+	status := 1 // 0: EXISTING 1: ADDED 2: DELETED
+
 	manifestEntry := map[string]interface{}{
-		"status":               1, // 0: EXISTING 1: ADDED 2: DELETED
+		"status":               status,
 		"snapshot_id":          map[string]interface{}{"long": snapshotId},
 		"sequence_number":      nil,
 		"file_sequence_number": nil,
@@ -329,50 +331,40 @@ func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath
 	fileSize := fileInfo.Size()
 
 	return ManifestFile{
-		SnapshotId:       snapshotId,
-		SequenceNumber:   1,
-		ParentSnapshotId: 0,
-		Path:             filePath,
-		Size:             fileSize,
-		TimestampMs:      time.Now().UnixNano() / int64(time.Millisecond),
-		ManifestSummary: ManifestSummary{
-			Operation:            "append",
-			AddedFilesSize:       parquetFile.Size,
-			AddedDataFiles:       1,
-			AddedRecords:         parquetFile.RecordCount,
-			TotalDataFiles:       1,
-			TotalDeleteFiles:     0,
-			TotalRecords:         parquetFile.RecordCount,
-			TotalFilesSize:       parquetFile.Size,
-			TotalPositionDeletes: 0,
-			TotalEqualityDeletes: 0,
-		},
+		Status:       status,
+		SnapshotId:   snapshotId,
+		Path:         filePath,
+		Size:         fileSize,
+		RecordCount:  parquetFile.RecordCount,
+		DataFileSize: parquetFile.Size,
 	}, nil
 }
 
-func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, filePath string, manifestFilesSortedDesc []ManifestFile) (err error) {
+func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, filePath string, manifestFilesSortedDesc []ManifestFile) (ManifestListFile, error) {
 	codec, err := goavro.NewCodec(MANIFEST_LIST_SCHEMA)
 	if err != nil {
-		return fmt.Errorf("failed to create Avro codec for manifest list: %v", err)
+		return ManifestListFile{}, fmt.Errorf("failed to create Avro codec for manifest list: %v", err)
 	}
 
 	var manifestListRecords []interface{}
 
-	for _, manifestFile := range manifestFilesSortedDesc {
+	for i, manifestFile := range manifestFilesSortedDesc {
+		sequenceNumber := len(manifestFilesSortedDesc) - i
+
 		manifestListRecord := map[string]interface{}{
-			"added_files_count":    manifestFile.ManifestSummary.AddedDataFiles,
-			"added_rows_count":     manifestFile.ManifestSummary.AddedRecords,
+			"added_files_count":    1,
+			"added_rows_count":     manifestFile.RecordCount,
 			"added_snapshot_id":    manifestFile.SnapshotId,
-			"content":              0,
-			"deleted_files_count":  manifestFile.ManifestSummary.TotalDeleteFiles,
-			"deleted_rows_count":   0,
-			"existing_files_count": manifestFile.ManifestSummary.TotalDataFiles - manifestFile.ManifestSummary.AddedDataFiles,
-			"existing_rows_count":  manifestFile.ManifestSummary.TotalRecords - manifestFile.ManifestSummary.AddedRecords,
-			"key_metadata":         nil,
 			"manifest_length":      manifestFile.Size,
 			"manifest_path":        fileSystemPrefix + manifestFile.Path,
-			"min_sequence_number":  manifestFile.SequenceNumber,
-			"sequence_number":      manifestFile.SequenceNumber,
+			"min_sequence_number":  sequenceNumber,
+			"sequence_number":      sequenceNumber,
+			"content":              0,
+			"deleted_files_count":  0,
+			"deleted_rows_count":   0,
+			"existing_files_count": 0,
+			"existing_rows_count":  0,
+			"key_metadata":         nil,
 			"partition_spec_id":    0,
 			"partitions":           map[string]interface{}{"array": []string{}},
 		}
@@ -381,7 +373,7 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 
 	avroFile, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create manifest list file: %v", err)
+		return ManifestListFile{}, fmt.Errorf("failed to create manifest list file: %v", err)
 	}
 	defer avroFile.Close()
 
@@ -391,18 +383,28 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 		Schema: MANIFEST_LIST_SCHEMA,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create OCF writer for manifest list: %v", err)
+		return ManifestListFile{}, fmt.Errorf("failed to create OCF writer for manifest list: %v", err)
 	}
 
 	err = ocfWriter.Append(manifestListRecords)
 	if err != nil {
-		return fmt.Errorf("failed to write manifest list record: %v", err)
+		return ManifestListFile{}, fmt.Errorf("failed to write manifest list record: %v", err)
 	}
 
-	return nil
+	lastManifestFile := manifestFilesSortedDesc[0]
+	manifestListFile := ManifestListFile{
+		SnapshotId:     lastManifestFile.SnapshotId,
+		TimestampMs:    time.Now().UnixNano() / int64(time.Millisecond),
+		Path:           filePath,
+		Operation:      "append",
+		AddedFilesSize: lastManifestFile.DataFileSize,
+		AddedDataFiles: 1,
+		AddedRecords:   lastManifestFile.RecordCount,
+	}
+	return manifestListFile, nil
 }
 
-func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath string, pgSchemaColumns []PgSchemaColumn, manifestFilesSortedDesc []ManifestFile, manifestListFile ManifestListFile) (err error) {
+func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (err error) {
 	tableUuid := uuid.New().String()
 	lastColumnID := 3
 
@@ -411,42 +413,53 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 		icebergSchemaFields[i] = pgSchemaColumn.ToIcebergSchemaFieldMap()
 	}
 
-	snapshots := make([]interface{}, len(manifestFilesSortedDesc))
-	snapshotLog := make([]interface{}, len(manifestFilesSortedDesc))
+	snapshots := make([]map[string]interface{}, len(manifestListFilesSortedAsc))
+	snapshotLog := make([]map[string]interface{}, len(manifestListFilesSortedAsc))
 
-	for i, manifestFile := range manifestFilesSortedDesc {
+	totalDataFiles := int64(0)
+	totalFilesSize := int64(0)
+	totalRecords := int64(0)
+
+	for i, manifestListFile := range manifestListFilesSortedAsc {
+		sequenceNumber := len(manifestListFilesSortedAsc) - i
+
+		totalDataFiles += manifestListFile.AddedDataFiles
+		totalFilesSize += manifestListFile.AddedFilesSize
+		totalRecords += manifestListFile.AddedRecords
+
 		snapshots[i] = map[string]interface{}{
 			"schema-id":       0,
-			"snapshot-id":     manifestFile.SnapshotId,
-			"sequence-number": manifestFile.SequenceNumber,
-			"timestamp-ms":    manifestFile.TimestampMs,
+			"snapshot-id":     manifestListFile.SnapshotId,
+			"sequence-number": sequenceNumber,
+			"timestamp-ms":    manifestListFile.TimestampMs,
 			"manifest-list":   fileSystemPrefix + manifestListFile.Path,
 			"summary": map[string]interface{}{
-				"added-data-files":       Int64ToString(manifestFile.ManifestSummary.AddedDataFiles),
-				"added-files-size":       Int64ToString(manifestFile.ManifestSummary.AddedFilesSize),
-				"added-records":          Int64ToString(manifestFile.ManifestSummary.AddedRecords),
-				"operation":              manifestFile.ManifestSummary.Operation,
-				"total-data-files":       Int64ToString(manifestFile.ManifestSummary.TotalDataFiles),
-				"total-delete-files":     Int64ToString(manifestFile.ManifestSummary.TotalDeleteFiles),
-				"total-equality-deletes": Int64ToString(manifestFile.ManifestSummary.TotalEqualityDeletes),
-				"total-files-size":       Int64ToString(manifestFile.ManifestSummary.TotalFilesSize),
-				"total-position-deletes": Int64ToString(manifestFile.ManifestSummary.TotalPositionDeletes),
-				"total-records":          Int64ToString(manifestFile.ManifestSummary.TotalRecords),
+				"added-data-files":       Int64ToString(manifestListFile.AddedDataFiles),
+				"added-files-size":       Int64ToString(manifestListFile.AddedFilesSize),
+				"added-records":          Int64ToString(manifestListFile.AddedRecords),
+				"operation":              manifestListFile.Operation,
+				"total-data-files":       Int64ToString(totalDataFiles),
+				"total-files-size":       Int64ToString(totalFilesSize),
+				"total-records":          Int64ToString(totalRecords),
+				"total-delete-files":     "0",
+				"total-equality-deletes": "0",
+				"total-position-deletes": "0",
 			},
 		}
 
 		snapshotLog[i] = map[string]interface{}{
-			"snapshot-id":  manifestFile.SnapshotId,
-			"timestamp-ms": manifestFile.TimestampMs,
+			"snapshot-id":  manifestListFile.SnapshotId,
+			"timestamp-ms": manifestListFile.TimestampMs,
 		}
 	}
 
+	lastManifestListFile := manifestListFilesSortedAsc[len(manifestListFilesSortedAsc)-1]
 	metadata := map[string]interface{}{
 		"format-version":       2,
 		"table-uuid":           tableUuid,
 		"location":             fileSystemPrefix + filePath,
 		"last-sequence-number": 1,
-		"last-updated-ms":      manifestFilesSortedDesc[0].TimestampMs,
+		"last-updated-ms":      lastManifestListFile.TimestampMs,
 		"last-column-id":       lastColumnID,
 		"schemas": []interface{}{
 			map[string]interface{}{
@@ -467,10 +480,10 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 		"default-sort-order-id": 0,
 		"last-partition-id":     999, // Assuming no partitions; set to a placeholder
 		"properties":            map[string]string{},
-		"current-snapshot-id":   manifestFilesSortedDesc[0].SnapshotId,
+		"current-snapshot-id":   lastManifestListFile.SnapshotId,
 		"refs": map[string]interface{}{
 			"main": map[string]interface{}{
-				"snapshot-id": manifestFilesSortedDesc[0].SnapshotId,
+				"snapshot-id": lastManifestListFile.SnapshotId,
 				"type":        "branch",
 			},
 		},

@@ -344,7 +344,8 @@ func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSche
 	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile, manifestFiles)
 	PanicIfError(err, icebergWriter.config)
 
-	metadataFile, err := icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, manifestFiles, manifestListFile)
+	manifestListFiles := []ManifestListFile{manifestListFile}
+	metadataFile, err := icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, manifestListFiles)
 	PanicIfError(err, icebergWriter.config)
 
 	err = icebergWriter.storage.CreateVersionHint(metadataDirPath, metadataFile)

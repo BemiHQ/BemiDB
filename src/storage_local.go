@@ -175,25 +175,25 @@ func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile 
 	return manifestFile, nil
 }
 
-func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFiles []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFiles[0].SnapshotId, parquetFile.Uuid)
+func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFile.Uuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestFiles)
+	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestFilesSortedDesc)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
 	LogDebug(storage.config, "Manifest list file created at:", filePath)
 
-	return ManifestListFile{Path: filePath}, nil
+	return manifestListFile, nil
 }
 
-func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestFiles []ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error) {
+func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
 	version := int64(1)
 	fileName := fmt.Sprintf("v%d.metadata.json", version)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	err = storage.storageUtils.WriteMetadataFile(storage.fileSystemPrefix(), filePath, pgSchemaColumns, manifestFiles, manifestListFile)
+	err = storage.storageUtils.WriteMetadataFile(storage.fileSystemPrefix(), filePath, pgSchemaColumns, manifestListFilesSortedAsc)
 	if err != nil {
 		return MetadataFile{}, err
 	}

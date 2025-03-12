@@ -66,6 +66,10 @@ func StringToInt(s string) (int, error) {
 	return strconv.Atoi(s)
 }
 
+func StringToInt64(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
+}
+
 func StringToScramSha256(password string) string {
 	saltLength := 16
 	digestLength := 32
