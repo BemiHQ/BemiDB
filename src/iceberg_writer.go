@@ -2,7 +2,7 @@ package main
 
 type IcebergWriter struct {
 	config  *Config
-	storage Storage
+	storage StorageInterface
 }
 
 func NewIcebergWriter(config *Config) *IcebergWriter {
@@ -340,10 +340,45 @@ func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSche
 	manifestFile, err := icebergWriter.storage.CreateManifest(metadataDirPath, parquetFile)
 	PanicIfError(err, icebergWriter.config)
 
-	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile, manifestFile)
+	manifestFiles := []ManifestFile{manifestFile}
+	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile.Uuid, manifestFiles)
 	PanicIfError(err, icebergWriter.config)
 
-	metadataFile, err := icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, parquetFile, manifestFile, manifestListFile)
+	manifestListFiles := []ManifestListFile{manifestListFile}
+	metadataFile, err := icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, manifestListFiles)
+	PanicIfError(err, icebergWriter.config)
+
+	err = icebergWriter.storage.CreateVersionHint(metadataDirPath, metadataFile)
+	PanicIfError(err, icebergWriter.config)
+}
+
+func (icebergWriter *IcebergWriter) Append(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) {
+	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
+
+	parquetFile, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
+	PanicIfError(err, icebergWriter.config)
+	if parquetFile.RecordCount == 0 {
+		err = icebergWriter.storage.DeleteParquet(parquetFile)
+		PanicIfError(err, icebergWriter.config)
+		return
+	}
+
+	metadataDirPath := icebergWriter.storage.CreateMetadataDir(schemaTable)
+
+	manifestFile, err := icebergWriter.storage.CreateManifest(metadataDirPath, parquetFile)
+	PanicIfError(err, icebergWriter.config)
+
+	manifestListFilesSortedAsc, err := icebergWriter.storage.ExistingManifestListFiles(metadataDirPath)
+	PanicIfError(err, icebergWriter.config)
+	manifestFilesSortedDesc, err := icebergWriter.storage.ExistingManifestFiles(manifestListFilesSortedAsc[len(manifestListFilesSortedAsc)-1])
+	PanicIfError(err, icebergWriter.config)
+
+	manifestFilesSortedDesc = append([]ManifestFile{manifestFile}, manifestFilesSortedDesc...)
+	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile.Uuid, manifestFilesSortedDesc)
+	PanicIfError(err, icebergWriter.config)
+
+	manifestListFiles := append(manifestListFilesSortedAsc, manifestListFile)
+	metadataFile, err := icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, manifestListFiles)
 	PanicIfError(err, icebergWriter.config)
 
 	err = icebergWriter.storage.CreateVersionHint(metadataDirPath, metadataFile)

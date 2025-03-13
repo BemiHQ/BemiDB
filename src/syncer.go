@@ -63,13 +63,32 @@ func (syncer *Syncer) SyncFromPostgres() {
 	for _, schema := range syncer.listPgSchemas(structureConn) {
 		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
-				if icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) && false {
-					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, structureConn, copyConn)
-				} else {
-					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, structureConn, copyConn)
+				syncedPreviously := icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) && false
+
+				// Read internal table metadata if it exists
+				var internalTableMetadata InternalTableMetadata
+				var err error
+				if syncedPreviously {
+					internalTableMetadata, err = syncer.icebergReader.storage.InternalTableMetadata(pgSchemaTable)
+					PanicIfError(err, syncer.config)
+					LogDebug(syncer.config, "Read internal table metadata to sync incrementally:", internalTableMetadata.String())
 				}
 
+				// Identify the batch size dynamically based on the table stats
+				rowCountPerBatch := syncer.calculateRowCountPerBatch(pgSchemaTable, structureConn)
+				LogDebug(syncer.config, "Row count per batch:", rowCountPerBatch)
+
+				// Sync the table
+				if internalTableMetadata.XminMax != nil && internalTableMetadata.XminMin != nil {
+					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, internalTableMetadata, rowCountPerBatch, structureConn, copyConn)
+				} else {
+					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, rowCountPerBatch, structureConn, copyConn)
+				}
+
+				LogDebug(syncer.config, "Writing internal metadata to Iceberg...")
 				syncer.writeInternalMetadata(pgSchemaTable, structureConn)
+
+				LogInfo(syncer.config, "Finished writing to Iceberg\n")
 				syncedPgSchemaTables = append(syncedPgSchemaTables, pgSchemaTable)
 			}
 		}
@@ -185,6 +204,41 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 	return pgSchemaTables
 }
 
+func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, conn *pgx.Conn) int {
+	var tableSize int64
+	var rowCount int64
+
+	err := conn.QueryRow(
+		context.Background(),
+		`
+		SELECT
+			pg_total_relation_size(c.oid) AS table_size,
+			CASE
+				WHEN c.reltuples >= 0 THEN c.reltuples::bigint
+				ELSE (SELECT count(*) FROM `+pgSchemaTable.String()+`)
+			END AS row_count
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
+		pgSchemaTable.Schema,
+		pgSchemaTable.Table,
+	).Scan(&tableSize, &rowCount)
+	PanicIfError(err, syncer.config)
+	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount)
+
+	if tableSize == 0 || rowCount == 0 {
+		return 1
+	}
+
+	rowSize := tableSize / rowCount
+	rowCountPerBatch := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
+	if rowCountPerBatch == 0 {
+		return 1
+	}
+
+	return rowCountPerBatch
+}
+
 func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pgx.Conn {
 	conn, err := pgx.Connect(ctx, databaseUrl)
 	PanicIfError(err, syncer.config)
@@ -242,23 +296,31 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 }
 
 func (syncer *Syncer) writeInternalMetadata(pgSchemaTable PgSchemaTable, conn *pgx.Conn) {
-	var xmin uint32
+	var xminMax *uint32
+	var xminMin *uint32
 
 	err := conn.QueryRow(
 		context.Background(),
 		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) ASC LIMIT 1",
-	).Scan(&xmin)
-
-	if err != nil && errors.Is(err, pgx.ErrNoRows) {
-		return
+	).Scan(&xminMax)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		PanicIfError(err, syncer.config)
 	}
 
-	PanicIfError(err, syncer.config)
+	err = conn.QueryRow(
+		context.Background(),
+		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) DESC LIMIT 1",
+	).Scan(&xminMin)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		PanicIfError(err, syncer.config)
+	}
 
-	err = syncer.icebergWriter.storage.WriteInternalTableMetadata(pgSchemaTable, InternalTableMetadata{
+	metadata := InternalTableMetadata{
 		LastSyncedAt: time.Now().Unix(),
-		Xmin:         xmin,
-	})
+		XminMax:      xminMax,
+		XminMin:      xminMin,
+	}
+	err = syncer.icebergWriter.storage.WriteInternalTableMetadata(pgSchemaTable, metadata)
 	PanicIfError(err, syncer.config)
 }
 

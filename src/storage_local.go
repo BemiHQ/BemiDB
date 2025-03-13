@@ -11,18 +11,19 @@ import (
 )
 
 type StorageLocal struct {
-	config      *Config
-	storageBase *StorageBase
+	config       *Config
+	storageUtils *StorageUtils
 }
 
 func NewLocalStorage(config *Config) *StorageLocal {
-	return &StorageLocal{config: config, storageBase: &StorageBase{config: config}}
+	return &StorageLocal{config: config, storageUtils: &StorageUtils{config: config}}
 }
 
 // Read ----------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) IcebergMetadataFilePath(icebergSchemaTable IcebergSchemaTable) string {
-	return storage.tablePath(icebergSchemaTable, true) + "/metadata/v1.metadata.json"
+	tablePath := storage.tablePath(icebergSchemaTable, true)
+	return filepath.Join(tablePath, "metadata", ICEBERG_METADATA_FILE_NAME)
 }
 
 func (storage *StorageLocal) IcebergSchemas() (icebergSchemas []string, err error) {
@@ -60,18 +61,31 @@ func (storage *StorageLocal) IcebergSchemaTables() (Set[IcebergSchemaTable], err
 
 func (storage *StorageLocal) IcebergTableFields(icebergSchemaTable IcebergSchemaTable) ([]IcebergTableField, error) {
 	metadataPath := storage.IcebergMetadataFilePath(icebergSchemaTable)
-	metadataFile, err := os.Open(metadataPath)
-	if err != nil {
-		return nil, err
-	}
-	defer metadataFile.Close()
-
-	metadataContent, err := io.ReadAll(metadataFile)
+	metadataContent, err := storage.readFileContent(metadataPath)
 	if err != nil {
 		return nil, err
 	}
 
-	return storage.storageBase.ParseIcebergTableFields(metadataContent)
+	return storage.storageUtils.ParseIcebergTableFields(metadataContent)
+}
+
+func (storage *StorageLocal) ExistingManifestListFiles(metadataDirPath string) ([]ManifestListFile, error) {
+	metadataPath := filepath.Join(metadataDirPath, ICEBERG_METADATA_FILE_NAME)
+	metadataContent, err := storage.readFileContent(metadataPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageUtils.ParseManifestListFiles(metadataContent)
+}
+
+func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
+	manifestListContent, err := storage.readFileContent(manifestListFile.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageUtils.ParseManifestFiles(manifestListContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -126,7 +140,7 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, err := storage.storageBase.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows)
+	recordCount, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -142,7 +156,7 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 	if err != nil {
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
 	}
-	parquetStats, err := storage.storageBase.ReadParquetStats(fileReader)
+	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -156,11 +170,16 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 	}, nil
 }
 
+func (storage *StorageLocal) DeleteParquet(parquetFile ParquetFile) error {
+	err := os.Remove(parquetFile.Path)
+	return err
+}
+
 func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
 	fileName := fmt.Sprintf("%s-m0.avro", parquetFile.Uuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	manifestFile, err = storage.storageBase.WriteManifestFile(storage.fileSystemPrefix(), filePath, parquetFile)
+	manifestFile, err = storage.storageUtils.WriteManifestFile(storage.fileSystemPrefix(), filePath, parquetFile)
 	if err != nil {
 		return ManifestFile{}, err
 	}
@@ -169,37 +188,35 @@ func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile 
 	return manifestFile, nil
 }
 
-func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFile ParquetFile, manifestFile ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFile.SnapshotId, parquetFile.Uuid)
+func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	err = storage.storageBase.WriteManifestListFile(storage.fileSystemPrefix(), filePath, parquetFile, manifestFile)
+	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestFilesSortedDesc)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
 	LogDebug(storage.config, "Manifest list file created at:", filePath)
 
-	return ManifestListFile{Path: filePath}, nil
+	return manifestListFile, nil
 }
 
-func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, parquetFile ParquetFile, manifestFile ManifestFile, manifestListFile ManifestListFile) (metadataFile MetadataFile, err error) {
-	version := int64(1)
-	fileName := fmt.Sprintf("v%d.metadata.json", version)
-	filePath := filepath.Join(metadataDirPath, fileName)
+func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
+	filePath := filepath.Join(metadataDirPath, ICEBERG_METADATA_FILE_NAME)
 
-	err = storage.storageBase.WriteMetadataFile(storage.fileSystemPrefix(), filePath, pgSchemaColumns, parquetFile, manifestFile, manifestListFile)
+	err = storage.storageUtils.WriteMetadataFile(storage.fileSystemPrefix(), filePath, pgSchemaColumns, manifestListFilesSortedAsc)
 	if err != nil {
 		return MetadataFile{}, err
 	}
 	LogDebug(storage.config, "Metadata file created at:", filePath)
 
-	return MetadataFile{Version: version, Path: filePath}, nil
+	return MetadataFile{Version: 1, Path: filePath}, nil
 }
 
 func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error) {
 	filePath := filepath.Join(metadataDirPath, VERSION_HINT_FILE_NAME)
 
-	err = storage.storageBase.WriteVersionHintFile(filePath, metadataFile)
+	err = storage.storageUtils.WriteVersionHintFile(filePath, metadataFile)
 	if err != nil {
 		return err
 	}
@@ -208,13 +225,24 @@ func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataF
 	return nil
 }
 
+// Read (internal) -----------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
+	internalMetadataPath := storage.internalTableMetadataFilePath(pgSchemaTable)
+	internalMetadataContent, err := storage.readFileContent(internalMetadataPath)
+	if err != nil {
+		return InternalTableMetadata{}, err
+	}
+
+	return storage.storageUtils.ParseInternalTableMetadata(internalMetadataContent)
+}
+
 // Write (internal) ----------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
-	tablePath := storage.tablePath(pgSchemaTable.ToIcebergSchemaTable())
-	filePath := filepath.Join(tablePath, "metadata", INTERNAL_METADATA_FILE_NAME)
+	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
 
-	err := storage.storageBase.WriteInternalTableMetadataFile(filePath, internalTableMetadata)
+	err := storage.storageUtils.WriteInternalTableMetadataFile(filePath, internalTableMetadata)
 	if err != nil {
 		return err
 	}
@@ -224,6 +252,20 @@ func (storage *StorageLocal) WriteInternalTableMetadata(pgSchemaTable PgSchemaTa
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) readFileContent(filePath string) ([]byte, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	return io.ReadAll(file)
+}
+
+func (storage *StorageLocal) internalTableMetadataFilePath(pgSchemaTable PgSchemaTable) string {
+	return filepath.Join(storage.tablePath(pgSchemaTable.ToIcebergSchemaTable()), "metadata", INTERNAL_METADATA_FILE_NAME)
+}
 
 func (storage *StorageLocal) tablePath(schemaTable IcebergSchemaTable, readWithoutSchemaPrefix ...bool) string {
 	if len(readWithoutSchemaPrefix) > 0 && readWithoutSchemaPrefix[0] {

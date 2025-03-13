@@ -4,6 +4,10 @@ DROP SCHEMA IF EXISTS test_schema CASCADE;
 
 CREATE SCHEMA test_schema;
 
+CREATE TABLE test_schema.test_table (
+  id SERIAL PRIMARY KEY
+);
+
 CREATE TABLE test_schema.simple_table (
   id SERIAL PRIMARY KEY
 );

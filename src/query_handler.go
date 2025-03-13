@@ -8,7 +8,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -715,19 +714,19 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 		switch value := valuePtr.(type) {
 		case *sql.NullInt16:
 			if value.Valid {
-				values = append(values, []byte(strconv.Itoa(int(value.Int16))))
+				values = append(values, []byte(IntToString(int(value.Int16))))
 			} else {
 				values = append(values, nil)
 			}
 		case *sql.NullInt32:
 			if value.Valid {
-				values = append(values, []byte(strconv.Itoa(int(value.Int32))))
+				values = append(values, []byte(IntToString(int(value.Int32))))
 			} else {
 				values = append(values, nil)
 			}
 		case *sql.NullInt64:
 			if value.Valid {
-				values = append(values, []byte(strconv.Itoa(int(value.Int64))))
+				values = append(values, []byte(IntToString(int(value.Int64))))
 			} else {
 				values = append(values, nil)
 			}

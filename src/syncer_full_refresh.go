@@ -24,11 +24,7 @@ func NewSyncerFullRefresh(config *Config, icebergWriter *IcebergWriter) *SyncerF
 	}
 }
 
-func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, structureConn *pgx.Conn, copyConn *pgx.Conn) {
-	// Identify the batch size dynamically based on the table stats
-	rowCountPerBatch := syncer.calculateRowCountPerBatch(pgSchemaTable, structureConn)
-	LogDebug(syncer.config, "Row count per batch:", rowCountPerBatch)
-
+func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCountPerBatch int, structureConn *pgx.Conn, copyConn *pgx.Conn) {
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
 
@@ -58,7 +54,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, struct
 	totalRowCount := 0
 
 	// Write to Iceberg in a separate goroutine in parallel
-	LogInfo(syncer.config, "Writing to Iceberg:", pgSchemaTable.String()+"...")
+	LogInfo(syncer.config, "Writing to Iceberg...")
 	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
@@ -91,7 +87,6 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, struct
 
 	close(stopPingChannel) // Stop the pingPg goroutine
 	waitGroup.Wait()       // Wait for the Read goroutine to finish
-	LogInfo(syncer.config, "Finished writing to Iceberg:", pgSchemaTable.String())
 }
 
 func (syncer *SyncerFullRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
@@ -147,50 +142,15 @@ func (syncer *SyncerFullRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTa
 	return pgSchemaColumns
 }
 
-func (syncer *SyncerFullRefresh) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, conn *pgx.Conn) int {
-	var tableSize int64
-	var rowCount int64
-
-	err := conn.QueryRow(
-		context.Background(),
-		`
-		SELECT
-			pg_total_relation_size(c.oid) AS table_size,
-			CASE
-				WHEN c.reltuples >= 0 THEN c.reltuples::bigint
-				ELSE (SELECT count(*) FROM `+pgSchemaTable.String()+`)
-			END AS row_count
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'r'`,
-		pgSchemaTable.Schema,
-		pgSchemaTable.Table,
-	).Scan(&tableSize, &rowCount)
-	PanicIfError(err, syncer.config)
-	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount)
-
-	if tableSize == 0 || rowCount == 0 {
-		return 1
-	}
-
-	rowSize := tableSize / rowCount
-	rowCountPerBatch := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
-	if rowCountPerBatch == 0 {
-		return 1
-	}
-
-	return rowCountPerBatch
-}
-
 func (syncer *SyncerFullRefresh) copyFromPgTable(pgSchemaTable PgSchemaTable, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
-	LogInfo(syncer.config, "Reading from PG:", pgSchemaTable.String()+"...")
+	LogInfo(syncer.config, "Reading from Postgres:", pgSchemaTable.String()+"...")
 	result, err := copyConn.PgConn().CopyTo(
 		context.Background(),
 		cappedBuffer,
 		"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
 	)
 	PanicIfError(err, syncer.config)
-	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)")
+	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)...")
 
 	cappedBuffer.Close()
 	waitGroup.Done()
