@@ -268,29 +268,6 @@ func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns
 	return MetadataFile{Version: 1, Path: filePath}, nil
 }
 
-func (storage *StorageS3) CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error) {
-	filePath := metadataDirPath + "/" + VERSION_HINT_FILE_NAME
-
-	tempFile, err := CreateTemporaryFile("manifest")
-	if err != nil {
-		return err
-	}
-	defer DeleteTemporaryFile(tempFile)
-
-	err = storage.storageUtils.WriteVersionHintFile(tempFile.Name(), metadataFile)
-	if err != nil {
-		return err
-	}
-
-	err = storage.uploadFile(filePath, tempFile)
-	if err != nil {
-		return err
-	}
-	LogDebug(storage.config, "Version hint file created at:", filePath)
-
-	return nil
-}
-
 // Read (internal) -----------------------------------------------------------------------------------------------------
 
 func (storage *StorageS3) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
