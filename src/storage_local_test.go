@@ -97,9 +97,6 @@ func TestCreateManifest(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if manifestFile.Status != 1 {
-			t.Errorf("Expected a status of 1, got %v", manifestFile.Status)
-		}
 		if manifestFile.SnapshotId == 0 {
 			t.Errorf("Expected a non-zero snapshot ID, got %v", manifestFile.SnapshotId)
 		}
@@ -222,6 +219,40 @@ func TestExistingManifestListFiles(t *testing.T) {
 		}
 		if existingManifestListFiles[0].AddedRecords != manifestListFile.AddedRecords {
 			t.Errorf("Expected an added records count of %v, got %v", manifestListFile.AddedRecords, existingManifestListFiles[0].AddedRecords)
+		}
+	})
+}
+
+func TestExistingManifestFiles(t *testing.T) {
+	t.Run("Returns existing manifest files", func(t *testing.T) {
+		tempDir := os.TempDir()
+		config := loadTestConfig()
+		storage := NewLocalStorage(config)
+		parquetFile := createTestParquetFile(storage, tempDir)
+		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
+		PanicIfError(err, config)
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+		PanicIfError(err, config)
+
+		existingManifestFiles, err := storage.ExistingManifestFiles(manifestListFile)
+
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if len(existingManifestFiles) != 1 {
+			t.Errorf("Expected 1 existing manifest file, got %v", len(existingManifestFiles))
+		}
+		if existingManifestFiles[0].SnapshotId != manifestFile.SnapshotId {
+			t.Errorf("Expected a snapshot ID of %v, got %v", manifestFile.SnapshotId, existingManifestFiles[0].SnapshotId)
+		}
+		if existingManifestFiles[0].Path != manifestFile.Path {
+			t.Errorf("Expected a path of %v, got %v", manifestFile.Path, existingManifestFiles[0].Path)
+		}
+		if existingManifestFiles[0].Size != manifestFile.Size {
+			t.Errorf("Expected a size of %v, got %v", manifestFile.Size, existingManifestFiles[0].Size)
+		}
+		if existingManifestFiles[0].RecordCount != manifestFile.RecordCount {
+			t.Errorf("Expected a record count of %v, got %v", manifestFile.RecordCount, existingManifestFiles[0].RecordCount)
 		}
 	})
 }

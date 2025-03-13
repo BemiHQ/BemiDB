@@ -79,6 +79,15 @@ func (storage *StorageLocal) ExistingManifestListFiles(metadataDirPath string) (
 	return storage.storageUtils.ParseManifestListFiles(metadataContent)
 }
 
+func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
+	manifestListContent, err := storage.readFileContent(manifestListFile.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageUtils.ParseManifestFiles(manifestListContent)
+}
+
 // Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) DeleteSchema(schema string) error {

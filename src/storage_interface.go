@@ -24,7 +24,6 @@ type ParquetFile struct {
 }
 
 type ManifestFile struct {
-	Status       int
 	SnapshotId   int64
 	Path         string
 	Size         int64
@@ -77,8 +76,8 @@ type StorageInterface interface {
 	IcebergSchemaTables() (icebersSchemaTables Set[IcebergSchemaTable], err error)
 	IcebergMetadataFilePath(icebergSchemaTable IcebergSchemaTable) (path string)
 	IcebergTableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error)
-	// ExistingManifestFiles(metadataDirPath string) (manifestFilesSortedDesc []ManifestFile, err error)
 	ExistingManifestListFiles(metadataDirPath string) (manifestListFilesSortedAsc []ManifestListFile, err error)
+	ExistingManifestFiles(manifestListFile ManifestListFile) (manifestFiles []ManifestFile, err error)
 
 	// Write
 	DeleteSchema(schema string) (err error)

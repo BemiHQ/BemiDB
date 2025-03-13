@@ -112,6 +112,15 @@ func (storage *StorageS3) ExistingManifestListFiles(metadataDirPath string) ([]M
 	return storage.storageUtils.ParseManifestListFiles(metadataContent)
 }
 
+func (storage *StorageS3) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
+	manifestListContent, err := storage.readFileContent(manifestListFile.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return storage.storageUtils.ParseManifestFiles(manifestListContent)
+}
+
 // Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageS3) DeleteSchema(schema string) (err error) {

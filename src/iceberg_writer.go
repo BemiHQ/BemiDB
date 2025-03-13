@@ -370,8 +370,10 @@ func (icebergWriter *IcebergWriter) Append(schemaTable IcebergSchemaTable, pgSch
 
 	manifestListFilesSortedAsc, err := icebergWriter.storage.ExistingManifestListFiles(metadataDirPath)
 	PanicIfError(err, icebergWriter.config)
+	manifestFilesSortedDesc, err := icebergWriter.storage.ExistingManifestFiles(manifestListFilesSortedAsc[len(manifestListFilesSortedAsc)-1])
+	PanicIfError(err, icebergWriter.config)
 
-	manifestFilesSortedDesc := []ManifestFile{manifestFile}
+	manifestFilesSortedDesc = append([]ManifestFile{manifestFile}, manifestFilesSortedDesc...)
 	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile.Uuid, manifestFilesSortedDesc)
 	PanicIfError(err, icebergWriter.config)
 

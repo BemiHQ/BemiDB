@@ -106,7 +106,7 @@ func (storage *StorageUtils) ParseManifestListFiles(metadataContent []byte) ([]M
 		return nil, err
 	}
 
-	manifestListFiles := []ManifestListFile{}
+	manifestListFilesSortedAsc := []ManifestListFile{}
 	for _, snapshot := range manifestListsJson.Snapshots {
 		addedFilesSize, err := StringToInt64(snapshot.Summary.AddedFilesSize)
 		if err != nil {
@@ -131,10 +131,40 @@ func (storage *StorageUtils) ParseManifestListFiles(metadataContent []byte) ([]M
 			AddedRecords:   addedRecords,
 		}
 
-		manifestListFiles = append(manifestListFiles, manifestListFile)
+		manifestListFilesSortedAsc = append(manifestListFilesSortedAsc, manifestListFile)
 	}
 
-	return manifestListFiles, nil
+	return manifestListFilesSortedAsc, nil
+}
+
+func (storage *StorageUtils) ParseManifestFiles(manifestListContent []byte) ([]ManifestFile, error) {
+	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestListContent)))
+	if err != nil {
+		return nil, err
+	}
+
+	manifestFiles := []ManifestFile{}
+
+	for ocfReader.Scan() {
+		record, err := ocfReader.Read()
+		if err != nil {
+			return nil, err
+		}
+
+		manifestRecord := record.(map[string]interface{})
+
+		manifestFile := ManifestFile{
+			SnapshotId:  manifestRecord["added_snapshot_id"].(int64),
+			Path:        manifestRecord["manifest_path"].(string),
+			Size:        manifestRecord["manifest_length"].(int64),
+			RecordCount: manifestRecord["added_rows_count"].(int64),
+		}
+
+		manifestFiles = append(manifestFiles, manifestFile)
+
+	}
+
+	return manifestFiles, nil
 }
 
 func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
@@ -363,7 +393,6 @@ func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath
 	fileSize := fileInfo.Size()
 
 	return ManifestFile{
-		Status:       status,
 		SnapshotId:   snapshotId,
 		Path:         filePath,
 		Size:         fileSize,
@@ -453,7 +482,7 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 	totalRecords := int64(0)
 
 	for i, manifestListFile := range manifestListFilesSortedAsc {
-		sequenceNumber := len(manifestListFilesSortedAsc) - i
+		sequenceNumber := i + 1
 
 		totalDataFiles += manifestListFile.AddedDataFiles
 		totalFilesSize += manifestListFile.AddedFilesSize
