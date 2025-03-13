@@ -76,7 +76,7 @@ func (storage *StorageLocal) ExistingManifestListFiles(metadataDirPath string) (
 		return nil, err
 	}
 
-	return storage.storageUtils.ParseManifestListFiles(metadataContent)
+	return storage.storageUtils.ParseManifestListFiles(storage.fileSystemPrefix(), metadataContent)
 }
 
 func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
@@ -85,7 +85,7 @@ func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestList
 		return nil, err
 	}
 
-	return storage.storageUtils.ParseManifestFiles(manifestListContent)
+	return storage.storageUtils.ParseManifestFiles(storage.fileSystemPrefix(), manifestListContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -285,7 +285,7 @@ func (storage *StorageLocal) absoluteIcebergPath(relativePaths ...string) string
 }
 
 func (storage *StorageLocal) fileSystemPrefix() string {
-	return ""
+	return "" // DuckDB doesn't support file:// prefixes
 }
 
 func (storage *StorageLocal) nestedDirectories(path string) (dirs []string, err error) {

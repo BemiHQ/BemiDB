@@ -109,7 +109,7 @@ func (storage *StorageS3) ExistingManifestListFiles(metadataDirPath string) ([]M
 		return nil, err
 	}
 
-	return storage.storageUtils.ParseManifestListFiles(metadataContent)
+	return storage.storageUtils.ParseManifestListFiles(storage.fullBucketPath(), metadataContent)
 }
 
 func (storage *StorageS3) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
@@ -118,7 +118,7 @@ func (storage *StorageS3) ExistingManifestFiles(manifestListFile ManifestListFil
 		return nil, err
 	}
 
-	return storage.storageUtils.ParseManifestFiles(manifestListContent)
+	return storage.storageUtils.ParseManifestFiles(storage.fullBucketPath(), manifestListContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -241,6 +241,7 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	}
 	LogDebug(storage.config, "Manifest list file created at:", filePath)
 
+	manifestListFile.Path = filePath
 	return manifestListFile, nil
 }
 

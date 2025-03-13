@@ -99,7 +99,7 @@ func (storage *StorageUtils) ParseInternalTableMetadata(internalMetadataContent 
 	return internalTableMetadata, nil
 }
 
-func (storage *StorageUtils) ParseManifestListFiles(metadataContent []byte) ([]ManifestListFile, error) {
+func (storage *StorageUtils) ParseManifestListFiles(fileSystemPrefix string, metadataContent []byte) ([]ManifestListFile, error) {
 	var manifestListsJson ManifestListsJson
 	err := json.Unmarshal(metadataContent, &manifestListsJson)
 	if err != nil {
@@ -124,7 +124,7 @@ func (storage *StorageUtils) ParseManifestListFiles(metadataContent []byte) ([]M
 		manifestListFile := ManifestListFile{
 			SnapshotId:     snapshot.SnapshotId,
 			TimestampMs:    snapshot.TimestampMs,
-			Path:           snapshot.Path,
+			Path:           strings.TrimPrefix(snapshot.Path, fileSystemPrefix),
 			Operation:      snapshot.Summary.Operation,
 			AddedFilesSize: addedFilesSize,
 			AddedDataFiles: addedDataFiles,
@@ -137,7 +137,7 @@ func (storage *StorageUtils) ParseManifestListFiles(metadataContent []byte) ([]M
 	return manifestListFilesSortedAsc, nil
 }
 
-func (storage *StorageUtils) ParseManifestFiles(manifestListContent []byte) ([]ManifestFile, error) {
+func (storage *StorageUtils) ParseManifestFiles(fileSystemPrefix string, manifestListContent []byte) ([]ManifestFile, error) {
 	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestListContent)))
 	if err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (storage *StorageUtils) ParseManifestFiles(manifestListContent []byte) ([]M
 
 		manifestFile := ManifestFile{
 			SnapshotId:  manifestRecord["added_snapshot_id"].(int64),
-			Path:        manifestRecord["manifest_path"].(string),
+			Path:        strings.TrimPrefix(manifestRecord["manifest_path"].(string), fileSystemPrefix),
 			Size:        manifestRecord["manifest_length"].(int64),
 			RecordCount: manifestRecord["added_rows_count"].(int64),
 		}
@@ -324,10 +324,10 @@ func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath
 	}
 
 	dataFile := map[string]interface{}{
-		"content":     0, // 0: DATA, 1: POSITION DELETES, 2: EQUALITY DELETES
-		"file_path":   fileSystemPrefix + parquetFile.Path,
-		"file_format": "PARQUET",
-		// TODO: figure out "partition": ...
+		"content":            0, // 0: DATA, 1: POSITION DELETES, 2: EQUALITY DELETES
+		"file_path":          fileSystemPrefix + parquetFile.Path,
+		"file_format":        "PARQUET",
+		"partition":          map[string]interface{}{},
 		"record_count":       parquetFile.RecordCount,
 		"file_size_in_bytes": parquetFile.Size,
 		"column_sizes": map[string]interface{}{
@@ -488,7 +488,7 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 		totalFilesSize += manifestListFile.AddedFilesSize
 		totalRecords += manifestListFile.AddedRecords
 
-		snapshots[i] = map[string]interface{}{
+		snapshot := map[string]interface{}{
 			"schema-id":       0,
 			"snapshot-id":     manifestListFile.SnapshotId,
 			"sequence-number": sequenceNumber,
@@ -507,6 +507,10 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 				"total-position-deletes": "0",
 			},
 		}
+		if i != 0 {
+			snapshot["parent-snapshot-id"] = manifestListFilesSortedAsc[i-1].SnapshotId
+		}
+		snapshots[i] = snapshot
 
 		snapshotLog[i] = map[string]interface{}{
 			"snapshot-id":  manifestListFile.SnapshotId,
@@ -518,8 +522,9 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 	metadata := map[string]interface{}{
 		"format-version":       2,
 		"table-uuid":           tableUuid,
+		"statistics":           []interface{}{},
 		"location":             fileSystemPrefix + filePath,
-		"last-sequence-number": 1,
+		"last-sequence-number": len(manifestListFilesSortedAsc),
 		"last-updated-ms":      lastManifestListFile.TimestampMs,
 		"last-column-id":       lastColumnID,
 		"schemas": []interface{}{
