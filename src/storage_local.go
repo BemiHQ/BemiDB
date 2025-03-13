@@ -213,18 +213,6 @@ func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColu
 	return MetadataFile{Version: 1, Path: filePath}, nil
 }
 
-func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error) {
-	filePath := filepath.Join(metadataDirPath, VERSION_HINT_FILE_NAME)
-
-	err = storage.storageUtils.WriteVersionHintFile(filePath, metadataFile)
-	if err != nil {
-		return err
-	}
-	LogDebug(storage.config, "Version hint file created at:", filePath)
-
-	return nil
-}
-
 // Read (internal) -----------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
