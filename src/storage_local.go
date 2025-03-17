@@ -88,6 +88,15 @@ func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestList
 	return storage.storageUtils.ParseManifestFiles(storage.fileSystemPrefix(), manifestListContent)
 }
 
+func (storage *StorageLocal) ExistingParquetFilePath(manifestFile ManifestFile) (string, error) {
+	manifestListContent, err := storage.readFileContent(manifestFile.Path)
+	if err != nil {
+		return "", err
+	}
+
+	return storage.storageUtils.ParseParquetFilePath(storage.fileSystemPrefix(), manifestListContent)
+}
+
 // Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) DeleteSchema(schema string) error {
@@ -173,6 +182,46 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 func (storage *StorageLocal) DeleteParquet(parquetFile ParquetFile) error {
 	err := os.Remove(parquetFile.Path)
 	return err
+}
+
+func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (overwrittenParquetFile ParquetFile, err error) {
+	uuid := uuid.New().String()
+	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
+	filePath := filepath.Join(dataDirPath, fileName)
+
+	fileWriter, err := local.NewLocalFileWriter(filePath)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+	}
+
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(fileWriter, existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", filePath)
+
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to get Parquet file info: %v", err)
+	}
+	fileSize := fileInfo.Size()
+
+	fileReader, err := local.NewLocalFileReader(filePath)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+	}
+	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+
+	return ParquetFile{
+		Uuid:        uuid,
+		Path:        filePath,
+		Size:        fileSize,
+		RecordCount: recordCount,
+		Stats:       parquetStats,
+	}, nil
 }
 
 func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {

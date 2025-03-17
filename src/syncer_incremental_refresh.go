@@ -54,8 +54,8 @@ func (syncer *SyncerIncrementalRefresh) SyncPgTable(pgSchemaTable PgSchemaTable,
 	totalRowCount := 0
 
 	// Write to Iceberg in a separate goroutine in parallel
-	LogInfo(syncer.config, "Writing to Iceberg...")
-	syncer.icebergWriter.Append(schemaTable, pgSchemaColumns, func() [][]string {
+	LogInfo(syncer.config, "Writing incrementally to Iceberg...")
+	syncer.icebergWriter.WriteIncrementally(schemaTable, pgSchemaColumns, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
 		}
@@ -99,21 +99,35 @@ func (syncer *SyncerIncrementalRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgS
 	rows, err := conn.Query(
 		context.Background(),
 		`SELECT
-			column_name,
-			data_type,
-			udt_name,
-			is_nullable,
-			ordinal_position,
-			COALESCE(character_maximum_length, 0),
-			COALESCE(numeric_precision, 0),
-			COALESCE(numeric_scale, 0),
-			COALESCE(datetime_precision, 0),
-			pg_namespace.nspname
+			columns.column_name,
+			columns.data_type,
+			columns.udt_name,
+			columns.is_nullable,
+			columns.ordinal_position,
+			COALESCE(columns.character_maximum_length, 0),
+			COALESCE(columns.numeric_precision, 0),
+			COALESCE(columns.numeric_scale, 0),
+			COALESCE(columns.datetime_precision, 0),
+			pg_namespace.nspname,
+			CASE WHEN pk.constraint_name IS NOT NULL THEN true ELSE false END
 		FROM information_schema.columns
-		JOIN pg_type ON pg_type.typname = udt_name
+		JOIN pg_type ON pg_type.typname = columns.udt_name
 		JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
-		WHERE table_schema = $1 AND table_name = $2
-		ORDER BY array_position($3, column_name)`,
+		LEFT JOIN (
+			SELECT
+				tc.constraint_name,
+				kcu.column_name,
+				kcu.table_schema,
+				kcu.table_name
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.key_column_usage kcu
+				ON tc.constraint_name = kcu.constraint_name
+				AND tc.table_schema = kcu.table_schema
+				AND tc.table_name = kcu.table_name
+			WHERE tc.constraint_type = 'PRIMARY KEY'
+		) pk ON pk.column_name = columns.column_name AND pk.table_schema = columns.table_schema AND pk.table_name = columns.table_name
+		WHERE columns.table_schema = $1 AND columns.table_name = $2
+		ORDER BY array_position($3, columns.column_name)`,
 		pgSchemaTable.Schema,
 		pgSchemaTable.Table,
 		csvHeader,
@@ -134,6 +148,7 @@ func (syncer *SyncerIncrementalRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgS
 			&pgSchemaColumn.NumericScale,
 			&pgSchemaColumn.DatetimePrecision,
 			&pgSchemaColumn.Namespace,
+			&pgSchemaColumn.PartOfPrimaryKey,
 		)
 		PanicIfError(err, syncer.config)
 		pgSchemaColumns = append(pgSchemaColumns, *pgSchemaColumn)

@@ -56,6 +56,8 @@ type StorageUtils struct {
 	config *Config
 }
 
+// Read ----------------------------------------------------------------------------------------------------------------
+
 func (storage *StorageUtils) ParseIcebergTableFields(metadataContent []byte) ([]IcebergTableField, error) {
 	var metadataJson MetadataJson
 	err := json.Unmarshal(metadataContent, &metadataJson)
@@ -150,13 +152,13 @@ func (storage *StorageUtils) ParseManifestFiles(fileSystemPrefix string, manifes
 			return nil, err
 		}
 
-		manifestRecord := record.(map[string]interface{})
+		recordMap := record.(map[string]interface{})
 
 		manifestFile := ManifestFile{
-			SnapshotId:  manifestRecord["added_snapshot_id"].(int64),
-			Path:        strings.TrimPrefix(manifestRecord["manifest_path"].(string), fileSystemPrefix),
-			Size:        manifestRecord["manifest_length"].(int64),
-			RecordCount: manifestRecord["added_rows_count"].(int64),
+			SnapshotId:  recordMap["added_snapshot_id"].(int64),
+			Path:        strings.TrimPrefix(recordMap["manifest_path"].(string), fileSystemPrefix),
+			Size:        recordMap["manifest_length"].(int64),
+			RecordCount: recordMap["added_rows_count"].(int64),
 		}
 
 		manifestFiles = append(manifestFiles, manifestFile)
@@ -165,6 +167,26 @@ func (storage *StorageUtils) ParseManifestFiles(fileSystemPrefix string, manifes
 
 	return manifestFiles, nil
 }
+
+func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manifestFileContent []byte) (string, error) {
+	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestFileContent)))
+	if err != nil {
+		return "", err
+	}
+
+	ocfReader.Scan()
+	record, err := ocfReader.Read()
+	if err != nil {
+		return "", err
+	}
+
+	recordMap := record.(map[string]interface{})
+	dataFile := recordMap["data_file"].(map[string]interface{})
+
+	return strings.TrimPrefix(dataFile["file_path"].(string), fileSystemPrefix), nil
+}
+
+// Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
 	defer fileWriter.Close()
@@ -214,6 +236,10 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 	}
 
 	return recordCount, nil
+}
+
+func (storage *StorageUtils) WriteOverwrittenParquetFile(fileWriter source.ParquetFile, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (recordCount int64, err error) {
+	return 0, nil
 }
 
 func (storage *StorageUtils) ReadParquetStats(fileReader source.ParquetFile) (parquetFileStats ParquetFileStats, err error) {
@@ -614,6 +640,8 @@ func (storage *StorageUtils) WriteInternalTableMetadataFile(filePath string, int
 	return nil
 
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageUtils) buildFieldIDMap(schemaHandler *schema.SchemaHandler) map[string]int {
 	fieldIDMap := make(map[string]int)

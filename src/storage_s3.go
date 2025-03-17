@@ -121,6 +121,15 @@ func (storage *StorageS3) ExistingManifestFiles(manifestListFile ManifestListFil
 	return storage.storageUtils.ParseManifestFiles(storage.fullBucketPath(), manifestListContent)
 }
 
+func (storage *StorageS3) ExistingParquetFilePath(manifestFile ManifestFile) (string, error) {
+	manifestListContent, err := storage.readFileContent(manifestFile.Path)
+	if err != nil {
+		return "", err
+	}
+
+	return storage.storageUtils.ParseParquetFilePath(storage.fullBucketPath(), manifestListContent)
+}
+
 // Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageS3) DeleteSchema(schema string) (err error) {
@@ -193,6 +202,50 @@ func (storage *StorageS3) DeleteParquet(parquetFile ParquetFile) (err error) {
 		Key:    aws.String(parquetFile.Path),
 	})
 	return err
+}
+
+func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (overwrittenParquetFile ParquetFile, err error) {
+	ctx := context.Background()
+	uuid := uuid.New().String()
+	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
+	fileKey := dataDirPath + "/" + fileName
+
+	fileWriter, err := s3v2.NewS3FileWriterWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey, nil)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+	}
+
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(fileWriter, existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", fileKey)
+
+	headObjectResponse, err := storage.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(fileKey),
+	})
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to get Parquet file info: %v", err)
+	}
+	fileSize := *headObjectResponse.ContentLength
+
+	fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+	}
+	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+
+	return ParquetFile{
+		Uuid:        uuid,
+		Path:        fileKey,
+		Size:        fileSize,
+		RecordCount: recordCount,
+		Stats:       parquetStats,
+	}, nil
 }
 
 func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {

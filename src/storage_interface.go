@@ -78,6 +78,7 @@ type StorageInterface interface {
 	IcebergTableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error)
 	ExistingManifestListFiles(metadataDirPath string) (manifestListFilesSortedAsc []ManifestListFile, err error)
 	ExistingManifestFiles(manifestListFile ManifestListFile) (manifestFiles []ManifestFile, err error)
+	ExistingParquetFilePath(manifestFile ManifestFile) (parquetFilePath string, err error)
 
 	// Write
 	DeleteSchema(schema string) (err error)
@@ -85,6 +86,7 @@ type StorageInterface interface {
 	CreateDataDir(schemaTable IcebergSchemaTable) (dataDirPath string)
 	CreateMetadataDir(schemaTable IcebergSchemaTable) (metadataDirPath string)
 	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (parquetFile ParquetFile, err error)
+	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (overwrittenParquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
 	CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error)
