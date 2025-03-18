@@ -106,6 +106,11 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"123"},
 		},
+		"SELECT * FROM pg_catalog.generate_series(1, 1)": {
+			"description": {"generate_series"},
+			"types":       {Uint32ToString(pgtype.Int8OID)},
+			"values":      {"1"},
+		},
 		"SELECT pg_catalog.aclexplode(db.datacl) AS d FROM pg_catalog.pg_database db": {
 			"description": {"d"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
@@ -317,6 +322,14 @@ func TestHandleQuery(t *testing.T) {
 		"SELECT * FROM pg_catalog.pg_publication_rel": {
 			"description": {"oid", "prpubid", "prrelid", "prqual", "prattrs"},
 			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
+		},
+		"SELECT * FROM pg_catalog.pg_publication_namespace": {
+			"description": {"oid", "pnpubid", "pnnspid"},
+			"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID)},
+		},
+		"SELECT pubname, NULL, NULL FROM pg_catalog.pg_publication p JOIN pg_catalog.pg_publication_namespace pn ON p.oid = pn.pnpubid JOIN pg_catalog.pg_class pc ON pc.relnamespace = pn.pnnspid UNION SELECT pubname, pg_get_expr(pr.prqual, c.oid), (CASE WHEN pr.prattrs IS NOT NULL THEN (SELECT string_agg(attname, ', ') FROM pg_catalog.generate_series(0, pg_catalog.array_upper(pr.prattrs::pg_catalog.int2[], 1)) s, pg_catalog.pg_attribute WHERE attrelid = pr.prrelid AND attnum = prattrs[s]) ELSE NULL END) FROM pg_catalog.pg_publication p JOIN pg_catalog.pg_publication_rel pr ON p.oid = pr.prpubid JOIN pg_catalog.pg_class c ON c.oid = pr.prrelid UNION SELECT pubname, NULL, NULL FROM pg_catalog.pg_publication p ORDER BY 1": {
+			"description": {"pubname", "NULL", "NULL"},
+			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 		},
 
 		// Information schema

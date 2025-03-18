@@ -91,6 +91,7 @@ func CreateInformationSchemaMacroQueries(config *Config) []string {
 
 var BUILTIN_DUCKDB_PG_FUNCTION_NAMES = NewSet([]string{
 	"array_to_string",
+	"generate_series",
 })
 
 type QueryRemapperFunction struct {

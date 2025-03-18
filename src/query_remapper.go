@@ -136,7 +136,12 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	// WHERE
 	if selectStatement.WhereClause != nil {
 		remapper.traceTreeTraversal("WHERE statements", indentLevel)
-		selectStatement.WhereClause = remapper.remappedExpressions(selectStatement.WhereClause, indentLevel) // recursion
+
+		if remapper.removeWhereClause(selectStatement.WhereClause) {
+			selectStatement.WhereClause = nil
+		} else {
+			selectStatement.WhereClause = remapper.remappedExpressions(selectStatement.WhereClause, indentLevel) // recursion
+		}
 	}
 
 	// WITH
@@ -398,6 +403,53 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 	}
 
 	return selectStatement
+}
+
+// Fix the query sent by psql "\d [table]": ... WHERE attrelid = pr.prrelid AND attnum = prattrs[s] ...
+// DuckDB fails with the following errors:
+//
+// 1) INTERNAL Error: Failed to bind column reference "prrelid" [93.3] (bindings: {#[101.0], #[101.1], #[101.2]}) This error signals an assertion failure within DuckDB. This usually occurs due to unexpected conditions or errors in the program's logic.
+// 2) Binder Error: No function matches the given name and argument types 'array_extract(VARCHAR, STRUCT(generate_series BIGINT))'. You might need to add explicit type casts.
+func (remapper *QueryRemapper) removeWhereClause(whereClause *pgQuery.Node) bool {
+	boolExpr := whereClause.GetBoolExpr()
+	if boolExpr == nil || boolExpr.Boolop != pgQuery.BoolExprType_AND_EXPR || len(boolExpr.Args) != 2 {
+		return false
+	}
+
+	arg1 := boolExpr.Args[0].GetAExpr()
+	if arg1 == nil || arg1.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || arg1.Name[0].GetString_().Sval != "=" {
+		return false
+	}
+
+	arg2 := boolExpr.Args[1].GetAExpr()
+	if arg2 == nil || arg2.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || arg2.Name[0].GetString_().Sval != "=" {
+		return false
+	}
+
+	arg1LColRef := arg1.Lexpr.GetColumnRef()
+	if arg1LColRef == nil || len(arg1LColRef.Fields) != 1 || arg1LColRef.Fields[0].GetString_().Sval != "attrelid" {
+		return false
+	}
+
+	arg1RColRef := arg1.Rexpr.GetColumnRef()
+	if arg1RColRef == nil || len(arg1RColRef.Fields) != 2 || arg1RColRef.Fields[0].GetString_().Sval != "pr" || arg1RColRef.Fields[1].GetString_().Sval != "prrelid" {
+		return false
+	}
+
+	arg2LColRef := arg2.Lexpr.GetColumnRef()
+	if arg2LColRef == nil || len(arg2LColRef.Fields) != 1 || arg2LColRef.Fields[0].GetString_().Sval != "attnum" {
+		return false
+	}
+
+	arg2RIndir := arg2.Rexpr.GetAIndirection()
+	if arg2RIndir == nil || arg2RIndir.Arg.GetColumnRef() == nil || len(arg2RIndir.Arg.GetColumnRef().Fields) != 1 || arg2RIndir.Arg.GetColumnRef().Fields[0].GetString_().Sval != "prattrs" {
+		return false
+	}
+	if len(arg2RIndir.Indirection) != 1 || arg2RIndir.Indirection[0].GetAIndices() == nil || arg2RIndir.Indirection[0].GetAIndices().Uidx.GetColumnRef() == nil || len(arg2RIndir.Indirection[0].GetAIndices().Uidx.GetColumnRef().Fields) != 1 || arg2RIndir.Indirection[0].GetAIndices().Uidx.GetColumnRef().Fields[0].GetString_().Sval != "s" {
+		return false
+	}
+
+	return true
 }
 
 func (remapper *QueryRemapper) traceTreeTraversal(label string, indentLevel int) {

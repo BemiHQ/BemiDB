@@ -28,6 +28,7 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		"CREATE TABLE pg_statistic_ext(oid oid, stxrelid oid, stxname text, stxnamespace oid, stxowner oid, stxstattarget int4, stxkeys oid, stxkind text, stxexprs text)",
 		"CREATE TABLE pg_publication(oid oid, pubname text, pubowner oid, puballtables bool, pubinsert bool, pubupdate bool, pubdelete bool, pubtruncate bool, pubviaroot bool)",
 		"CREATE TABLE pg_publication_rel(oid oid, prpubid oid, prrelid oid, prqual text, prattrs text)",
+		"CREATE TABLE pg_publication_namespace(oid oid, pnpubid oid, pnnspid oid)",
 
 		// Dynamic tables
 		// DuckDB doesn't handle dynamic view replacement properly
