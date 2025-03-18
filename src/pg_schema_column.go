@@ -39,6 +39,11 @@ type PgSchemaColumn struct {
 	config                 *Config
 }
 
+// Parquet doesn't allow commas in column names
+func (pgSchemaColumn PgSchemaColumn) NormalizedColumnName() string {
+	return strings.ReplaceAll(pgSchemaColumn.ColumnName, ",", "_")
+}
+
 func NewPgSchemaColumn(config *Config) *PgSchemaColumn {
 	return &PgSchemaColumn{
 		config: config,
@@ -119,7 +124,7 @@ func (pgSchemaColumn PgSchemaColumn) ToIcebergSchemaFieldMap() IcebergSchemaFiel
 	}
 
 	icebergSchemaField.Id = id
-	icebergSchemaField.Name = pgSchemaColumn.ColumnName
+	icebergSchemaField.Name = pgSchemaColumn.NormalizedColumnName()
 
 	if pgSchemaColumn.IsNullable == PG_TRUE {
 		icebergSchemaField.Required = false
@@ -176,7 +181,7 @@ func (pgSchemaColumn *PgSchemaColumn) toParquetSchemaField() ParquetSchemaField 
 	primitiveType, primitiveConvertedType := pgSchemaColumn.parquetPrimitiveTypes()
 
 	parquetSchemaField := ParquetSchemaField{
-		Name:          pgSchemaColumn.ColumnName,
+		Name:          pgSchemaColumn.NormalizedColumnName(),
 		FieldId:       pgSchemaColumn.OrdinalPosition,
 		Type:          primitiveType,
 		ConvertedType: primitiveConvertedType,

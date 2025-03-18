@@ -195,7 +195,7 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 		for _, row := range rows {
 			rowMap := make(map[string]interface{})
 			for i, rowValue := range row {
-				rowMap[pgSchemaColumns[i].ColumnName] = pgSchemaColumns[i].FormatParquetValue(rowValue)
+				rowMap[pgSchemaColumns[i].NormalizedColumnName()] = pgSchemaColumns[i].FormatParquetValue(rowValue)
 			}
 			rowJson, err := json.Marshal(rowMap)
 			PanicIfError(err, storage.config)
