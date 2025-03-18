@@ -179,12 +179,7 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 	}, nil
 }
 
-func (storage *StorageLocal) DeleteParquet(parquetFile ParquetFile) error {
-	err := os.Remove(parquetFile.Path)
-	return err
-}
-
-func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (overwrittenParquetFile ParquetFile, err error) {
+func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
 	filePath := filepath.Join(dataDirPath, fileName)
@@ -194,7 +189,7 @@ func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existi
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(fileWriter, existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(fileWriter, existingParquetFilePath, newParquetFilePath, pgSchemaColumns, rowCountPerBatch)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -222,6 +217,11 @@ func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existi
 		RecordCount: recordCount,
 		Stats:       parquetStats,
 	}, nil
+}
+
+func (storage *StorageLocal) DeleteParquet(parquetFile ParquetFile) error {
+	err := os.Remove(parquetFile.Path)
+	return err
 }
 
 func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {

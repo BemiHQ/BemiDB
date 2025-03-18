@@ -38,7 +38,7 @@ type Duckdb struct {
 	stopImplicitAwsCredentialsRefreshChan chan struct{}
 }
 
-func NewDuckdb(config *Config) *Duckdb {
+func NewDuckdb(config *Config, bootQueries ...string) *Duckdb {
 	ctx := context.Background()
 	db, err := sql.Open("duckdb", "")
 	PanicIfError(err, config)
@@ -49,21 +49,23 @@ func NewDuckdb(config *Config) *Duckdb {
 		stopImplicitAwsCredentialsRefreshChan: make(chan struct{}),
 	}
 
-	bootQueries := slices.Concat(
-		// Set up DuckDB
-		DUCKDB_INIT_BOOT_QUERIES,
+	if len(bootQueries) == 0 {
+		bootQueries = slices.Concat(
+			// Set up DuckDB
+			DUCKDB_INIT_BOOT_QUERIES,
 
-		// Create pg-compatible functions
-		CreatePgCatalogMacroQueries(config),
-		CreateInformationSchemaMacroQueries(config),
+			// Create pg-compatible functions
+			CreatePgCatalogMacroQueries(config),
+			CreateInformationSchemaMacroQueries(config),
 
-		// Create pg-compatible tables and views
-		CreatePgCatalogTableQueries(config),
-		CreateInformationSchemaTableQueries(config),
+			// Create pg-compatible tables and views
+			CreatePgCatalogTableQueries(config),
+			CreateInformationSchemaTableQueries(config),
 
-		// Use the public schema
-		[]string{"USE public"},
-	)
+			// Use the public schema
+			[]string{"USE public"},
+		)
+	}
 
 	for _, query := range bootQueries {
 		_, err := duckdb.ExecContext(ctx, query, nil)

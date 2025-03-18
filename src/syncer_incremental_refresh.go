@@ -55,7 +55,7 @@ func (syncer *SyncerIncrementalRefresh) SyncPgTable(pgSchemaTable PgSchemaTable,
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing incrementally to Iceberg...")
-	syncer.icebergWriter.WriteIncrementally(schemaTable, pgSchemaColumns, func() [][]string {
+	syncer.icebergWriter.WriteIncrementally(schemaTable, pgSchemaColumns, rowCountPerBatch, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
 		}

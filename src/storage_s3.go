@@ -195,16 +195,7 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 	}, nil
 }
 
-func (storage *StorageS3) DeleteParquet(parquetFile ParquetFile) (err error) {
-	ctx := context.Background()
-	_, err = storage.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(storage.config.Aws.S3Bucket),
-		Key:    aws.String(parquetFile.Path),
-	})
-	return err
-}
-
-func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (overwrittenParquetFile ParquetFile, err error) {
+func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
 	ctx := context.Background()
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
@@ -215,7 +206,7 @@ func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingP
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(fileWriter, existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(fileWriter, existingParquetFilePath, newParquetFilePath, pgSchemaColumns, rowCountPerBatch)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -246,6 +237,15 @@ func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingP
 		RecordCount: recordCount,
 		Stats:       parquetStats,
 	}, nil
+}
+
+func (storage *StorageS3) DeleteParquet(parquetFile ParquetFile) (err error) {
+	ctx := context.Background()
+	_, err = storage.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(parquetFile.Path),
+	})
+	return err
 }
 
 func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {

@@ -348,7 +348,7 @@ func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSche
 	PanicIfError(err, icebergWriter.config)
 }
 
-func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) {
+func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int, loadRows func() [][]string) {
 	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
 
 	parquetFile, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
@@ -370,25 +370,18 @@ func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchema
 	manifestFilesSortedDesc, err := icebergWriter.storage.ExistingManifestFiles(lastManifestListFile)
 	PanicIfError(err, icebergWriter.config)
 
-	var primaryKeyPgSchemaColumns []PgSchemaColumn
-	for _, pgSchemaColumn := range pgSchemaColumns {
-		if pgSchemaColumn.PartOfPrimaryKey {
-			primaryKeyPgSchemaColumns = append(primaryKeyPgSchemaColumns, pgSchemaColumn)
-		}
-	}
-
 	for _, existingManifestFile := range manifestFilesSortedDesc {
 		existingParquetFilePath, err := icebergWriter.storage.ExistingParquetFilePath(existingManifestFile)
 		PanicIfError(err, icebergWriter.config)
 
-		overwrittenParquetFile, err := icebergWriter.storage.CreateOverwrittenParquet(dataDirPath, existingParquetFilePath, parquetFile.Path, primaryKeyPgSchemaColumns)
+		overwrittenParquetFile, err := icebergWriter.storage.CreateOverwrittenParquet(dataDirPath, existingParquetFilePath, parquetFile.Path, pgSchemaColumns, rowCountPerBatch)
 		if overwrittenParquetFile.RecordCount == 0 {
 			err = icebergWriter.storage.DeleteParquet(overwrittenParquetFile)
 			PanicIfError(err, icebergWriter.config)
 			continue
 		}
 
-		LogError(icebergWriter.config, overwrittenParquetFile)
+		LogError(icebergWriter.config, overwrittenParquetFile, err)
 	}
 
 	LogError(icebergWriter.config, manifestFile)

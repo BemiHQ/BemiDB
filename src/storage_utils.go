@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -191,23 +192,12 @@ func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manif
 func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
 	defer fileWriter.Close()
 
-	schemaMap := map[string]interface{}{
-		"Tag":    "name=root",
-		"Fields": []map[string]interface{}{},
-	}
-	for _, pgSchemaColumn := range pgSchemaColumns {
-		fieldMap := pgSchemaColumn.ToParquetSchemaFieldMap()
-		schemaMap["Fields"] = append(schemaMap["Fields"].([]map[string]interface{}), fieldMap)
-	}
-	schemaJson, err := json.Marshal(schemaMap)
-	PanicIfError(err, storage.config)
-
-	LogDebug(storage.config, "Parquet schema:", string(schemaJson))
-	parquetWriter, err := writer.NewJSONWriter(string(schemaJson), fileWriter, PARQUET_PARALLEL_NUMBER)
+	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
+	LogDebug(storage.config, "Parquet schema:", schemaJson)
+	parquetWriter, err := writer.NewJSONWriter(schemaJson, fileWriter, PARQUET_PARALLEL_NUMBER)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create Parquet writer: %v", err)
 	}
-
 	parquetWriter.RowGroupSize = PARQUET_ROW_GROUP_SIZE
 	parquetWriter.CompressionType = PARQUET_COMPRESSION_TYPE
 
@@ -238,8 +228,84 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 	return recordCount, nil
 }
 
-func (storage *StorageUtils) WriteOverwrittenParquetFile(fileWriter source.ParquetFile, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (recordCount int64, err error) {
-	return 0, nil
+func (storage *StorageUtils) WriteOverwrittenParquetFile(fileWriter source.ParquetFile, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (recordCount int64, err error) {
+	defer fileWriter.Close()
+
+	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
+	LogDebug(storage.config, "Parquet schema:", schemaJson)
+	parquetWriter, err := writer.NewJSONWriter(schemaJson, fileWriter, PARQUET_PARALLEL_NUMBER)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create Parquet writer: %v", err)
+	}
+	parquetWriter.RowGroupSize = PARQUET_ROW_GROUP_SIZE
+	parquetWriter.CompressionType = PARQUET_COMPRESSION_TYPE
+
+	duckdb := NewDuckdb(
+		storage.config,
+		"CREATE TABLE existing_parquet AS SELECT * FROM '"+existingParquetFilePath+"'",
+		"CREATE TABLE new_parquet AS SELECT * FROM '"+newParquetFilePath+"'",
+	)
+	defer duckdb.Close()
+
+	var pkColumnNames []string
+	var columnNames []string
+	for _, pgSchemaColumn := range pgSchemaColumns {
+		if pgSchemaColumn.PartOfPrimaryKey {
+			pkColumnNames = append(pkColumnNames, pgSchemaColumn.ColumnName)
+		}
+		columnNames = append(columnNames, pgSchemaColumn.ColumnName)
+	}
+
+	hasOverlappingRows, err := storage.hasOverlappingRows(pkColumnNames, duckdb)
+	if err != nil {
+		return 0, err
+	}
+	if !hasOverlappingRows {
+		err := parquetWriter.WriteStop()
+		if err != nil {
+			return 0, fmt.Errorf("failed to stop Parquet writer: %v", err)
+		}
+		return 0, nil
+	}
+
+	batch := 0
+	ctx := context.Background()
+	sql := storage.selectNonOverlappingRowsSql(columnNames, pkColumnNames)
+	for {
+		rowCountInBatch := 0
+		rows, err := duckdb.QueryContext(ctx, sql+" LIMIT "+IntToString(rowCountPerBatch)+" OFFSET "+IntToString(batch*rowCountPerBatch))
+		if err != nil {
+			return 0, fmt.Errorf("failed to query non-overlapping rows: %v", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var rowJson string
+			if err = rows.Scan(&rowJson); err != nil {
+				return 0, fmt.Errorf("failed to scan row: %v", err)
+			}
+
+			if err = parquetWriter.Write(string(rowJson)); err != nil {
+				return 0, fmt.Errorf("Write error: %v", err)
+			}
+
+			rowCountInBatch++
+			recordCount++
+		}
+
+		if rowCountInBatch < rowCountPerBatch {
+			break
+		}
+
+		batch++
+	}
+
+	LogDebug(storage.config, "Stopping Parquet writer...")
+	if err := parquetWriter.WriteStop(); err != nil {
+		return 0, fmt.Errorf("failed to stop Parquet writer: %v", err)
+	}
+
+	return recordCount, nil
 }
 
 func (storage *StorageUtils) ReadParquetStats(fileReader source.ParquetFile) (parquetFileStats ParquetFileStats, err error) {
@@ -642,6 +708,55 @@ func (storage *StorageUtils) WriteInternalTableMetadataFile(filePath string, int
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageUtils) hasOverlappingRows(pkColumnNames []string, duckdb *Duckdb) (bool, error) {
+	sql := "SELECT 1 FROM existing_parquet JOIN new_parquet USING (" + strings.Join(pkColumnNames, ", ") + ") LIMIT 1"
+	if len(pkColumnNames) == 0 {
+		sql = "SELECT 1 FROM existing_parquet JOIN new_parquet LIMIT 1"
+	}
+
+	ctx := context.Background()
+	rows, err := duckdb.QueryContext(ctx, sql)
+	if err != nil {
+		return false, fmt.Errorf("failed to query for overlapping rows: %v", err)
+	}
+	defer rows.Close()
+
+	return rows.Next(), nil
+}
+
+func (storage *StorageUtils) selectNonOverlappingRowsSql(columnNames []string, pkColumnNames []string) string {
+	selectExpressions := []string{}
+	for _, columnName := range columnNames {
+		selectExpressions = append(selectExpressions, columnName+" := existing_parquet."+columnName)
+	}
+	whereConditions := []string{}
+	if len(pkColumnNames) == 0 {
+		for _, columnName := range columnNames {
+			whereConditions = append(whereConditions, "existing_parquet."+columnName+" = new_parquet."+columnName)
+		}
+	} else {
+		for _, pkColumnName := range pkColumnNames {
+			whereConditions = append(whereConditions, "existing_parquet."+pkColumnName+" = new_parquet."+pkColumnName)
+		}
+	}
+	return "SELECT to_json(struct_pack(" + strings.Join(selectExpressions, ", ") + ")) FROM existing_parquet WHERE NOT EXISTS (SELECT 1 FROM new_parquet WHERE " + strings.Join(whereConditions, " AND ") + ")"
+}
+
+func (storage *StorageUtils) buildSchemaJson(pgSchemaColumns []PgSchemaColumn) string {
+	schemaMap := map[string]interface{}{
+		"Tag":    "name=root",
+		"Fields": []map[string]interface{}{},
+	}
+	for _, pgSchemaColumn := range pgSchemaColumns {
+		fieldMap := pgSchemaColumn.ToParquetSchemaFieldMap()
+		schemaMap["Fields"] = append(schemaMap["Fields"].([]map[string]interface{}), fieldMap)
+	}
+	schemaJson, err := json.Marshal(schemaMap)
+	PanicIfError(err, storage.config)
+
+	return string(schemaJson)
+}
 
 func (storage *StorageUtils) buildFieldIDMap(schemaHandler *schema.SchemaHandler) map[string]int {
 	fieldIDMap := make(map[string]int)
