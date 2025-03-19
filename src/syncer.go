@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -22,11 +21,11 @@ const (
 )
 
 type Syncer struct {
-	config            *Config
-	icebergWriter     *IcebergWriter
-	icebergReader     *IcebergReader
-	syncerFullRefresh *SyncerFullRefresh
-	syncerIncremental *SyncerIncremental
+	config                   *Config
+	icebergWriter            *IcebergWriter
+	icebergReader            *IcebergReader
+	syncerFullRefresh        *SyncerFullRefresh
+	syncerIncrementalRefresh *SyncerIncrementalRefresh
 }
 
 func NewSyncer(config *Config) *Syncer {
@@ -37,11 +36,11 @@ func NewSyncer(config *Config) *Syncer {
 	icebergWriter := NewIcebergWriter(config)
 	icebergReader := NewIcebergReader(config)
 	return &Syncer{
-		config:            config,
-		icebergWriter:     icebergWriter,
-		icebergReader:     icebergReader,
-		syncerFullRefresh: NewSyncerFullRefresh(config, icebergWriter),
-		syncerIncremental: NewSyncerIncremental(config, icebergWriter),
+		config:                   config,
+		icebergWriter:            icebergWriter,
+		icebergReader:            icebergReader,
+		syncerFullRefresh:        NewSyncerFullRefresh(config, icebergWriter),
+		syncerIncrementalRefresh: NewSyncerIncrementalRefresh(config, icebergWriter),
 	}
 }
 
@@ -63,24 +62,25 @@ func (syncer *Syncer) SyncFromPostgres() {
 	for _, schema := range syncer.listPgSchemas(structureConn) {
 		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
-				syncedPreviously := icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable()) && false
+				// Identify the batch size dynamically based on the table stats
+				rowCountPerBatch := syncer.calculateRowCountPerBatch(pgSchemaTable, structureConn)
+				LogDebug(syncer.config, "Row count per batch:", rowCountPerBatch)
 
-				// Read internal table metadata if it exists
+				syncedPreviously := icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable())
+				incrementalRefreshEnabled := syncer.config.Pg.IncrementallyRefreshedTables != nil && HasExactOrWildcardMatch(syncer.config.Pg.IncrementallyRefreshedTables, pgSchemaTable.ToConfigArg())
+
 				var internalTableMetadata InternalTableMetadata
 				var err error
-				if syncedPreviously {
+				// Read internal table metadata if it exists
+				if syncedPreviously && incrementalRefreshEnabled {
 					internalTableMetadata, err = syncer.icebergReader.storage.InternalTableMetadata(pgSchemaTable)
 					PanicIfError(err, syncer.config)
 					LogDebug(syncer.config, "Read internal table metadata to sync incrementally:", internalTableMetadata.String())
 				}
 
-				// Identify the batch size dynamically based on the table stats
-				rowCountPerBatch := syncer.calculateRowCountPerBatch(pgSchemaTable, structureConn)
-				LogDebug(syncer.config, "Row count per batch:", rowCountPerBatch)
-
 				// Sync the table
 				if internalTableMetadata.XminMax != nil && internalTableMetadata.XminMin != nil {
-					syncer.syncerIncremental.SyncPgTable(pgSchemaTable, internalTableMetadata, rowCountPerBatch, structureConn, copyConn)
+					syncer.syncerIncrementalRefresh.SyncPgTable(pgSchemaTable, internalTableMetadata, rowCountPerBatch, structureConn, copyConn)
 				} else {
 					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, rowCountPerBatch, structureConn, copyConn)
 				}
@@ -132,25 +132,23 @@ func (syncer *Syncer) urlEncodePassword(databaseUrl string) string {
 	return strings.Replace(databaseUrl, ":"+password+"@", ":"+url.QueryEscape(password)+"@", 1)
 }
 
-func (syncer *Syncer) shouldSyncTable(schemaTable PgSchemaTable) bool {
-	fullTableName := fmt.Sprintf("%s.%s", schemaTable.Schema, schemaTable.Table)
-
+func (syncer *Syncer) shouldSyncTable(pgSchemaTable PgSchemaTable) bool {
 	if syncer.config.Pg.IncludeSchemas != nil {
-		if !HasExactOrWildcardMatch(syncer.config.Pg.IncludeSchemas, schemaTable.Schema) {
+		if !HasExactOrWildcardMatch(syncer.config.Pg.IncludeSchemas, pgSchemaTable.Schema) {
 			return false
 		}
 	} else if syncer.config.Pg.ExcludeSchemas != nil {
-		if HasExactOrWildcardMatch(syncer.config.Pg.ExcludeSchemas, schemaTable.Schema) {
+		if HasExactOrWildcardMatch(syncer.config.Pg.ExcludeSchemas, pgSchemaTable.Schema) {
 			return false
 		}
 	}
 
 	if syncer.config.Pg.IncludeTables != nil {
-		return HasExactOrWildcardMatch(syncer.config.Pg.IncludeTables, fullTableName)
+		return HasExactOrWildcardMatch(syncer.config.Pg.IncludeTables, pgSchemaTable.ToConfigArg())
 	}
 
 	if syncer.config.Pg.ExcludeTables != nil {
-		return !HasExactOrWildcardMatch(syncer.config.Pg.ExcludeTables, fullTableName)
+		return !HasExactOrWildcardMatch(syncer.config.Pg.ExcludeTables, pgSchemaTable.ToConfigArg())
 	}
 
 	return true

@@ -12,19 +12,19 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type SyncerIncremental struct {
+type SyncerIncrementalRefresh struct {
 	config        *Config
 	icebergWriter *IcebergWriter
 }
 
-func NewSyncerIncremental(config *Config, icebergWriter *IcebergWriter) *SyncerIncremental {
-	return &SyncerIncremental{
+func NewSyncerIncrementalRefresh(config *Config, icebergWriter *IcebergWriter) *SyncerIncrementalRefresh {
+	return &SyncerIncrementalRefresh{
 		config:        config,
 		icebergWriter: icebergWriter,
 	}
 }
 
-func (syncer *SyncerIncremental) SyncPgTable(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata, rowCountPerBatch int, structureConn *pgx.Conn, copyConn *pgx.Conn) {
+func (syncer *SyncerIncrementalRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata, rowCountPerBatch int, structureConn *pgx.Conn, copyConn *pgx.Conn) {
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
 
@@ -89,7 +89,7 @@ func (syncer *SyncerIncremental) SyncPgTable(pgSchemaTable PgSchemaTable, intern
 	waitGroup.Wait()       // Wait for the Read goroutine to finish
 }
 
-func (syncer *SyncerIncremental) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
+func (syncer *SyncerIncrementalRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
 	if len(csvHeader) == 0 {
 		PanicIfError(errors.New("couldn't read data from "+pgSchemaTable.String()), syncer.config)
 	}
@@ -142,7 +142,7 @@ func (syncer *SyncerIncremental) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTa
 	return pgSchemaColumns
 }
 
-func (syncer *SyncerIncremental) copyFromPgTable(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
+func (syncer *SyncerIncrementalRefresh) copyFromPgTable(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
 	LogInfo(syncer.config, "Reading from Postgres:", pgSchemaTable.String()+"...")
 	result, err := copyConn.PgConn().CopyTo(
 		context.Background(),
@@ -156,7 +156,7 @@ func (syncer *SyncerIncremental) copyFromPgTable(pgSchemaTable PgSchemaTable, in
 	waitGroup.Done()
 }
 
-func (syncer *SyncerIncremental) pingPg(conn *pgx.Conn, stopPingChannel *chan struct{}, waitGroup *sync.WaitGroup) {
+func (syncer *SyncerIncrementalRefresh) pingPg(conn *pgx.Conn, stopPingChannel *chan struct{}, waitGroup *sync.WaitGroup) {
 	ticker := time.NewTicker(PING_PG_INTERVAL_SECONDS * time.Second)
 
 	for {

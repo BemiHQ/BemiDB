@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.40.3"
+	VERSION = "0.41.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
@@ -26,13 +26,14 @@ const (
 	ENV_AWS_ACCESS_KEY_ID     = "AWS_ACCESS_KEY_ID"
 	ENV_AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
 
-	ENV_PG_DATABASE_URL    = "PG_DATABASE_URL"
-	ENV_PG_SYNC_INTERVAL   = "PG_SYNC_INTERVAL"
-	ENV_PG_SCHEMA_PREFIX   = "PG_SCHEMA_PREFIX"
-	ENV_PG_INCLUDE_SCHEMAS = "PG_INCLUDE_SCHEMAS"
-	ENV_PG_EXCLUDE_SCHEMAS = "PG_EXCLUDE_SCHEMAS"
-	ENV_PG_INCLUDE_TABLES  = "PG_INCLUDE_TABLES"
-	ENV_PG_EXCLUDE_TABLES  = "PG_EXCLUDE_TABLES"
+	ENV_PG_DATABASE_URL                   = "PG_DATABASE_URL"
+	ENV_PG_SYNC_INTERVAL                  = "PG_SYNC_INTERVAL"
+	ENV_PG_SCHEMA_PREFIX                  = "PG_SCHEMA_PREFIX"
+	ENV_PG_INCLUDE_SCHEMAS                = "PG_INCLUDE_SCHEMAS"
+	ENV_PG_EXCLUDE_SCHEMAS                = "PG_EXCLUDE_SCHEMAS"
+	ENV_PG_INCLUDE_TABLES                 = "PG_INCLUDE_TABLES"
+	ENV_PG_EXCLUDE_TABLES                 = "PG_EXCLUDE_TABLES"
+	ENV_PG_INCREMENTALLY_REFRESHED_TABLES = "PG_INCREMENTALLY_REFRESHED_TABLES"
 
 	ENV_DISABLE_ANONYMOUS_ANALYTICS = "DISABLE_ANONYMOUS_ANALYTICS"
 
@@ -61,13 +62,14 @@ type AwsConfig struct {
 }
 
 type PgConfig struct {
-	DatabaseUrl    string
-	SyncInterval   string   // optional
-	SchemaPrefix   string   // optional
-	IncludeSchemas []string // optional
-	ExcludeSchemas []string // optional
-	IncludeTables  []string // optional
-	ExcludeTables  []string // optional
+	DatabaseUrl                  string
+	SyncInterval                 string   // optional
+	SchemaPrefix                 string   // optional
+	IncludeSchemas               []string // optional
+	ExcludeSchemas               []string // optional
+	IncludeTables                []string // optional
+	ExcludeTables                []string // optional
+	IncrementallyRefreshedTables []string // optional
 }
 
 type Config struct {
@@ -87,11 +89,12 @@ type Config struct {
 }
 
 type configParseValues struct {
-	password         string
-	pgIncludeSchemas string
-	pgExcludeSchemas string
-	pgIncludeTables  string
-	pgExcludeTables  string
+	password                       string
+	pgIncludeSchemas               string
+	pgExcludeSchemas               string
+	pgIncludeTables                string
+	pgExcludeTables                string
+	pgIncrementallyRefreshedTables string
 }
 
 var _config = Config{Version: VERSION}
@@ -117,6 +120,7 @@ func registerFlags() {
 	flag.StringVar(&_configParseValues.pgExcludeSchemas, "pg-exclude-schemas", os.Getenv(ENV_PG_EXCLUDE_SCHEMAS), "(Optional) Comma-separated list of schemas to exclude from sync")
 	flag.StringVar(&_configParseValues.pgIncludeTables, "pg-include-tables", os.Getenv(ENV_PG_INCLUDE_TABLES), "(Optional) Comma-separated list of tables to include in sync (format: schema.table)")
 	flag.StringVar(&_configParseValues.pgExcludeTables, "pg-exclude-tables", os.Getenv(ENV_PG_EXCLUDE_TABLES), "(Optional) Comma-separated list of tables to exclude from sync (format: schema.table)")
+	flag.StringVar(&_configParseValues.pgIncrementallyRefreshedTables, "pg-incrementally-refreshed-tables", os.Getenv(ENV_PG_INCREMENTALLY_REFRESHED_TABLES), "(Optional) Comma-separated list of tables to refresh incrementally (format: schema.table)")
 	flag.StringVar(&_config.Pg.DatabaseUrl, "pg-database-url", os.Getenv(ENV_PG_DATABASE_URL), "PostgreSQL database URL to sync")
 	flag.StringVar(&_config.Aws.Region, "aws-region", os.Getenv(ENV_AWS_REGION), "AWS region")
 	flag.StringVar(&_config.Aws.S3Endpoint, "aws-s3-endpoint", os.Getenv(ENV_AWS_S3_ENDPOINT), "AWS S3 endpoint. Default: \""+DEFAULT_AWS_S3_ENDPOINT+"\"")
@@ -197,6 +201,9 @@ func parseFlags() {
 	}
 	if _configParseValues.pgIncludeTables != "" {
 		_config.Pg.IncludeTables = strings.Split(_configParseValues.pgIncludeTables, ",")
+	}
+	if _configParseValues.pgIncrementallyRefreshedTables != "" {
+		_config.Pg.IncrementallyRefreshedTables = strings.Split(_configParseValues.pgIncrementallyRefreshedTables, ",")
 	}
 	if _configParseValues.pgExcludeTables != "" {
 		_config.Pg.ExcludeTables = strings.Split(_configParseValues.pgExcludeTables, ",")

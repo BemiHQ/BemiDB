@@ -132,6 +132,10 @@ func (pgSchemaTable PgSchemaTable) String() string {
 	return fmt.Sprintf(`"%s"."%s"`, pgSchemaTable.Schema, pgSchemaTable.Table)
 }
 
+func (pgSchemaTable PgSchemaTable) ToConfigArg() string {
+	return fmt.Sprintf(`%s.%s`, pgSchemaTable.Schema, pgSchemaTable.Table)
+}
+
 func (pgSchemaTable PgSchemaTable) ToIcebergSchemaTable() IcebergSchemaTable {
 	return IcebergSchemaTable{
 		Schema: pgSchemaTable.Schema,
