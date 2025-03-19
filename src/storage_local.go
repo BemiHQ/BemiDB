@@ -89,12 +89,12 @@ func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestList
 }
 
 func (storage *StorageLocal) ExistingParquetFilePath(manifestFile ManifestFile) (string, error) {
-	manifestListContent, err := storage.readFileContent(manifestFile.Path)
+	manifestContent, err := storage.readFileContent(manifestFile.Path)
 	if err != nil {
 		return "", err
 	}
 
-	return storage.storageUtils.ParseParquetFilePath(storage.fileSystemPrefix(), manifestListContent)
+	return storage.storageUtils.ParseParquetFilePath(storage.fileSystemPrefix(), manifestContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -235,6 +235,24 @@ func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile 
 	LogDebug(storage.config, "Manifest file created at:", filePath)
 
 	return manifestFile, nil
+}
+
+func (storage *StorageLocal) CreateDeletedManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedManifestFile ManifestFile, err error) {
+	fileName := fmt.Sprintf("%s-m1.avro", uuid)
+	filePath := filepath.Join(metadataDirPath, fileName)
+
+	existingManifestContent, err := storage.readFileContent(existingManifestFile.Path)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+
+	deletedManifestFile, err = storage.storageUtils.WriteDeletedManifestFile(storage.fileSystemPrefix(), filePath, existingManifestContent)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+	LogDebug(storage.config, "Manifest file created at:", filePath)
+
+	return deletedManifestFile, nil
 }
 
 func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {

@@ -273,6 +273,24 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	return manifestFile, nil
 }
 
+func (storage *StorageS3) CreateDeletedManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedManifestFile ManifestFile, err error) {
+	fileName := fmt.Sprintf("%s-m1.avro", uuid)
+	filePath := metadataDirPath + "/" + fileName
+
+	existingManifestContent, err := storage.readFileContent(existingManifestFile.Path)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+
+	deletedManifestFile, err = storage.storageUtils.WriteDeletedManifestFile(storage.fullBucketPath(), filePath, existingManifestContent)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+	LogDebug(storage.config, "Manifest file created at:", filePath)
+
+	return deletedManifestFile, nil
+}
+
 func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
 	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
 	filePath := metadataDirPath + "/" + fileName

@@ -24,6 +24,9 @@ const (
 	PARQUET_ROW_GROUP_SIZE   = 128 * 1024 * 1024 // 128 MB
 	PARQUET_COMPRESSION_TYPE = parquet.CompressionCodec_ZSTD
 
+	ICEBERG_MANIFEST_STATUS_ADDED   = 1
+	ICEBERG_MANIFEST_STATUS_DELETED = 2
+
 	ICEBERG_METADATA_FILE_NAME  = "v1.metadata.json"
 	INTERNAL_METADATA_FILE_NAME = "bemidb.json"
 )
@@ -169,8 +172,8 @@ func (storage *StorageUtils) ParseManifestFiles(fileSystemPrefix string, manifes
 	return manifestFiles, nil
 }
 
-func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manifestFileContent []byte) (string, error) {
-	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestFileContent)))
+func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manifestContent []byte) (string, error) {
+	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestContent)))
 	if err != nil {
 		return "", err
 	}
@@ -447,10 +450,8 @@ func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath
 		"sort_order_id": nil,
 	}
 
-	status := 1 // 0: EXISTING 1: ADDED 2: DELETED
-
 	manifestEntry := map[string]interface{}{
-		"status":               status,
+		"status":               ICEBERG_MANIFEST_STATUS_ADDED,
 		"snapshot_id":          map[string]interface{}{"long": snapshotId},
 		"sequence_number":      nil,
 		"file_sequence_number": nil,
@@ -489,6 +490,63 @@ func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath
 		Size:         fileSize,
 		RecordCount:  parquetFile.RecordCount,
 		DataFileSize: parquetFile.Size,
+	}, nil
+}
+
+func (storage *StorageUtils) WriteDeletedManifestFile(fileSystemPrefix string, filePath string, existingManifestContent []byte) (ManifestFile, error) {
+	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(existingManifestContent)))
+	if err != nil {
+		return ManifestFile{}, err
+	}
+
+	ocfReader.Scan()
+	record, err := ocfReader.Read()
+	if err != nil {
+		return ManifestFile{}, err
+	}
+
+	recordMap := record.(map[string]interface{})
+	recordMap["status"] = ICEBERG_MANIFEST_STATUS_DELETED
+	recordMap["sequence_number"] = map[string]interface{}{"long": 1}
+	recordMap["file_sequence_number"] = map[string]interface{}{"long": 1}
+
+	avroFile, err := os.Create(filePath)
+	if err != nil {
+		return ManifestFile{}, fmt.Errorf("failed to create manifest file: %v", err)
+	}
+	defer avroFile.Close()
+
+	codec, err := goavro.NewCodec(MANIFEST_SCHEMA)
+	if err != nil {
+		return ManifestFile{}, fmt.Errorf("failed to create Avro codec: %v", err)
+	}
+
+	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
+		W:      avroFile,
+		Codec:  codec,
+		Schema: MANIFEST_SCHEMA,
+	})
+	if err != nil {
+		return ManifestFile{}, fmt.Errorf("failed to create Avro OCF writer: %v", err)
+	}
+
+	err = ocfWriter.Append([]interface{}{recordMap})
+	if err != nil {
+		return ManifestFile{}, fmt.Errorf("failed to write to manifest file: %v", err)
+	}
+
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return ManifestFile{}, fmt.Errorf("failed to get manifest file info: %v", err)
+	}
+	fileSize := fileInfo.Size()
+
+	return ManifestFile{
+		SnapshotId:   recordMap["snapshot_id"].(map[string]interface{})["long"].(int64),
+		Path:         filePath,
+		Size:         fileSize,
+		RecordCount:  recordMap["data_file"].(map[string]interface{})["record_count"].(int64),
+		DataFileSize: recordMap["data_file"].(map[string]interface{})["file_size_in_bytes"].(int64),
 	}, nil
 }
 

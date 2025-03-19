@@ -375,13 +375,20 @@ func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchema
 		PanicIfError(err, icebergWriter.config)
 
 		overwrittenParquetFile, err := icebergWriter.storage.CreateOverwrittenParquet(dataDirPath, existingParquetFilePath, parquetFile.Path, pgSchemaColumns, rowCountPerBatch)
+		PanicIfError(err, icebergWriter.config)
 		if overwrittenParquetFile.RecordCount == 0 {
 			err = icebergWriter.storage.DeleteParquet(overwrittenParquetFile)
 			PanicIfError(err, icebergWriter.config)
 			continue
 		}
 
-		LogError(icebergWriter.config, overwrittenParquetFile, err)
+		overwrittenManifestFile, err := icebergWriter.storage.CreateManifest(metadataDirPath, overwrittenParquetFile)
+		PanicIfError(err, icebergWriter.config)
+
+		deletedManifestFile, err := icebergWriter.storage.CreateDeletedManifest(metadataDirPath, overwrittenParquetFile.Uuid, existingManifestFile)
+		PanicIfError(err, icebergWriter.config)
+
+		LogError(icebergWriter.config, overwrittenManifestFile, deletedManifestFile)
 	}
 
 	LogError(icebergWriter.config, manifestFile)

@@ -89,6 +89,7 @@ type StorageInterface interface {
 	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
+	CreateDeletedManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedManifestFile ManifestFile, err error)
 	CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error)
 	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error)
 
