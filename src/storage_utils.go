@@ -27,6 +27,9 @@ const (
 	ICEBERG_MANIFEST_STATUS_ADDED   = 1
 	ICEBERG_MANIFEST_STATUS_DELETED = 2
 
+	ICEBERG_MANIFEST_LIST_OPERATION_APPEND    = "append"
+	ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE = "overwrite"
+
 	ICEBERG_METADATA_FILE_NAME  = "v1.metadata.json"
 	INTERNAL_METADATA_FILE_NAME = "bemidb.json"
 )
@@ -44,10 +47,11 @@ type MetadataJson struct {
 
 type ManifestListsJson struct {
 	Snapshots []struct {
-		SnapshotId  int64  `json:"snapshot-id"`
-		TimestampMs int64  `json:"timestamp-ms"`
-		Path        string `json:"manifest-list"`
-		Summary     struct {
+		SequenceNumber int    `json:"sequence-number"`
+		SnapshotId     int64  `json:"snapshot-id"`
+		TimestampMs    int64  `json:"timestamp-ms"`
+		Path           string `json:"manifest-list"`
+		Summary        struct {
 			Operation      string `json:"operation"`
 			AddedFilesSize string `json:"added-files-size"`
 			AddedDataFiles string `json:"added-data-files"`
@@ -127,6 +131,7 @@ func (storage *StorageUtils) ParseManifestListFiles(fileSystemPrefix string, met
 		}
 
 		manifestListFile := ManifestListFile{
+			SequenceNumber: snapshot.SequenceNumber,
 			SnapshotId:     snapshot.SnapshotId,
 			TimestampMs:    snapshot.TimestampMs,
 			Path:           strings.TrimPrefix(snapshot.Path, fileSystemPrefix),
@@ -616,10 +621,11 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 
 	lastManifestFile := manifestListItemsSortedDesc[0].ManifestFile
 	manifestListFile := ManifestListFile{
+		SequenceNumber: manifestListItemsSortedDesc[0].SequenceNumber,
 		SnapshotId:     lastManifestFile.SnapshotId,
 		TimestampMs:    time.Now().UnixNano() / int64(time.Millisecond),
 		Path:           filePath,
-		Operation:      "append",
+		Operation:      ICEBERG_MANIFEST_LIST_OPERATION_APPEND,
 		AddedFilesSize: lastManifestFile.DataFileSize,
 		AddedDataFiles: 1,
 		AddedRecords:   lastManifestFile.RecordCount,
@@ -644,8 +650,6 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 	totalRecords := int64(0)
 
 	for i, manifestListFile := range manifestListFilesSortedAsc {
-		sequenceNumber := i + 1
-
 		totalDataFiles += manifestListFile.AddedDataFiles
 		totalFilesSize += manifestListFile.AddedFilesSize
 		totalRecords += manifestListFile.AddedRecords
@@ -653,7 +657,7 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 		snapshot := map[string]interface{}{
 			"schema-id":       0,
 			"snapshot-id":     manifestListFile.SnapshotId,
-			"sequence-number": sequenceNumber,
+			"sequence-number": manifestListFile.SequenceNumber,
 			"timestamp-ms":    manifestListFile.TimestampMs,
 			"manifest-list":   fileSystemPrefix + manifestListFile.Path,
 			"summary": map[string]interface{}{
@@ -686,7 +690,7 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 		"table-uuid":           tableUuid,
 		"statistics":           []interface{}{},
 		"location":             fileSystemPrefix + filePath,
-		"last-sequence-number": len(manifestListFilesSortedAsc),
+		"last-sequence-number": lastManifestListFile.SequenceNumber,
 		"last-updated-ms":      lastManifestListFile.TimestampMs,
 		"last-column-id":       lastColumnID,
 		"schemas": []interface{}{

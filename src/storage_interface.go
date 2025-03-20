@@ -38,6 +38,7 @@ type ManifestListItem struct {
 }
 
 type ManifestListFile struct {
+	SequenceNumber int
 	SnapshotId     int64
 	TimestampMs    int64
 	Path           string
