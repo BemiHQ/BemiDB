@@ -142,13 +142,13 @@ func (storage *StorageUtils) ParseManifestListFiles(fileSystemPrefix string, met
 	return manifestListFilesSortedAsc, nil
 }
 
-func (storage *StorageUtils) ParseManifestFiles(fileSystemPrefix string, manifestListContent []byte) ([]ManifestFile, error) {
+func (storage *StorageUtils) ParseManifestFiles(fileSystemPrefix string, manifestListContent []byte) ([]ManifestListItem, error) {
 	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestListContent)))
 	if err != nil {
 		return nil, err
 	}
 
-	manifestFiles := []ManifestFile{}
+	manifestListItemsSortedDesc := []ManifestListItem{}
 
 	for ocfReader.Scan() {
 		record, err := ocfReader.Read()
@@ -158,18 +158,18 @@ func (storage *StorageUtils) ParseManifestFiles(fileSystemPrefix string, manifes
 
 		recordMap := record.(map[string]interface{})
 
-		manifestFile := ManifestFile{
-			SnapshotId:  recordMap["added_snapshot_id"].(int64),
-			Path:        strings.TrimPrefix(recordMap["manifest_path"].(string), fileSystemPrefix),
-			Size:        recordMap["manifest_length"].(int64),
-			RecordCount: recordMap["added_rows_count"].(int64),
-		}
-
-		manifestFiles = append(manifestFiles, manifestFile)
-
+		manifestListItemsSortedDesc = append(manifestListItemsSortedDesc, ManifestListItem{
+			ManifestFile: ManifestFile{
+				SnapshotId:  recordMap["added_snapshot_id"].(int64),
+				Path:        strings.TrimPrefix(recordMap["manifest_path"].(string), fileSystemPrefix),
+				Size:        recordMap["manifest_length"].(int64),
+				RecordCount: recordMap["added_rows_count"].(int64),
+			},
+			SequenceNumber: int(recordMap["sequence_number"].(int64)),
+		})
 	}
 
-	return manifestFiles, nil
+	return manifestListItemsSortedDesc, nil
 }
 
 func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manifestContent []byte) (string, error) {
@@ -493,7 +493,7 @@ func (storage *StorageUtils) WriteManifestFile(fileSystemPrefix string, filePath
 	}, nil
 }
 
-func (storage *StorageUtils) WriteDeletedManifestFile(fileSystemPrefix string, filePath string, existingManifestContent []byte) (ManifestFile, error) {
+func (storage *StorageUtils) WriteDeletedRecordsManifestFile(fileSystemPrefix string, filePath string, existingManifestContent []byte) (ManifestFile, error) {
 	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(existingManifestContent)))
 	if err != nil {
 		return ManifestFile{}, err
@@ -542,15 +542,16 @@ func (storage *StorageUtils) WriteDeletedManifestFile(fileSystemPrefix string, f
 	fileSize := fileInfo.Size()
 
 	return ManifestFile{
-		SnapshotId:   recordMap["snapshot_id"].(map[string]interface{})["long"].(int64),
-		Path:         filePath,
-		Size:         fileSize,
-		RecordCount:  recordMap["data_file"].(map[string]interface{})["record_count"].(int64),
-		DataFileSize: recordMap["data_file"].(map[string]interface{})["file_size_in_bytes"].(int64),
+		RecordsDeleted: true,
+		SnapshotId:     recordMap["snapshot_id"].(map[string]interface{})["long"].(int64),
+		Path:           filePath,
+		Size:           fileSize,
+		RecordCount:    recordMap["data_file"].(map[string]interface{})["record_count"].(int64),
+		DataFileSize:   recordMap["data_file"].(map[string]interface{})["file_size_in_bytes"].(int64),
 	}, nil
 }
 
-func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, filePath string, manifestFilesSortedDesc []ManifestFile) (ManifestListFile, error) {
+func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, filePath string, manifestListItemsSortedDesc []ManifestListItem) (ManifestListFile, error) {
 	codec, err := goavro.NewCodec(MANIFEST_LIST_SCHEMA)
 	if err != nil {
 		return ManifestListFile{}, fmt.Errorf("failed to create Avro codec for manifest list: %v", err)
@@ -558,12 +559,11 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 
 	var manifestListRecords []interface{}
 
-	for i, manifestFile := range manifestFilesSortedDesc {
-		sequenceNumber := len(manifestFilesSortedDesc) - i
+	for _, manifestListItem := range manifestListItemsSortedDesc {
+		sequenceNumber := manifestListItem.SequenceNumber
+		manifestFile := manifestListItem.ManifestFile
 
 		manifestListRecord := map[string]interface{}{
-			"added_files_count":    1,
-			"added_rows_count":     manifestFile.RecordCount,
 			"added_snapshot_id":    manifestFile.SnapshotId,
 			"manifest_length":      manifestFile.Size,
 			"manifest_path":        fileSystemPrefix + manifestFile.Path,
@@ -578,6 +578,19 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 			"partition_spec_id":    0,
 			"partitions":           map[string]interface{}{"array": []string{}},
 		}
+
+		if manifestFile.RecordsDeleted {
+			manifestListRecord["added_files_count"] = 0
+			manifestListRecord["added_rows_count"] = 0
+			manifestListRecord["deleted_files_count"] = 1
+			manifestListRecord["deleted_rows_count"] = manifestFile.RecordCount
+		} else {
+			manifestListRecord["added_files_count"] = 1
+			manifestListRecord["added_rows_count"] = manifestFile.RecordCount
+			manifestListRecord["deleted_files_count"] = 0
+			manifestListRecord["deleted_rows_count"] = 0
+		}
+
 		manifestListRecords = append(manifestListRecords, manifestListRecord)
 	}
 
@@ -601,7 +614,7 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 		return ManifestListFile{}, fmt.Errorf("failed to write manifest list record: %v", err)
 	}
 
-	lastManifestFile := manifestFilesSortedDesc[0]
+	lastManifestFile := manifestListItemsSortedDesc[0].ManifestFile
 	manifestListFile := ManifestListFile{
 		SnapshotId:     lastManifestFile.SnapshotId,
 		TimestampMs:    time.Now().UnixNano() / int64(time.Millisecond),

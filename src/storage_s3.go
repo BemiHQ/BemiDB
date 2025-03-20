@@ -112,7 +112,7 @@ func (storage *StorageS3) ExistingManifestListFiles(metadataDirPath string) ([]M
 	return storage.storageUtils.ParseManifestListFiles(storage.fullBucketPath(), metadataContent)
 }
 
-func (storage *StorageS3) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
+func (storage *StorageS3) ExistingManifestListItems(manifestListFile ManifestListFile) ([]ManifestListItem, error) {
 	manifestListContent, err := storage.readFileContent(manifestListFile.Path)
 	if err != nil {
 		return nil, err
@@ -273,7 +273,7 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	return manifestFile, nil
 }
 
-func (storage *StorageS3) CreateDeletedManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedManifestFile ManifestFile, err error) {
+func (storage *StorageS3) CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error) {
 	fileName := fmt.Sprintf("%s-m1.avro", uuid)
 	filePath := metadataDirPath + "/" + fileName
 
@@ -282,17 +282,17 @@ func (storage *StorageS3) CreateDeletedManifest(metadataDirPath string, uuid str
 		return ManifestFile{}, err
 	}
 
-	deletedManifestFile, err = storage.storageUtils.WriteDeletedManifestFile(storage.fullBucketPath(), filePath, existingManifestContent)
+	deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fullBucketPath(), filePath, existingManifestContent)
 	if err != nil {
 		return ManifestFile{}, err
 	}
 	LogDebug(storage.config, "Manifest file created at:", filePath)
 
-	return deletedManifestFile, nil
+	return deletedRecsManifestFile, nil
 }
 
-func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
+func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestListItemsSortedDesc[0].ManifestFile.SnapshotId, parquetFileUuid)
 	filePath := metadataDirPath + "/" + fileName
 
 	tempFile, err := CreateTemporaryFile("manifest")
@@ -301,7 +301,7 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestFilesSortedDesc)
+	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestListItemsSortedDesc)
 	if err != nil {
 		return ManifestListFile{}, err
 	}

@@ -24,11 +24,17 @@ type ParquetFile struct {
 }
 
 type ManifestFile struct {
-	SnapshotId   int64
-	Path         string
-	Size         int64
-	RecordCount  int64
-	DataFileSize int64
+	RecordsDeleted bool
+	SnapshotId     int64
+	Path           string
+	Size           int64
+	RecordCount    int64
+	DataFileSize   int64
+}
+
+type ManifestListItem struct {
+	SequenceNumber int
+	ManifestFile   ManifestFile
 }
 
 type ManifestListFile struct {
@@ -77,7 +83,7 @@ type StorageInterface interface {
 	IcebergMetadataFilePath(icebergSchemaTable IcebergSchemaTable) (path string)
 	IcebergTableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error)
 	ExistingManifestListFiles(metadataDirPath string) (manifestListFilesSortedAsc []ManifestListFile, err error)
-	ExistingManifestFiles(manifestListFile ManifestListFile) (manifestFiles []ManifestFile, err error)
+	ExistingManifestListItems(manifestListFile ManifestListFile) (manifestListItemsSortedDesc []ManifestListItem, err error)
 	ExistingParquetFilePath(manifestFile ManifestFile) (parquetFilePath string, err error)
 
 	// Write
@@ -89,8 +95,8 @@ type StorageInterface interface {
 	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
-	CreateDeletedManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedManifestFile ManifestFile, err error)
-	CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error)
+	CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error)
+	CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile, err error)
 	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error)
 
 	// Read (internal)

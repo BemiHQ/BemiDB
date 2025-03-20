@@ -79,7 +79,7 @@ func (storage *StorageLocal) ExistingManifestListFiles(metadataDirPath string) (
 	return storage.storageUtils.ParseManifestListFiles(storage.fileSystemPrefix(), metadataContent)
 }
 
-func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
+func (storage *StorageLocal) ExistingManifestListItems(manifestListFile ManifestListFile) ([]ManifestListItem, error) {
 	manifestListContent, err := storage.readFileContent(manifestListFile.Path)
 	if err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile 
 	return manifestFile, nil
 }
 
-func (storage *StorageLocal) CreateDeletedManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedManifestFile ManifestFile, err error) {
+func (storage *StorageLocal) CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error) {
 	fileName := fmt.Sprintf("%s-m1.avro", uuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
@@ -246,20 +246,20 @@ func (storage *StorageLocal) CreateDeletedManifest(metadataDirPath string, uuid 
 		return ManifestFile{}, err
 	}
 
-	deletedManifestFile, err = storage.storageUtils.WriteDeletedManifestFile(storage.fileSystemPrefix(), filePath, existingManifestContent)
+	deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fileSystemPrefix(), filePath, existingManifestContent)
 	if err != nil {
 		return ManifestFile{}, err
 	}
 	LogDebug(storage.config, "Manifest file created at:", filePath)
 
-	return deletedManifestFile, nil
+	return deletedRecsManifestFile, nil
 }
 
-func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
+func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestListItemsSortedDesc[0].ManifestFile.SnapshotId, parquetFileUuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestFilesSortedDesc)
+	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestListItemsSortedDesc)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
