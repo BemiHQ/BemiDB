@@ -355,17 +355,17 @@ func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchema
 	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
 
 	// Build new parquet file
-	parquetFile, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
+	newParquetFile, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows)
 	PanicIfError(err, icebergWriter.config)
-	if parquetFile.RecordCount == 0 {
-		err = icebergWriter.storage.DeleteParquet(parquetFile)
+	if newParquetFile.RecordCount == 0 {
+		err = icebergWriter.storage.DeleteParquet(newParquetFile)
 		PanicIfError(err, icebergWriter.config)
 		return
 	}
 
 	// Read existing metadata
 	metadataDirPath := icebergWriter.storage.CreateMetadataDir(schemaTable)
-	manifestFile, err := icebergWriter.storage.CreateManifest(metadataDirPath, parquetFile)
+	newManifestFile, err := icebergWriter.storage.CreateManifest(metadataDirPath, newParquetFile)
 	PanicIfError(err, icebergWriter.config)
 
 	existingManifestListFilesSortedAsc, err := icebergWriter.storage.ExistingManifestListFiles(metadataDirPath)
@@ -378,28 +378,55 @@ func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchema
 	existingManifestListItemsSortedAsc := existingManifestListItems
 
 	lastSequenceNumber := existingManifestListItemsSortedAsc[len(existingManifestListItemsSortedAsc)-1].SequenceNumber
-	manifestListItemsSortedAsc := []ManifestListItem{}
-	manifestListFilesSortedAsc := existingManifestListFilesSortedAsc
+	finalManifestListItemsSortedAsc := []ManifestListItem{}
+	allManifestListFilesSortedAsc := existingManifestListFilesSortedAsc
 
 	// Overwrite UPDATEd records by creating new parquet files
-	for _, existingManifestListItem := range existingManifestListItemsSortedAsc {
+	for i, existingManifestListItem := range existingManifestListItemsSortedAsc {
 		existingManifestFile := existingManifestListItem.ManifestFile
 		existingParquetFilePath, err := icebergWriter.storage.ExistingParquetFilePath(existingManifestFile)
 		PanicIfError(err, icebergWriter.config)
 
-		overwrittenParquetFile, err := icebergWriter.storage.CreateOverwrittenParquet(dataDirPath, existingParquetFilePath, parquetFile.Path, pgSchemaColumns, rowCountPerBatch)
+		overwrittenParquetFile, err := icebergWriter.storage.CreateOverwrittenParquet(dataDirPath, existingParquetFilePath, newParquetFile.Path, pgSchemaColumns, rowCountPerBatch)
 		PanicIfError(err, icebergWriter.config)
+
+		// Keeping the manifest list item as is if no overlapping records found
 		if overwrittenParquetFile.Path == "" {
-			LogDebug(icebergWriter.config, "No overwritten records found")
-			manifestListItemsSortedAsc = append(manifestListItemsSortedAsc, existingManifestListItem)
+			LogDebug(icebergWriter.config, "No overlapping records found")
+			finalManifestListItemsSortedAsc = append(finalManifestListItemsSortedAsc, existingManifestListItem)
 			continue
 		}
 
+		// Deleting existing manifest list file if all records are overwritten
 		if overwrittenParquetFile.RecordCount == 0 {
-			LogDebug(icebergWriter.config, "Deleted", existingManifestFile.RecordCount, "record(s)")
-		} else {
-			LogDebug(icebergWriter.config, "Overwritten", existingManifestFile.RecordCount, "record(s) with", overwrittenParquetFile.RecordCount, "record(s)")
+			LogDebug(icebergWriter.config, "Deleting", existingManifestFile.RecordCount, "record(s)...")
+
+			deletedRecsManifestFile, err := icebergWriter.storage.CreateDeletedRecordsManifest(metadataDirPath, overwrittenParquetFile.Uuid, existingManifestFile)
+			PanicIfError(err, icebergWriter.config)
+
+			overwrittenManifestListItemsSortedAsc := []ManifestListItem{}
+			for j, existingItem := range existingManifestListItemsSortedAsc {
+				if i != j {
+					overwrittenManifestListItemsSortedAsc = append(overwrittenManifestListItemsSortedAsc, existingItem)
+				}
+			}
+			lastSequenceNumber++
+			overwrittenManifestListItemsSortedAsc = append(
+				overwrittenManifestListItemsSortedAsc,
+				ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: deletedRecsManifestFile},
+			)
+			slices.Reverse(overwrittenManifestListItemsSortedAsc)
+			overwrittenManifestListItemsSortedDesc := overwrittenManifestListItemsSortedAsc
+
+			overwrittenManifestList, err := icebergWriter.storage.CreateManifestList(metadataDirPath, newParquetFile.Uuid, overwrittenManifestListItemsSortedDesc)
+			PanicIfError(err, icebergWriter.config)
+
+			allManifestListFilesSortedAsc = append(allManifestListFilesSortedAsc, overwrittenManifestList)
+			continue
 		}
+
+		// Overwriting existing manifest list file with a new one
+		LogDebug(icebergWriter.config, "Overwritting", existingManifestFile.RecordCount, "record(s) with", overwrittenParquetFile.RecordCount, "record(s)...")
 
 		deletedRecsManifestFile, err := icebergWriter.storage.CreateDeletedRecordsManifest(metadataDirPath, overwrittenParquetFile.Uuid, existingManifestFile)
 		PanicIfError(err, icebergWriter.config)
@@ -410,24 +437,24 @@ func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchema
 		lastSequenceNumber++
 		overwrittenManifestListItem := ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: overwrittenManifestFile}
 		deletedRecsManifestListItem := ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: deletedRecsManifestFile}
-		overwrittenManifestList, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile.Uuid, []ManifestListItem{overwrittenManifestListItem, deletedRecsManifestListItem})
+		overwrittenManifestList, err := icebergWriter.storage.CreateManifestList(metadataDirPath, newParquetFile.Uuid, []ManifestListItem{overwrittenManifestListItem, deletedRecsManifestListItem})
 		PanicIfError(err, icebergWriter.config)
 
-		manifestListItemsSortedAsc = append(manifestListItemsSortedAsc, overwrittenManifestListItem)
-		manifestListFilesSortedAsc = append(manifestListFilesSortedAsc, overwrittenManifestList)
+		finalManifestListItemsSortedAsc = append(finalManifestListItemsSortedAsc, overwrittenManifestListItem)
+		allManifestListFilesSortedAsc = append(allManifestListFilesSortedAsc, overwrittenManifestList)
 	}
 
 	// Stitch new parquet file with overwritten parquet files
 	lastSequenceNumber++
-	manifestListItemsSortedAsc = append(manifestListItemsSortedAsc, ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: manifestFile})
-	slices.Reverse(manifestListItemsSortedAsc)
-	manifestListItemsSortedDesc := manifestListItemsSortedAsc
+	finalManifestListItemsSortedAsc = append(finalManifestListItemsSortedAsc, ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: newManifestFile})
+	slices.Reverse(finalManifestListItemsSortedAsc)
+	finalManifestListItemsSortedDesc := finalManifestListItemsSortedAsc
 
-	manifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, parquetFile.Uuid, manifestListItemsSortedDesc)
+	newManifestListFile, err := icebergWriter.storage.CreateManifestList(metadataDirPath, newParquetFile.Uuid, finalManifestListItemsSortedDesc)
 	PanicIfError(err, icebergWriter.config)
 
-	manifestListFilesSortedAsc = append(manifestListFilesSortedAsc, manifestListFile)
-	_, err = icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, manifestListFilesSortedAsc)
+	allManifestListFilesSortedAsc = append(allManifestListFilesSortedAsc, newManifestListFile)
+	_, err = icebergWriter.storage.CreateMetadata(metadataDirPath, pgSchemaColumns, allManifestListFilesSortedAsc)
 	PanicIfError(err, icebergWriter.config)
 }
 

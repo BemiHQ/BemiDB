@@ -170,62 +170,62 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 	})
 
-	// t.Run("Processes incremental UPDATE -> same-record UPDATE", func(t *testing.T) {
-	// 	config := loadTestConfig()
-	// 	icebergWriter := NewIcebergWriter(config)
-	// 	icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-	// 	icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_ROWS))
-	//
-	// 	icebergWriter.WriteIncrementally(
-	// 		TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-	// 		TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-	// 		10,
-	// 		createTestLoadRows([][]string{{"2", "Jane"}}),
-	// 	)
-	// 	icebergWriter.WriteIncrementally(
-	// 		TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-	// 		TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-	// 		10,
-	// 		createTestLoadRows([][]string{{"2", "Alice"}}),
-	// 	)
-	//
-	// 	manifestListFiles := readManifestListFiles(t, icebergWriter)
-	// 	if len(manifestListFiles) != 5 {
-	// 		t.Fatalf("Expected 5 manifest list files, got %d", len(manifestListFiles))
-	// 	}
-	// 	testManifestListFile(t, manifestListFiles[0], ManifestListFile{
-	// 		SequenceNumber: 1,
-	// 		Operation:      "append",
-	// 		AddedDataFiles: 1,
-	// 		AddedRecords:   2,
-	// 	})
-	// 	testManifestListFile(t, manifestListFiles[1], ManifestListFile{
-	// 		SequenceNumber:   2,
-	// 		Operation:        "overwrite",
-	// 		DeletedDataFiles: 1,
-	// 		DeletedRecords:   2,
-	// 		AddedDataFiles:   1,
-	// 		AddedRecords:     1,
-	// 	})
-	// 	testManifestListFile(t, manifestListFiles[2], ManifestListFile{
-	// 		SequenceNumber: 3,
-	// 		Operation:      "append",
-	// 		AddedDataFiles: 1,
-	// 		AddedRecords:   1,
-	// 	})
-	// 	testManifestListFile(t, manifestListFiles[3], ManifestListFile{
-	// 		SequenceNumber:   4,
-	// 		Operation:        "delete",
-	// 		DeletedDataFiles: 1,
-	// 		DeletedRecords:   1,
-	// 	})
-	// 	testManifestListFile(t, manifestListFiles[4], ManifestListFile{
-	// 		SequenceNumber: 5,
-	// 		Operation:      "append",
-	// 		AddedDataFiles: 1,
-	// 		AddedRecords:   1,
-	// 	})
-	// })
+	t.Run("Processes incremental UPDATE -> same-record UPDATE", func(t *testing.T) {
+		config := loadTestConfig()
+		icebergWriter := NewIcebergWriter(config)
+		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
+		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_ROWS))
+
+		icebergWriter.WriteIncrementally(
+			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
+			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
+			10,
+			createTestLoadRows([][]string{{"2", "Jane"}}),
+		)
+		icebergWriter.WriteIncrementally(
+			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
+			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
+			10,
+			createTestLoadRows([][]string{{"2", "Alice"}}),
+		)
+
+		manifestListFiles := readManifestListFiles(t, icebergWriter)
+		if len(manifestListFiles) != 5 {
+			t.Fatalf("Expected 5 manifest list files, got %d", len(manifestListFiles))
+		}
+		testManifestListFile(t, manifestListFiles[0], ManifestListFile{
+			SequenceNumber: 1,
+			Operation:      "append",
+			AddedDataFiles: 1,
+			AddedRecords:   2,
+		})
+		testManifestListFile(t, manifestListFiles[1], ManifestListFile{
+			SequenceNumber:   2,
+			Operation:        "overwrite",
+			DeletedDataFiles: 1,
+			DeletedRecords:   2,
+			AddedDataFiles:   1,
+			AddedRecords:     1,
+		})
+		testManifestListFile(t, manifestListFiles[2], ManifestListFile{
+			SequenceNumber: 3,
+			Operation:      "append",
+			AddedDataFiles: 1,
+			AddedRecords:   1,
+		})
+		testManifestListFile(t, manifestListFiles[3], ManifestListFile{
+			SequenceNumber:   4,
+			Operation:        "delete",
+			DeletedDataFiles: 1,
+			DeletedRecords:   1,
+		})
+		testManifestListFile(t, manifestListFiles[4], ManifestListFile{
+			SequenceNumber: 5,
+			Operation:      "append",
+			AddedDataFiles: 1,
+			AddedRecords:   1,
+		})
+	})
 }
 
 func createTestLoadRows(testRows [][]string) func() [][]string {

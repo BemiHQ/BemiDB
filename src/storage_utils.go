@@ -29,6 +29,7 @@ const (
 
 	ICEBERG_MANIFEST_LIST_OPERATION_APPEND    = "append"
 	ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE = "overwrite"
+	ICEBERG_MANIFEST_LIST_OPERATION_DELETE    = "delete"
 
 	ICEBERG_METADATA_FILE_NAME  = "v1.metadata.json"
 	INTERNAL_METADATA_FILE_NAME = "bemidb.json"
@@ -586,8 +587,7 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 
 	var manifestListRecords []interface{}
 
-	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
-	var removedFilesSize, deletedDataFiles, deletedRecords int64
+	var addedFilesSize, addedDataFiles, addedRecords, removedFilesSize, deletedDataFiles, deletedRecords int64
 
 	for _, manifestListItem := range manifestListItemsSortedDesc {
 		sequenceNumber := manifestListItem.SequenceNumber
@@ -614,8 +614,6 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 			manifestListRecord["added_rows_count"] = 0
 			manifestListRecord["deleted_files_count"] = 1
 			manifestListRecord["deleted_rows_count"] = manifestFile.RecordCount
-
-			operation = ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE
 			removedFilesSize += manifestFile.DataFileSize
 			deletedDataFiles++
 			deletedRecords += manifestFile.RecordCount
@@ -627,6 +625,22 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 		}
 
 		manifestListRecords = append(manifestListRecords, manifestListRecord)
+	}
+
+	lastManifestFile := manifestListItemsSortedDesc[0].ManifestFile
+	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
+	addedDataFiles = 1
+	addedFilesSize = lastManifestFile.DataFileSize
+	addedRecords = lastManifestFile.RecordCount
+	if deletedDataFiles > 0 {
+		if len(manifestListItemsSortedDesc) == 2 && manifestListItemsSortedDesc[0].SequenceNumber == manifestListItemsSortedDesc[1].SequenceNumber {
+			operation = ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE
+		} else {
+			operation = ICEBERG_MANIFEST_LIST_OPERATION_DELETE
+			addedFilesSize = 0
+			addedDataFiles = 0
+			addedRecords = 0
+		}
 	}
 
 	avroFile, err := os.Create(filePath)
@@ -649,16 +663,15 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 		return ManifestListFile{}, fmt.Errorf("failed to write manifest list record: %v", err)
 	}
 
-	lastManifestFile := manifestListItemsSortedDesc[0].ManifestFile
 	manifestListFile := ManifestListFile{
 		SequenceNumber:   manifestListItemsSortedDesc[0].SequenceNumber,
 		SnapshotId:       lastManifestFile.SnapshotId,
 		TimestampMs:      time.Now().UnixNano() / int64(time.Millisecond),
 		Path:             filePath,
 		Operation:        operation,
-		AddedFilesSize:   lastManifestFile.DataFileSize,
-		AddedDataFiles:   1,
-		AddedRecords:     lastManifestFile.RecordCount,
+		AddedFilesSize:   addedFilesSize,
+		AddedDataFiles:   addedDataFiles,
+		AddedRecords:     addedRecords,
 		RemovedFilesSize: removedFilesSize,
 		DeletedDataFiles: deletedDataFiles,
 		DeletedRecords:   deletedRecords,

@@ -215,8 +215,8 @@ func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingP
 		storage.DeleteParquet(ParquetFile{Path: fileKey})
 		return ParquetFile{}, nil
 	}
-	defer fileWriter.Close()
 	defer duckdb.Close()
+	defer fileWriter.Close()
 
 	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(duckdb, fileWriter, pgSchemaColumns, rowCountPerBatch)
 	if err != nil {
