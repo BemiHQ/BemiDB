@@ -564,6 +564,9 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 
 	var manifestListRecords []interface{}
 
+	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
+	var removedFilesSize, deletedDataFiles, deletedRecords int64
+
 	for _, manifestListItem := range manifestListItemsSortedDesc {
 		sequenceNumber := manifestListItem.SequenceNumber
 		manifestFile := manifestListItem.ManifestFile
@@ -589,6 +592,11 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 			manifestListRecord["added_rows_count"] = 0
 			manifestListRecord["deleted_files_count"] = 1
 			manifestListRecord["deleted_rows_count"] = manifestFile.RecordCount
+
+			operation = ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE
+			removedFilesSize += manifestFile.DataFileSize
+			deletedDataFiles++
+			deletedRecords += manifestFile.RecordCount
 		} else {
 			manifestListRecord["added_files_count"] = 1
 			manifestListRecord["added_rows_count"] = manifestFile.RecordCount
@@ -621,14 +629,17 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 
 	lastManifestFile := manifestListItemsSortedDesc[0].ManifestFile
 	manifestListFile := ManifestListFile{
-		SequenceNumber: manifestListItemsSortedDesc[0].SequenceNumber,
-		SnapshotId:     lastManifestFile.SnapshotId,
-		TimestampMs:    time.Now().UnixNano() / int64(time.Millisecond),
-		Path:           filePath,
-		Operation:      ICEBERG_MANIFEST_LIST_OPERATION_APPEND,
-		AddedFilesSize: lastManifestFile.DataFileSize,
-		AddedDataFiles: 1,
-		AddedRecords:   lastManifestFile.RecordCount,
+		SequenceNumber:   manifestListItemsSortedDesc[0].SequenceNumber,
+		SnapshotId:       lastManifestFile.SnapshotId,
+		TimestampMs:      time.Now().UnixNano() / int64(time.Millisecond),
+		Path:             filePath,
+		Operation:        operation,
+		AddedFilesSize:   lastManifestFile.DataFileSize,
+		AddedDataFiles:   1,
+		AddedRecords:     lastManifestFile.RecordCount,
+		RemovedFilesSize: removedFilesSize,
+		DeletedDataFiles: deletedDataFiles,
+		DeletedRecords:   deletedRecords,
 	}
 	return manifestListFile, nil
 }
@@ -645,14 +656,12 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 	snapshots := make([]map[string]interface{}, len(manifestListFilesSortedAsc))
 	snapshotLog := make([]map[string]interface{}, len(manifestListFilesSortedAsc))
 
-	totalDataFiles := int64(0)
-	totalFilesSize := int64(0)
-	totalRecords := int64(0)
+	var totalDataFiles, totalFilesSize, totalRecords int64
 
 	for i, manifestListFile := range manifestListFilesSortedAsc {
-		totalDataFiles += manifestListFile.AddedDataFiles
-		totalFilesSize += manifestListFile.AddedFilesSize
-		totalRecords += manifestListFile.AddedRecords
+		totalDataFiles += manifestListFile.AddedDataFiles - manifestListFile.DeletedDataFiles
+		totalFilesSize += manifestListFile.AddedFilesSize - manifestListFile.RemovedFilesSize
+		totalRecords += manifestListFile.AddedRecords - manifestListFile.DeletedRecords
 
 		snapshot := map[string]interface{}{
 			"schema-id":       0,
@@ -661,10 +670,13 @@ func (storage *StorageUtils) WriteMetadataFile(fileSystemPrefix string, filePath
 			"timestamp-ms":    manifestListFile.TimestampMs,
 			"manifest-list":   fileSystemPrefix + manifestListFile.Path,
 			"summary": map[string]interface{}{
+				"operation":              manifestListFile.Operation,
 				"added-data-files":       Int64ToString(manifestListFile.AddedDataFiles),
 				"added-files-size":       Int64ToString(manifestListFile.AddedFilesSize),
 				"added-records":          Int64ToString(manifestListFile.AddedRecords),
-				"operation":              manifestListFile.Operation,
+				"deleted-data-files":     Int64ToString(manifestListFile.DeletedDataFiles),
+				"deleted-records":        Int64ToString(manifestListFile.DeletedRecords),
+				"removed-files-size":     Int64ToString(manifestListFile.RemovedFilesSize),
 				"total-data-files":       Int64ToString(totalDataFiles),
 				"total-files-size":       Int64ToString(totalFilesSize),
 				"total-records":          Int64ToString(totalRecords),

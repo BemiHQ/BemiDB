@@ -38,14 +38,17 @@ type ManifestListItem struct {
 }
 
 type ManifestListFile struct {
-	SequenceNumber int
-	SnapshotId     int64
-	TimestampMs    int64
-	Path           string
-	Operation      string
-	AddedFilesSize int64
-	AddedDataFiles int64
-	AddedRecords   int64
+	SequenceNumber   int
+	SnapshotId       int64
+	TimestampMs      int64
+	Path             string
+	Operation        string
+	AddedFilesSize   int64
+	AddedDataFiles   int64
+	AddedRecords     int64
+	RemovedFilesSize int64
+	DeletedDataFiles int64
+	DeletedRecords   int64
 }
 
 type MetadataFile struct {
