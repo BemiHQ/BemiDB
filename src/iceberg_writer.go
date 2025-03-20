@@ -379,7 +379,7 @@ func (icebergWriter *IcebergWriter) WriteIncrementally(schemaTable IcebergSchema
 
 	lastSequenceNumber := existingManifestListItemsSortedAsc[len(existingManifestListItemsSortedAsc)-1].SequenceNumber
 	manifestListItemsSortedAsc := []ManifestListItem{}
-	manifestListFilesSortedAsc := []ManifestListFile{lastExistingManifestListFile}
+	manifestListFilesSortedAsc := existingManifestListFilesSortedAsc
 
 	// Overwrite UPDATEd records by creating new parquet files
 	for _, existingManifestListItem := range existingManifestListItemsSortedAsc {
