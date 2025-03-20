@@ -254,9 +254,32 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 	return recordCount, nil
 }
 
-func (storage *StorageUtils) WriteOverwrittenParquetFile(fileWriter source.ParquetFile, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (recordCount int64, err error) {
-	defer fileWriter.Close()
+func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {
+	duckdb := NewDuckdb(
+		storage.config,
+		"CREATE TABLE existing_parquet AS SELECT * FROM '"+existingParquetFilePath+"'",
+		"CREATE TABLE new_parquet AS SELECT * FROM '"+newParquetFilePath+"'",
+	)
 
+	var pkColumnNames []string
+	for _, pgSchemaColumn := range pgSchemaColumns {
+		if pgSchemaColumn.PartOfPrimaryKey {
+			pkColumnNames = append(pkColumnNames, pgSchemaColumn.ColumnName)
+		}
+	}
+
+	hasOverlappingRows, err := storage.hasOverlappingRows(pkColumnNames, duckdb)
+	if err != nil {
+		return nil, err
+	}
+
+	if hasOverlappingRows {
+		return duckdb, nil
+	}
+	return nil, nil
+}
+
+func (storage *StorageUtils) WriteOverwrittenParquetFile(duckdb *Duckdb, fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (recordCount int64, err error) {
 	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
 	LogDebug(storage.config, "Parquet schema:", schemaJson)
 	parquetWriter, err := writer.NewJSONWriter(schemaJson, fileWriter, PARQUET_PARALLEL_NUMBER)
@@ -266,13 +289,6 @@ func (storage *StorageUtils) WriteOverwrittenParquetFile(fileWriter source.Parqu
 	parquetWriter.RowGroupSize = PARQUET_ROW_GROUP_SIZE
 	parquetWriter.CompressionType = PARQUET_COMPRESSION_TYPE
 
-	duckdb := NewDuckdb(
-		storage.config,
-		"CREATE TABLE existing_parquet AS SELECT * FROM '"+existingParquetFilePath+"'",
-		"CREATE TABLE new_parquet AS SELECT * FROM '"+newParquetFilePath+"'",
-	)
-	defer duckdb.Close()
-
 	var pkColumnNames []string
 	var columnNames []string
 	for _, pgSchemaColumn := range pgSchemaColumns {
@@ -280,18 +296,6 @@ func (storage *StorageUtils) WriteOverwrittenParquetFile(fileWriter source.Parqu
 			pkColumnNames = append(pkColumnNames, pgSchemaColumn.ColumnName)
 		}
 		columnNames = append(columnNames, pgSchemaColumn.ColumnName)
-	}
-
-	hasOverlappingRows, err := storage.hasOverlappingRows(pkColumnNames, duckdb)
-	if err != nil {
-		return 0, err
-	}
-	if !hasOverlappingRows {
-		err := parquetWriter.WriteStop()
-		if err != nil {
-			return 0, fmt.Errorf("failed to stop Parquet writer: %v", err)
-		}
-		return 0, nil
 	}
 
 	batch := 0

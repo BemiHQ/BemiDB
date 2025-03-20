@@ -206,7 +206,19 @@ func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingP
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(fileWriter, existingParquetFilePath, newParquetFilePath, pgSchemaColumns, rowCountPerBatch)
+	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+	if duckdb == nil {
+		fileWriter.Close()
+		storage.DeleteParquet(ParquetFile{Path: fileKey})
+		return ParquetFile{}, nil
+	}
+	defer fileWriter.Close()
+	defer duckdb.Close()
+
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(duckdb, fileWriter, pgSchemaColumns, rowCountPerBatch)
 	if err != nil {
 		return ParquetFile{}, err
 	}
