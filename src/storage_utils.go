@@ -52,10 +52,13 @@ type ManifestListsJson struct {
 		TimestampMs    int64  `json:"timestamp-ms"`
 		Path           string `json:"manifest-list"`
 		Summary        struct {
-			Operation      string `json:"operation"`
-			AddedFilesSize string `json:"added-files-size"`
-			AddedDataFiles string `json:"added-data-files"`
-			AddedRecords   string `json:"added-records"`
+			Operation        string `json:"operation"`
+			AddedFilesSize   string `json:"added-files-size"`
+			AddedDataFiles   string `json:"added-data-files"`
+			AddedRecords     string `json:"added-records"`
+			RemovedFilesSize string `json:"removed-files-size"`
+			DeletedDataFiles string `json:"deleted-data-files"`
+			DeletedRecords   string `json:"deleted-records"`
 		} `json:"summary"`
 	} `json:"snapshots"`
 }
@@ -129,16 +132,31 @@ func (storage *StorageUtils) ParseManifestListFiles(fileSystemPrefix string, met
 		if err != nil {
 			return nil, err
 		}
+		removedFilesSize, err := StringToInt64(snapshot.Summary.RemovedFilesSize)
+		if err != nil {
+			return nil, err
+		}
+		deletedDataFiles, err := StringToInt64(snapshot.Summary.DeletedDataFiles)
+		if err != nil {
+			return nil, err
+		}
+		deletedRecords, err := StringToInt64(snapshot.Summary.DeletedRecords)
+		if err != nil {
+			return nil, err
+		}
 
 		manifestListFile := ManifestListFile{
-			SequenceNumber: snapshot.SequenceNumber,
-			SnapshotId:     snapshot.SnapshotId,
-			TimestampMs:    snapshot.TimestampMs,
-			Path:           strings.TrimPrefix(snapshot.Path, fileSystemPrefix),
-			Operation:      snapshot.Summary.Operation,
-			AddedFilesSize: addedFilesSize,
-			AddedDataFiles: addedDataFiles,
-			AddedRecords:   addedRecords,
+			SequenceNumber:   snapshot.SequenceNumber,
+			SnapshotId:       snapshot.SnapshotId,
+			TimestampMs:      snapshot.TimestampMs,
+			Path:             strings.TrimPrefix(snapshot.Path, fileSystemPrefix),
+			Operation:        snapshot.Summary.Operation,
+			AddedFilesSize:   addedFilesSize,
+			AddedDataFiles:   addedDataFiles,
+			AddedRecords:     addedRecords,
+			RemovedFilesSize: removedFilesSize,
+			DeletedDataFiles: deletedDataFiles,
+			DeletedRecords:   deletedRecords,
 		}
 
 		manifestListFilesSortedAsc = append(manifestListFilesSortedAsc, manifestListFile)
