@@ -14,7 +14,6 @@ It consists of a single binary that seamlessly connects to a Postgres database, 
 - [Architecture](#architecture)
 - [Benchmark](#benchmark)
 - [Data type mapping](#data-type-mapping)
-- [Future roadmap](#future-roadmap)
 - [Alternatives](#alternatives)
 - [Development](#development)
 - [License](#license)
@@ -77,7 +76,7 @@ Here is an example of running BemiDB with default settings and storing data in a
 ```sh
 ./bemidb \
   --storage-type LOCAL \
-  --storage-path ./iceberg \ # $PWD/iceberg/*
+  --storage-path ./iceberg \ # Data stored in $pwd/iceberg/*
   start
 ```
 
@@ -88,7 +87,7 @@ BemiDB natively supports S3 storage. You can specify the S3 settings using the f
 ```sh
 ./bemidb \
   --storage-type S3 \
-  --storage-path iceberg \ # s3://[AWS_S3_BUCKET]/iceberg/*
+  --storage-path iceberg \ # Data stored in s3://[AWS_S3_BUCKET]/iceberg/*
   --aws-region [AWS_REGION] \
   --aws-s3-bucket [AWS_S3_BUCKET] \
   --aws-access-key-id [AWS_ACCESS_KEY_ID] \
@@ -126,34 +125,42 @@ Sync data periodically from a Postgres database:
 
 ```sh
 ./bemidb \
-  --pg-sync-interval 1h \
+  --pg-sync-interval 1h \ # Supported units: h, m, s, etc.
   --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
   sync
 ```
 
-Note that incremental real-time replication is not supported yet (WIP). Please see the [Future roadmap](#future-roadmap).
+### Selective table syncing
 
-### Syncing from selective tables
-
-You can sync only specific tables from your Postgres database. To include specific tables during the sync:
+By default, BemiDB syncs all tables from the Postgres database. To sync only specific tables from your Postgres database:
 
 ```sh
 ./bemidb \
-  --pg-include-tables public.users,public.transactions \
+  --pg-include-tables public.users,public.transactions,public.billing_* \
   --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
   sync
 ```
+
+Table names can contain wildcards like `public.*`, `public.bookings_*`, `public.*_reports`, `*.auth`, etc.
 
 To exclude specific tables during the sync:
 
 ```sh
 ./bemidb \
-  --pg-exclude-tables public.cache,public.logs \
+  --pg-exclude-tables public.cache,public.*_logs \
   --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
   sync
 ```
 
-Note: You cannot use `--pg-include-tables` and `--pg-exclude-tables` simultaneously.
+Note: if a table matches both `--pg-include-tables` and `--pg-exclude-tables`, it will be excluded. For example, to include all tables in the `public` schema except for the `cache` table:
+
+```sh
+./bemidb \
+  --pg-include-tables public.* \
+  --pg-exclude-tables public.cache \
+  --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
+  sync
+```
 
 ### Syncing from multiple Postgres databases
 
@@ -190,8 +197,6 @@ psql postgres://localhost:54321/bemidb -c \
 |---------------------------------------|-------------------------------------|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `--pg-database-url`                   | `PG_DATABASE_URL`                   | Required      | PostgreSQL database URL to sync                                                                                                                                                                      |
 | `--pg-sync-interval`                  | `PG_SYNC_INTERVAL`                  |               | Interval between syncs. Valid units: `ns`, `us`/`µs`, `ms`, `s`, `m`, `h`                                                                                                                            |
-| `--pg-exclude-schemas`                | `PG_EXCLUDE_SCHEMAS`                |               | List of schemas to exclude from sync. Comma-separated. May contain wildcards (`*`)                                                                                                                   |
-| `--pg-include-schemas`                | `PG_INCLUDE_SCHEMAS`                |               | List of schemas to include in sync. Comma-separated. May contain wildcards (`*`)                                                                                                                     |
 | `--pg-exclude-tables`                 | `PG_EXCLUDE_TABLES`                 |               | List of tables to exclude from sync. Comma-separated `schema.table`. May contain wildcards (`*`)                                                                                                     |
 | `--pg-include-tables`                 | `PG_INCLUDE_TABLES`                 |               | List of tables to include in sync. Comma-separated `schema.table`. May contain wildcards (`*`)                                                                                                       |
 | `--pg-incrementally-refreshed-tables` | `PG_INCREMENTALLY_REFRESHED_TABLES` |               | List of tables to refresh incrementally (vs a full refresh by default), currently limited to INSERT-modified tables (i.e., append-only). Comma-separated `schema.table`. May contain wildcards (`*`) |

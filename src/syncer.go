@@ -133,22 +133,12 @@ func (syncer *Syncer) urlEncodePassword(databaseUrl string) string {
 }
 
 func (syncer *Syncer) shouldSyncTable(pgSchemaTable PgSchemaTable) bool {
-	if syncer.config.Pg.IncludeSchemas != nil {
-		if !HasExactOrWildcardMatch(syncer.config.Pg.IncludeSchemas, pgSchemaTable.Schema) {
-			return false
-		}
-	} else if syncer.config.Pg.ExcludeSchemas != nil {
-		if HasExactOrWildcardMatch(syncer.config.Pg.ExcludeSchemas, pgSchemaTable.Schema) {
-			return false
-		}
+	if syncer.config.Pg.ExcludeTables != nil && HasExactOrWildcardMatch(syncer.config.Pg.ExcludeTables, pgSchemaTable.ToConfigArg()) {
+		return false
 	}
 
 	if syncer.config.Pg.IncludeTables != nil {
 		return HasExactOrWildcardMatch(syncer.config.Pg.IncludeTables, pgSchemaTable.ToConfigArg())
-	}
-
-	if syncer.config.Pg.ExcludeTables != nil {
-		return !HasExactOrWildcardMatch(syncer.config.Pg.ExcludeTables, pgSchemaTable.ToConfigArg())
 	}
 
 	return true

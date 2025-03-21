@@ -29,8 +29,6 @@ const (
 	ENV_PG_DATABASE_URL                   = "PG_DATABASE_URL"
 	ENV_PG_SYNC_INTERVAL                  = "PG_SYNC_INTERVAL"
 	ENV_PG_SCHEMA_PREFIX                  = "PG_SCHEMA_PREFIX"
-	ENV_PG_INCLUDE_SCHEMAS                = "PG_INCLUDE_SCHEMAS"
-	ENV_PG_EXCLUDE_SCHEMAS                = "PG_EXCLUDE_SCHEMAS"
 	ENV_PG_INCLUDE_TABLES                 = "PG_INCLUDE_TABLES"
 	ENV_PG_EXCLUDE_TABLES                 = "PG_EXCLUDE_TABLES"
 	ENV_PG_INCREMENTALLY_REFRESHED_TABLES = "PG_INCREMENTALLY_REFRESHED_TABLES"
@@ -65,8 +63,6 @@ type PgConfig struct {
 	DatabaseUrl                  string
 	SyncInterval                 string   // optional
 	SchemaPrefix                 string   // optional
-	IncludeSchemas               []string // optional
-	ExcludeSchemas               []string // optional
 	IncludeTables                []string // optional
 	ExcludeTables                []string // optional
 	IncrementallyRefreshedTables []string // optional
@@ -90,8 +86,6 @@ type Config struct {
 
 type configParseValues struct {
 	password                       string
-	pgIncludeSchemas               string
-	pgExcludeSchemas               string
 	pgIncludeTables                string
 	pgExcludeTables                string
 	pgIncrementallyRefreshedTables string
@@ -116,8 +110,6 @@ func registerFlags() {
 	flag.StringVar(&_config.StorageType, "storage-type", os.Getenv(ENV_STORAGE_TYPE), "Storage type: \"LOCAL\", \"S3\". Default: \""+DEFAULT_DB_STORAGE_TYPE+"\"")
 	flag.StringVar(&_config.Pg.SchemaPrefix, "pg-schema-prefix", os.Getenv(ENV_PG_SCHEMA_PREFIX), "(Optional) Prefix for PostgreSQL schema names")
 	flag.StringVar(&_config.Pg.SyncInterval, "pg-sync-interval", os.Getenv(ENV_PG_SYNC_INTERVAL), "(Optional) Interval between syncs. Valid units: \"ns\", \"us\" (or \"µs\"), \"ms\", \"s\", \"m\", \"h\"")
-	flag.StringVar(&_configParseValues.pgIncludeSchemas, "pg-include-schemas", os.Getenv(ENV_PG_INCLUDE_SCHEMAS), "(Optional) Comma-separated list of schemas to include in sync")
-	flag.StringVar(&_configParseValues.pgExcludeSchemas, "pg-exclude-schemas", os.Getenv(ENV_PG_EXCLUDE_SCHEMAS), "(Optional) Comma-separated list of schemas to exclude from sync")
 	flag.StringVar(&_configParseValues.pgIncludeTables, "pg-include-tables", os.Getenv(ENV_PG_INCLUDE_TABLES), "(Optional) Comma-separated list of tables to include in sync (format: schema.table)")
 	flag.StringVar(&_configParseValues.pgExcludeTables, "pg-exclude-tables", os.Getenv(ENV_PG_EXCLUDE_TABLES), "(Optional) Comma-separated list of tables to exclude from sync (format: schema.table)")
 	flag.StringVar(&_configParseValues.pgIncrementallyRefreshedTables, "pg-incrementally-refreshed-tables", os.Getenv(ENV_PG_INCREMENTALLY_REFRESHED_TABLES), "(Optional) Comma-separated list of tables to refresh incrementally (format: schema.table)")
@@ -170,6 +162,7 @@ func parseFlags() {
 	} else if !slices.Contains(STORAGE_TYPES, _config.StorageType) {
 		panic("Invalid storage type " + _config.StorageType + ". Must be one of " + strings.Join(STORAGE_TYPES, ", "))
 	}
+
 	if _config.StorageType == STORAGE_TYPE_S3 {
 		if _config.Aws.Region == "" {
 			panic("AWS region is required")
@@ -186,18 +179,6 @@ func parseFlags() {
 		if _config.Aws.AccessKeyId == "" && _config.Aws.SecretAccessKey != "" {
 			panic("AWS access key ID is required")
 		}
-	}
-	if _configParseValues.pgIncludeSchemas != "" && _configParseValues.pgExcludeSchemas != "" {
-		panic("Cannot specify both --pg-include-schemas and --pg-exclude-schemas")
-	}
-	if _configParseValues.pgIncludeSchemas != "" {
-		_config.Pg.IncludeSchemas = strings.Split(_configParseValues.pgIncludeSchemas, ",")
-	}
-	if _configParseValues.pgExcludeSchemas != "" {
-		_config.Pg.ExcludeSchemas = strings.Split(_configParseValues.pgExcludeSchemas, ",")
-	}
-	if _configParseValues.pgIncludeTables != "" && _configParseValues.pgExcludeTables != "" {
-		panic("Cannot specify both --pg-include-tables and --pg-exclude-tables")
 	}
 	if _configParseValues.pgIncludeTables != "" {
 		_config.Pg.IncludeTables = strings.Split(_configParseValues.pgIncludeTables, ",")

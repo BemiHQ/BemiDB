@@ -35,12 +35,6 @@ func TestLoadConfig(t *testing.T) {
 		if config.Pg.SchemaPrefix != "" {
 			t.Errorf("Expected schemaPrefix to be empty, got %s", config.Pg.SchemaPrefix)
 		}
-		if config.Pg.IncludeSchemas != nil {
-			t.Errorf("Expected includeSchemas to be empty, got %v", config.Pg.IncludeSchemas)
-		}
-		if config.Pg.ExcludeSchemas != nil {
-			t.Errorf("Expected includeSchemas to be empty, got %v", config.Pg.ExcludeSchemas)
-		}
 		if config.Pg.IncludeTables != nil {
 			t.Errorf("Expected includeTables to be empty, got %v", config.Pg.IncludeTables)
 		}
@@ -133,7 +127,6 @@ func TestLoadConfig(t *testing.T) {
 		t.Setenv("PG_DATABASE_URL", "postgres://user:password@localhost:5432/template1")
 		t.Setenv("PG_SYNC_INTERVAL", "1h")
 		t.Setenv("PG_SCHEMA_PREFIX", "mydb_")
-		t.Setenv("PG_INCLUDE_SCHEMAS", "public,auth")
 		t.Setenv("PG_EXCLUDE_TABLES", "public.users,public.secrets")
 
 		config := LoadConfig(true)
@@ -147,18 +140,38 @@ func TestLoadConfig(t *testing.T) {
 		if config.Pg.SchemaPrefix != "mydb_" {
 			t.Errorf("Expected schemaPrefix to be empty, got %s", config.Pg.SchemaPrefix)
 		}
-		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "public") {
-			t.Errorf("Expected includeSchemas to contain public, got %v", config.Pg.IncludeSchemas)
-		}
-		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "auth") {
-			t.Errorf("Expected includeSchemas to contain auth, got %v", config.Pg.IncludeSchemas)
-		}
 		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.users") {
 			t.Errorf("Expected ExcludeTables to contain public.users, got %v", config.Pg.ExcludeTables)
 		}
 		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.secrets") {
 			t.Errorf("Expected ExcludeTables to contain public.secrets, got %v", config.Pg.ExcludeTables)
 		}
+	})
+
+	t.Run("Panics when only AWS_ACCESS_KEY_ID is set without AWS_SECRET_ACCESS_KEY", func(t *testing.T) {
+		t.Setenv("BEMIDB_STORAGE_TYPE", "S3")
+		t.Setenv("AWS_ACCESS_KEY_ID", "my_access_key_id")
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when only AWS_ACCESS_KEY_ID is set")
+			}
+		}()
+
+		LoadConfig(true)
+	})
+
+	t.Run("Panics when only AWS_SECRET_ACCESS_KEY is set without AWS_ACCESS_KEY_ID", func(t *testing.T) {
+		t.Setenv("BEMIDB_STORAGE_TYPE", "S3")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "my_secret_access_key")
+
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic when only AWS_SECRET_ACCESS_KEY is set")
+			}
+		}()
+
+		LoadConfig(true)
 	})
 
 	t.Run("Uses command line arguments", func(t *testing.T) {
@@ -172,7 +185,6 @@ func TestLoadConfig(t *testing.T) {
 			"--pg-database-url", "postgres://user:password@localhost:5432/db",
 			"--pg-sync-interval", "2h30m",
 			"--pg-schema-prefix", "mydb_",
-			"--pg-include-schemas", "public,auth",
 			"--pg-exclude-tables", "public.users,public.secrets",
 		})
 
@@ -205,97 +217,11 @@ func TestLoadConfig(t *testing.T) {
 		if config.Pg.SchemaPrefix != "mydb_" {
 			t.Errorf("Expected schemaPrefix to be mydb_, got %s", config.Pg.SchemaPrefix)
 		}
-		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "public") {
-			t.Errorf("Expected IncludeSchemas to have public.users, got %v", config.Pg.IncludeSchemas)
-		}
-		if !HasExactOrWildcardMatch(config.Pg.IncludeSchemas, "auth") {
-			t.Errorf("Expected includeSchemas to contain auth, got %v", config.Pg.IncludeSchemas)
-		}
 		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.users") {
 			t.Errorf("Expected ExcludeTables to have public.users, got %v", config.Pg.ExcludeTables)
 		}
 		if !HasExactOrWildcardMatch(config.Pg.ExcludeTables, "public.secrets") {
 			t.Errorf("Expected ExcludeTables to have public.secrets, got %v", config.Pg.ExcludeTables)
 		}
-	})
-
-	t.Run("Panics when both include and exclude schemas are specified in env", func(t *testing.T) {
-		t.Setenv("PG_INCLUDE_SCHEMAS", "public")
-		t.Setenv("PG_EXCLUDE_SCHEMAS", "auth")
-
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when both include and exclude schemas are specified")
-			}
-		}()
-
-		LoadConfig(true)
-	})
-
-	t.Run("Panics when both include and exclude schemas are specified in args", func(t *testing.T) {
-		setTestArgs([]string{
-			"--pg-include-schemas", "public",
-			"--pg-exclude-schemas", "auth",
-		})
-
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when both include and exclude schemas are specified")
-			}
-		}()
-
-		LoadConfig()
-	})
-
-	t.Run("Panics when both include and exclude tables are specified in env", func(t *testing.T) {
-		t.Setenv("PG_INCLUDE_TABLES", "public.users")
-		t.Setenv("PG_EXCLUDE_TABLES", "public.orders")
-
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when both include and exclude tables are specified")
-			}
-		}()
-
-		LoadConfig(true)
-	})
-
-	t.Run("Panics when both include and exclude tables are specified in args", func(t *testing.T) {
-		setTestArgs([]string{
-			"--pg-include-tables", "public.users",
-			"--pg-exclude-tables", "public.orders",
-		})
-
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when both include and exclude tables are specified")
-			}
-		}()
-
-		LoadConfig()
-	})
-
-	t.Run("Panics when only AWS_ACCESS_KEY_ID is set without AWS_SECRET_ACCESS_KEY", func(t *testing.T) {
-		t.Setenv("AWS_ACCESS_KEY_ID", "my_access_key_id")
-
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when only AWS_ACCESS_KEY_ID is set")
-			}
-		}()
-
-		LoadConfig(true)
-	})
-
-	t.Run("Panics when only AWS_SECRET_ACCESS_KEY is set without AWS_ACCESS_KEY_ID", func(t *testing.T) {
-		t.Setenv("AWS_SECRET_ACCESS_KEY", "my_secret_access_key")
-
-		defer func() {
-			if r := recover(); r == nil {
-				t.Error("Expected panic when only AWS_SECRET_ACCESS_KEY is set")
-			}
-		}()
-
-		LoadConfig(true)
 	})
 }
