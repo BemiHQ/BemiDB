@@ -119,13 +119,13 @@ Here is the minimal IAM policy required for BemiDB to work with S3:
 }
 ```
 
-### Periodic data sync
+### Periodic data syncing
 
 Sync data periodically from a Postgres database:
 
 ```sh
 ./bemidb \
-  --pg-sync-interval 1h \ # Supported units: h, m, s, etc.
+  --pg-sync-interval 1h \ # Supported units: h, m, s
   --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
   sync
 ```
@@ -136,23 +136,23 @@ By default, BemiDB syncs all tables from the Postgres database. To sync only spe
 
 ```sh
 ./bemidb \
-  --pg-include-tables public.users,public.transactions,public.billing_* \
+  --pg-include-tables public.billing_*,public.users \
   --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
   sync
 ```
-
-Table names can contain wildcards like `public.*`, `public.bookings_*`, `public.*_reports`, `*.auth`, etc.
 
 To exclude specific tables during the sync:
 
 ```sh
 ./bemidb \
-  --pg-exclude-tables public.cache,public.*_logs \
+  --pg-exclude-tables public.*_logs,public.cache \
   --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
   sync
 ```
 
-Note: if a table matches both `--pg-include-tables` and `--pg-exclude-tables`, it will be excluded. For example, to include all tables in the `public` schema except for the `cache` table:
+Note: if a table matches both `--pg-include-tables` and `--pg-exclude-tables`, it will be excluded.
+
+For example, to include all tables in the `public` schema except for the `public.cache` table:
 
 ```sh
 ./bemidb \
@@ -161,6 +161,22 @@ Note: if a table matches both `--pg-include-tables` and `--pg-exclude-tables`, i
   --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
   sync
 ```
+
+### Incremental data syncing
+
+By default, BemiDB performs a full refresh of the table data during each sync.
+For large tables, you can enable incremental syncing to only refresh the rows that have been inserted or updated since the last sync:
+
+```sh
+./bemidb \
+  --pg-include-tables public.* \
+  --pg-incrementally-refreshed-tables public.transactions \
+  --pg-database-url postgres://postgres:postgres@localhost:5432/dbname \
+  sync
+```
+
+Note: incremental refresh is currently limited to INSERT/UPDATE-modified tables and doesn't detect DELETEd rows.
+I.e., in BemiDB, these tables become append-only.
 
 ### Syncing from multiple Postgres databases
 
@@ -193,14 +209,14 @@ psql postgres://localhost:54321/bemidb -c \
 
 #### `sync` command
 
-| CLI argument                          | Environment variable                | Default value | Description                                                                                                                                                                                          |
-|---------------------------------------|-------------------------------------|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--pg-database-url`                   | `PG_DATABASE_URL`                   | Required      | PostgreSQL database URL to sync                                                                                                                                                                      |
-| `--pg-sync-interval`                  | `PG_SYNC_INTERVAL`                  |               | Interval between syncs. Valid units: `ns`, `us`/`µs`, `ms`, `s`, `m`, `h`                                                                                                                            |
-| `--pg-exclude-tables`                 | `PG_EXCLUDE_TABLES`                 |               | List of tables to exclude from sync. Comma-separated `schema.table`. May contain wildcards (`*`)                                                                                                     |
-| `--pg-include-tables`                 | `PG_INCLUDE_TABLES`                 |               | List of tables to include in sync. Comma-separated `schema.table`. May contain wildcards (`*`)                                                                                                       |
-| `--pg-incrementally-refreshed-tables` | `PG_INCREMENTALLY_REFRESHED_TABLES` |               | List of tables to refresh incrementally (vs a full refresh by default), currently limited to INSERT-modified tables (i.e., append-only). Comma-separated `schema.table`. May contain wildcards (`*`) |
-| `--pg-schema-prefix`                  | `PG_SCHEMA_PREFIX`                  |               | Prefix for PostgreSQL schema names                                                                                                                                                                   |
+| CLI argument                          | Environment variable                | Default value | Description                                                                                                                                              |
+|---------------------------------------|-------------------------------------|---------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--pg-database-url`                   | `PG_DATABASE_URL`                   | Required      | PostgreSQL database URL to sync                                                                                                                          |
+| `--pg-sync-interval`                  | `PG_SYNC_INTERVAL`                  |               | Interval between syncs. Valid units: `h`, `m`, `s`                                                                                                       |
+| `--pg-exclude-tables`                 | `PG_EXCLUDE_TABLES`                 |               | List of tables to exclude from sync. Comma-separated `schema.table`. May contain wildcards (`*`)                                                         |
+| `--pg-include-tables`                 | `PG_INCLUDE_TABLES`                 |               | List of tables to include in sync. Comma-separated `schema.table`. May contain wildcards (`*`)                                                           |
+| `--pg-incrementally-refreshed-tables` | `PG_INCREMENTALLY_REFRESHED_TABLES` |               | List of tables to refresh incrementally, currently limited to INSERT/UPDATE-modified tables. Comma-separated `schema.table`. May contain wildcards (`*`) |
+| `--pg-schema-prefix`                  | `PG_SCHEMA_PREFIX`                  |               | Prefix for PostgreSQL schema names                                                                                                                       |
 
 #### `start` command
 
@@ -380,6 +396,8 @@ Proprietary solutions cons:
 - Can be expensive compared to other alternatives
 - Vendor lock-in and limited control over the data
 - Require separate systems for data syncing and schema mapping
+
+---
 
 For a more detailed comparison of different approaches to running analytics with PostgreSQL, check out our [blog post](https://blog.bemi.io/analytics-with-postgresql/).
 
