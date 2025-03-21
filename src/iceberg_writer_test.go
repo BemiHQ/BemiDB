@@ -24,207 +24,977 @@ func TestWriteIncrementally(t *testing.T) {
 	duckdb := NewDuckdb(config)
 	defer duckdb.Close()
 
-	t.Run("Processes an incremental INSERT", func(t *testing.T) {
+	t.Cleanup(func() {
 		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+	})
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"3", "Jane"},
-		}))
+	t.Run("Single incremental sync", func(t *testing.T) {
+		t.Run("Processes an incremental INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "John"},
-			{"2", PG_NULL_STRING},
-			{"3", "Jane"},
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Jane"},
+			})
+		})
+
+		t.Run("Processes an incremental UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John Doe"},
+				{"2", PG_NULL_STRING},
+			})
+		})
+
+		t.Run("Processes an incremental full UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+				{"2", "Jane"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John Doe"},
+				{"2", "Jane"},
+			})
+		})
+
+		t.Run("Processes an incremental INSERT & UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+				{"3", "Jane"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John Doe"},
+				{"2", PG_NULL_STRING},
+				{"3", "Jane"},
+			})
+		})
+
+		t.Run("Processes an incremental INSERT & full UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John Doe"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+			})
 		})
 	})
 
-	t.Run("Processes incremental INSERT -> INSERT", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+	t.Run("Two incremental syncs", func(t *testing.T) {
+		t.Run("Processes incremental INSERT -> INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"3", "Jane"},
-		}))
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"4", "Alice"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Alice"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "John"},
-			{"2", PG_NULL_STRING},
-			{"3", "Jane"},
-			{"4", "Alice"},
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Jane"},
+				{"4", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> same-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> same-record UPDATE & INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+				{"4", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Alice"},
+				{"4", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT & UPDATE -> same-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 4, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Jane"},
+				{"3", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> initial-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Alice"},
+				{"2", PG_NULL_STRING},
+				{"3", "Jane"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> initial-record UPDATE & INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Alice"},
+				{"4", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Alice"},
+				{"2", PG_NULL_STRING},
+				{"3", "Jane"},
+				{"4", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> initial & inserted-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Alice"},
+				{"3", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Alice"},
+				{"2", PG_NULL_STRING},
+				{"3", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> full UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+				{"2", "Alice"},
+				{"3", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John Doe"},
+				{"2", "Alice"},
+				{"3", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT & UPDATE -> initial-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Bob"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental full UPDATE -> INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John Doe"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental full UPDATE -> UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 4, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Alice"},
+				{"2", "Jane"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> full UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Jane"},
+				{"2", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Jane"},
+				{"2", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> same-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> same-record UPDATE & INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Alice"},
+				{"3", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Alice"},
+				{"3", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> initial-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+
+			testRecords(t, duckdb, [][]string{
+				{"1", "Alice"},
+				{"2", "Jane"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> initial-record UPDATE & INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Alice"},
+				{"3", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+
+			testRecords(t, duckdb, [][]string{
+				{"1", "Alice"},
+				{"2", "Jane"},
+				{"3", "Bob"},
+			})
 		})
 	})
 
-	t.Run("Processes incremental INSERT & UPDATE simultaneously", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+	t.Run("Three incremental syncs", func(t *testing.T) {
+		t.Run("Processes incremental INSERT -> INSERT -> last-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"1", "John Doe"},
-			{"3", "Jane"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Bob"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "John Doe"},
-			{"2", PG_NULL_STRING},
-			{"3", "Jane"},
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Jane"},
+				{"4", "Bob"},
+			})
 		})
-	})
 
-	t.Run("Processes incremental INSERT -> same-record UPDATE", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> INSERT -> previous-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"3", "Jane"},
-		}))
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"3", "Alice"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Bob"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
-			ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "John"},
-			{"2", PG_NULL_STRING},
-			{"3", "Alice"},
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Bob"},
+				{"4", "Alice"},
+			})
 		})
-	})
 
-	t.Run("Processes incremental INSERT -> another-record UPDATE", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> INSERT -> initial-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"3", "Jane"},
-		}))
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"1", "Alice"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Bob"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "Alice"},
-			{"2", PG_NULL_STRING},
-			{"3", "Jane"},
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Bob"},
+				{"3", "Jane"},
+				{"4", "Alice"},
+			})
 		})
-	})
 
-	t.Run("Processes an incremental UPDATE", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE -> INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"1", "John Doe"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Bob"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "John Doe"},
-			{"2", PG_NULL_STRING},
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Alice"},
+				{"4", "Bob"},
+			})
 		})
-	})
 
-	t.Run("Processes incremental UPDATE -> INSERT", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"2", "Jane"},
-		}))
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"3", "Alice"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Bob"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "John"},
-			{"2", "Jane"},
-			{"3", "Alice"},
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Alice"},
+				{"3", "Jane"},
+				{"4", "Bob"},
+			})
 		})
-	})
 
-	t.Run("Processes incremental UPDATE -> same-record UPDATE", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE -> same-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"2", "Jane"},
-		}))
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"2", "Alice"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Bob"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
-			ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
-		testRecords(t, duckdb, [][]string{
-			{"1", "John"},
-			{"2", "Alice"},
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Bob"},
+			})
 		})
-	})
 
-	t.Run("Processes incremental UPDATE -> another-record UPDATE", func(t *testing.T) {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE -> initial-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"2", "Jane"},
-		}))
-		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
-			{"1", "Alice"},
-		}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Bob"},
+			}))
 
-		testManifestListFiles(t, icebergWriter,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-			ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-			ManifestListFile{SequenceNumber: 4, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
-			ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
-		)
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Bob"},
+				{"3", "Alice"},
+			})
+		})
 
-		testRecords(t, duckdb, [][]string{
-			{"1", "Alice"},
-			{"2", "Jane"},
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> initial-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Bob"},
+				{"2", "Alice"},
+				{"3", "Jane"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> inserted-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Alice"},
+				{"3", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> updated-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Bob"},
+				{"3", "Jane"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> INSERT -> INSERT", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"4", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+				{"4", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> INSERT -> inserted-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Jane"},
+				{"3", "Bob"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> INSERT -> updated-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Bob"},
+				{"3", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> INSERT -> initial-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "Bob"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "Bob"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> INSERT -> full UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"1", "John Doe"},
+				{"2", "Bob"},
+				{"3", "Alice Smith"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 7, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 8, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John Doe"},
+				{"2", "Bob"},
+				{"3", "Alice Smith"},
+			})
+		})
+
+		t.Run("Processes incremental UPDATE -> INSERT -> updated and inserted-record UPDATE", func(t *testing.T) {
+			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Jane"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"3", "Alice"},
+			}))
+			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+				{"2", "Bob"},
+				{"3", "Alice Smith"},
+			}))
+
+			testManifestListFiles(t, icebergWriter,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 7, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Bob"},
+				{"3", "Alice Smith"},
+			})
 		})
 	})
 }
@@ -304,7 +1074,7 @@ func testRecords(t *testing.T, duckdb *Duckdb, expectedRecords [][]string) {
 		actualRecord := actualRecords[i]
 		for j, expectedValue := range expectedRecord {
 			if actualRecord[j] != expectedValue {
-				t.Fatalf("Expected value '%s' at (%d, %d), got '%s'", expectedValue, i, j, actualRecord[j])
+				t.Fatalf("Expected value '%s' at %d, got '%s'", expectedValue, i, actualRecord[j])
 			}
 		}
 	}
