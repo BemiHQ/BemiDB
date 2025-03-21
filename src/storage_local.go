@@ -79,13 +79,22 @@ func (storage *StorageLocal) ExistingManifestListFiles(metadataDirPath string) (
 	return storage.storageUtils.ParseManifestListFiles(storage.fileSystemPrefix(), metadataContent)
 }
 
-func (storage *StorageLocal) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
+func (storage *StorageLocal) ExistingManifestListItems(manifestListFile ManifestListFile) ([]ManifestListItem, error) {
 	manifestListContent, err := storage.readFileContent(manifestListFile.Path)
 	if err != nil {
 		return nil, err
 	}
 
 	return storage.storageUtils.ParseManifestFiles(storage.fileSystemPrefix(), manifestListContent)
+}
+
+func (storage *StorageLocal) ExistingParquetFilePath(manifestFile ManifestFile) (string, error) {
+	manifestContent, err := storage.readFileContent(manifestFile.Path)
+	if err != nil {
+		return "", err
+	}
+
+	return storage.storageUtils.ParseParquetFilePath(storage.fileSystemPrefix(), manifestContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -170,6 +179,58 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 	}, nil
 }
 
+func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
+	uuid := uuid.New().String()
+	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
+	filePath := filepath.Join(dataDirPath, fileName)
+
+	fileWriter, err := local.NewLocalFileWriter(filePath)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+	}
+
+	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+	if duckdb == nil {
+		fileWriter.Close()
+		storage.DeleteParquet(ParquetFile{Path: filePath})
+		return ParquetFile{}, nil
+	}
+	defer duckdb.Close()
+	defer fileWriter.Close()
+
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(duckdb, fileWriter, pgSchemaColumns, rowCountPerBatch)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", filePath)
+
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to get Parquet file info: %v", err)
+	}
+	fileSize := fileInfo.Size()
+
+	fileReader, err := local.NewLocalFileReader(filePath)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+	}
+	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+
+	return ParquetFile{
+		Uuid:        uuid,
+		Path:        filePath,
+		Size:        fileSize,
+		RecordCount: recordCount,
+		Stats:       parquetStats,
+	}, nil
+}
+
 func (storage *StorageLocal) DeleteParquet(parquetFile ParquetFile) error {
 	err := os.Remove(parquetFile.Path)
 	return err
@@ -188,11 +249,29 @@ func (storage *StorageLocal) CreateManifest(metadataDirPath string, parquetFile 
 	return manifestFile, nil
 }
 
-func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
+func (storage *StorageLocal) CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error) {
+	fileName := fmt.Sprintf("%s-m1.avro", uuid)
 	filePath := filepath.Join(metadataDirPath, fileName)
 
-	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestFilesSortedDesc)
+	existingManifestContent, err := storage.readFileContent(existingManifestFile.Path)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+
+	deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fileSystemPrefix(), filePath, existingManifestContent)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+	LogDebug(storage.config, "Manifest file created at:", filePath)
+
+	return deletedRecsManifestFile, nil
+}
+
+func (storage *StorageLocal) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestListItemsSortedDesc[0].ManifestFile.SnapshotId, parquetFileUuid)
+	filePath := filepath.Join(metadataDirPath, fileName)
+
+	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fileSystemPrefix(), filePath, manifestListItemsSortedDesc)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
@@ -211,18 +290,6 @@ func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColu
 	LogDebug(storage.config, "Metadata file created at:", filePath)
 
 	return MetadataFile{Version: 1, Path: filePath}, nil
-}
-
-func (storage *StorageLocal) CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error) {
-	filePath := filepath.Join(metadataDirPath, VERSION_HINT_FILE_NAME)
-
-	err = storage.storageUtils.WriteVersionHintFile(filePath, metadataFile)
-	if err != nil {
-		return err
-	}
-	LogDebug(storage.config, "Version hint file created at:", filePath)
-
-	return nil
 }
 
 // Read (internal) -----------------------------------------------------------------------------------------------------

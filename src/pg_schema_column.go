@@ -36,6 +36,7 @@ type PgSchemaColumn struct {
 	NumericScale           string
 	DatetimePrecision      string
 	Namespace              string
+	PartOfPrimaryKey       bool
 	config                 *Config
 }
 

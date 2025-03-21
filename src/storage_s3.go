@@ -112,13 +112,22 @@ func (storage *StorageS3) ExistingManifestListFiles(metadataDirPath string) ([]M
 	return storage.storageUtils.ParseManifestListFiles(storage.fullBucketPath(), metadataContent)
 }
 
-func (storage *StorageS3) ExistingManifestFiles(manifestListFile ManifestListFile) ([]ManifestFile, error) {
+func (storage *StorageS3) ExistingManifestListItems(manifestListFile ManifestListFile) ([]ManifestListItem, error) {
 	manifestListContent, err := storage.readFileContent(manifestListFile.Path)
 	if err != nil {
 		return nil, err
 	}
 
 	return storage.storageUtils.ParseManifestFiles(storage.fullBucketPath(), manifestListContent)
+}
+
+func (storage *StorageS3) ExistingParquetFilePath(manifestFile ManifestFile) (string, error) {
+	manifestListContent, err := storage.readFileContent(manifestFile.Path)
+	if err != nil {
+		return "", err
+	}
+
+	return storage.storageUtils.ParseParquetFilePath(storage.fullBucketPath(), manifestListContent)
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
@@ -186,6 +195,62 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 	}, nil
 }
 
+func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
+	ctx := context.Background()
+	uuid := uuid.New().String()
+	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
+	fileKey := dataDirPath + "/" + fileName
+
+	fileWriter, err := s3v2.NewS3FileWriterWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey, nil)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+	}
+
+	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+	if duckdb == nil {
+		fileWriter.Close()
+		storage.DeleteParquet(ParquetFile{Path: fileKey})
+		return ParquetFile{}, nil
+	}
+	defer duckdb.Close()
+	defer fileWriter.Close()
+
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(duckdb, fileWriter, pgSchemaColumns, rowCountPerBatch)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", fileKey)
+
+	headObjectResponse, err := storage.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(fileKey),
+	})
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to get Parquet file info: %v", err)
+	}
+	fileSize := *headObjectResponse.ContentLength
+
+	fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey)
+	if err != nil {
+		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+	}
+	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
+	if err != nil {
+		return ParquetFile{}, err
+	}
+
+	return ParquetFile{
+		Uuid:        uuid,
+		Path:        fileKey,
+		Size:        fileSize,
+		RecordCount: recordCount,
+		Stats:       parquetStats,
+	}, nil
+}
+
 func (storage *StorageS3) DeleteParquet(parquetFile ParquetFile) (err error) {
 	ctx := context.Background()
 	_, err = storage.s3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
@@ -220,8 +285,26 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	return manifestFile, nil
 }
 
-func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error) {
-	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestFilesSortedDesc[0].SnapshotId, parquetFileUuid)
+func (storage *StorageS3) CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error) {
+	fileName := fmt.Sprintf("%s-m1.avro", uuid)
+	filePath := metadataDirPath + "/" + fileName
+
+	existingManifestContent, err := storage.readFileContent(existingManifestFile.Path)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+
+	deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fullBucketPath(), filePath, existingManifestContent)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+	LogDebug(storage.config, "Manifest file created at:", filePath)
+
+	return deletedRecsManifestFile, nil
+}
+
+func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile, err error) {
+	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestListItemsSortedDesc[0].ManifestFile.SnapshotId, parquetFileUuid)
 	filePath := metadataDirPath + "/" + fileName
 
 	tempFile, err := CreateTemporaryFile("manifest")
@@ -230,7 +313,7 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	}
 	defer DeleteTemporaryFile(tempFile)
 
-	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestFilesSortedDesc)
+	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestListItemsSortedDesc)
 	if err != nil {
 		return ManifestListFile{}, err
 	}
@@ -266,29 +349,6 @@ func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns
 	LogDebug(storage.config, "Metadata file created at:", filePath)
 
 	return MetadataFile{Version: 1, Path: filePath}, nil
-}
-
-func (storage *StorageS3) CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error) {
-	filePath := metadataDirPath + "/" + VERSION_HINT_FILE_NAME
-
-	tempFile, err := CreateTemporaryFile("manifest")
-	if err != nil {
-		return err
-	}
-	defer DeleteTemporaryFile(tempFile)
-
-	err = storage.storageUtils.WriteVersionHintFile(tempFile.Name(), metadataFile)
-	if err != nil {
-		return err
-	}
-
-	err = storage.uploadFile(filePath, tempFile)
-	if err != nil {
-		return err
-	}
-	LogDebug(storage.config, "Version hint file created at:", filePath)
-
-	return nil
 }
 
 // Read (internal) -----------------------------------------------------------------------------------------------------

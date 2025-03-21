@@ -236,17 +236,17 @@ func TestHandleQuery(t *testing.T) {
 			"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID)},
 			"values":      {"public", "test_table", "1"},
 		},
-		"SELECT DISTINCT(nspname) FROM pg_catalog.pg_namespace WHERE nspname != 'information_schema' AND nspname != 'pg_catalog' ORDER BY nspname LIMIT 1": {
+		"SELECT DISTINCT(nspname) FROM pg_catalog.pg_namespace WHERE nspname != 'information_schema' AND nspname != 'pg_catalog' ORDER BY nspname DESC LIMIT 1": {
 			"description": {"nspname"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
-			"values":      {"public"},
+			"values":      {"test_schema"},
 		},
 		"SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname == 'main'": {
 			"description": {"nspname"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {},
 		},
-		"SELECT n.nspname FROM pg_catalog.pg_namespace n LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid = n.oid ORDER BY n.oid DESC LIMIT 1": {
+		"SELECT n.nspname FROM pg_catalog.pg_namespace n LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid = n.oid ORDER BY n.nspname DESC LIMIT 1": {
 			"description": {"nspname"},
 			"types":       {Uint32ToString(pgtype.TextOID)},
 			"values":      {"test_schema"},

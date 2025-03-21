@@ -437,6 +437,7 @@ func loadTestConfig() *Config {
 	config.StorageType = STORAGE_TYPE_LOCAL
 	config.StoragePath = "../iceberg-test"
 	config.LogLevel = "ERROR"
+	config.DisableAnonymousAnalytics = true
 
 	return config
 }

@@ -24,21 +24,31 @@ type ParquetFile struct {
 }
 
 type ManifestFile struct {
-	SnapshotId   int64
-	Path         string
-	Size         int64
-	RecordCount  int64
-	DataFileSize int64
+	RecordsDeleted bool
+	SnapshotId     int64
+	Path           string
+	Size           int64
+	RecordCount    int64
+	DataFileSize   int64
+}
+
+type ManifestListItem struct {
+	SequenceNumber int
+	ManifestFile   ManifestFile
 }
 
 type ManifestListFile struct {
-	SnapshotId     int64
-	TimestampMs    int64
-	Path           string
-	Operation      string
-	AddedFilesSize int64
-	AddedDataFiles int64
-	AddedRecords   int64
+	SequenceNumber   int
+	SnapshotId       int64
+	TimestampMs      int64
+	Path             string
+	Operation        string
+	AddedFilesSize   int64
+	AddedDataFiles   int64
+	AddedRecords     int64
+	RemovedFilesSize int64
+	DeletedDataFiles int64
+	DeletedRecords   int64
 }
 
 type MetadataFile struct {
@@ -77,7 +87,8 @@ type StorageInterface interface {
 	IcebergMetadataFilePath(icebergSchemaTable IcebergSchemaTable) (path string)
 	IcebergTableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error)
 	ExistingManifestListFiles(metadataDirPath string) (manifestListFilesSortedAsc []ManifestListFile, err error)
-	ExistingManifestFiles(manifestListFile ManifestListFile) (manifestFiles []ManifestFile, err error)
+	ExistingManifestListItems(manifestListFile ManifestListFile) (manifestListItemsSortedDesc []ManifestListItem, err error)
+	ExistingParquetFilePath(manifestFile ManifestFile) (parquetFilePath string, err error)
 
 	// Write
 	DeleteSchema(schema string) (err error)
@@ -85,11 +96,12 @@ type StorageInterface interface {
 	CreateDataDir(schemaTable IcebergSchemaTable) (dataDirPath string)
 	CreateMetadataDir(schemaTable IcebergSchemaTable) (metadataDirPath string)
 	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (parquetFile ParquetFile, err error)
+	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
-	CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestFilesSortedDesc []ManifestFile) (manifestListFile ManifestListFile, err error)
+	CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error)
+	CreateManifestList(metadataDirPath string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile, err error)
 	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error)
-	CreateVersionHint(metadataDirPath string, metadataFile MetadataFile) (err error)
 
 	// Read (internal)
 	InternalTableMetadata(pgSchemaTable PgSchemaTable) (internalTableMetadata InternalTableMetadata, err error)

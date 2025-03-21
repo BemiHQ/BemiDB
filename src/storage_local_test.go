@@ -123,8 +123,9 @@ func TestCreateManifestList(t *testing.T) {
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
 		PanicIfError(err, config)
+		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
 
-		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -161,7 +162,8 @@ func TestCreateMetadata(t *testing.T) {
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
 		PanicIfError(err, config)
-		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
 		PanicIfError(err, config)
 
 		metadataFile, err := storage.CreateMetadata(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, []ManifestListFile{manifestListFile})
@@ -186,7 +188,8 @@ func TestExistingManifestListFiles(t *testing.T) {
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
 		PanicIfError(err, config)
-		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
 		PanicIfError(err, config)
 		_, err = storage.CreateMetadata(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, []ManifestListFile{manifestListFile})
 		PanicIfError(err, config)
@@ -231,28 +234,32 @@ func TestExistingManifestFiles(t *testing.T) {
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
 		PanicIfError(err, config)
-		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestFile{manifestFile})
+		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
+		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
 		PanicIfError(err, config)
 
-		existingManifestFiles, err := storage.ExistingManifestFiles(manifestListFile)
+		existingManifestListItems, err := storage.ExistingManifestListItems(manifestListFile)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
 		}
-		if len(existingManifestFiles) != 1 {
-			t.Errorf("Expected 1 existing manifest file, got %v", len(existingManifestFiles))
+		if len(existingManifestListItems) != 1 {
+			t.Errorf("Expected 1 existing manifest file, got %v", len(existingManifestListItems))
 		}
-		if existingManifestFiles[0].SnapshotId != manifestFile.SnapshotId {
-			t.Errorf("Expected a snapshot ID of %v, got %v", manifestFile.SnapshotId, existingManifestFiles[0].SnapshotId)
+		if existingManifestListItems[0].SequenceNumber != 1 {
+			t.Errorf("Expected a sequence number of 1, got %v", existingManifestListItems[0].SequenceNumber)
 		}
-		if existingManifestFiles[0].Path != manifestFile.Path {
-			t.Errorf("Expected a path of %v, got %v", manifestFile.Path, existingManifestFiles[0].Path)
+		if existingManifestListItems[0].ManifestFile.SnapshotId != manifestFile.SnapshotId {
+			t.Errorf("Expected a snapshot ID of %v, got %v", manifestFile.SnapshotId, existingManifestListItems[0].ManifestFile.SnapshotId)
 		}
-		if existingManifestFiles[0].Size != manifestFile.Size {
-			t.Errorf("Expected a size of %v, got %v", manifestFile.Size, existingManifestFiles[0].Size)
+		if existingManifestListItems[0].ManifestFile.Path != manifestFile.Path {
+			t.Errorf("Expected a path of %v, got %v", manifestFile.Path, existingManifestListItems[0].ManifestFile.Path)
 		}
-		if existingManifestFiles[0].RecordCount != manifestFile.RecordCount {
-			t.Errorf("Expected a record count of %v, got %v", manifestFile.RecordCount, existingManifestFiles[0].RecordCount)
+		if existingManifestListItems[0].ManifestFile.Size != manifestFile.Size {
+			t.Errorf("Expected a size of %v, got %v", manifestFile.Size, existingManifestListItems[0].ManifestFile.Size)
+		}
+		if existingManifestListItems[0].ManifestFile.RecordCount != manifestFile.RecordCount {
+			t.Errorf("Expected a record count of %v, got %v", manifestFile.RecordCount, existingManifestListItems[0].ManifestFile.RecordCount)
 		}
 	})
 }
