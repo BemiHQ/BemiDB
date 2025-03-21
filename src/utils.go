@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -41,17 +40,6 @@ func PanicIfError(err error, config *Config, message ...string) {
 
 		panic(err)
 	}
-}
-
-func CreateTemporaryFile(prefix string) (file *os.File, err error) {
-	tempFile, err := os.CreateTemp("", prefix)
-	PanicIfError(err, nil)
-
-	return tempFile, nil
-}
-
-func DeleteTemporaryFile(file *os.File) {
-	os.Remove(file.Name())
 }
 
 func IntToString(i int) string {

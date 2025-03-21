@@ -206,7 +206,7 @@ func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingP
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(storage.fullBucketPath(), existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -216,7 +216,6 @@ func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingP
 		return ParquetFile{}, nil
 	}
 	defer duckdb.Close()
-	defer fileWriter.Close()
 
 	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(duckdb, fileWriter, pgSchemaColumns, rowCountPerBatch)
 	if err != nil {
@@ -264,11 +263,11 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	fileName := fmt.Sprintf("%s-m0.avro", parquetFile.Uuid)
 	filePath := metadataDirPath + "/" + fileName
 
-	tempFile, err := CreateTemporaryFile("manifest")
+	tempFile, err := storage.createTemporaryFile("manifest")
 	if err != nil {
 		return ManifestFile{}, err
 	}
-	defer DeleteTemporaryFile(tempFile)
+	defer storage.deleteTemporaryFile(tempFile)
 
 	manifestFile, err = storage.storageUtils.WriteManifestFile(storage.fullBucketPath(), tempFile.Name(), parquetFile)
 	if err != nil {
@@ -294,7 +293,18 @@ func (storage *StorageS3) CreateDeletedRecordsManifest(metadataDirPath string, u
 		return ManifestFile{}, err
 	}
 
-	deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fullBucketPath(), filePath, existingManifestContent)
+	tempFile, err := storage.createTemporaryFile("manifest")
+	if err != nil {
+		return ManifestFile{}, err
+	}
+	defer storage.deleteTemporaryFile(tempFile)
+
+	deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fullBucketPath(), tempFile.Name(), existingManifestContent)
+	if err != nil {
+		return ManifestFile{}, err
+	}
+
+	err = storage.uploadFile(filePath, tempFile)
 	if err != nil {
 		return ManifestFile{}, err
 	}
@@ -307,11 +317,11 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestListItemsSortedDesc[0].ManifestFile.SnapshotId, parquetFileUuid)
 	filePath := metadataDirPath + "/" + fileName
 
-	tempFile, err := CreateTemporaryFile("manifest")
+	tempFile, err := storage.createTemporaryFile("manifest")
 	if err != nil {
 		return ManifestListFile{}, err
 	}
-	defer DeleteTemporaryFile(tempFile)
+	defer storage.deleteTemporaryFile(tempFile)
 
 	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestListItemsSortedDesc)
 	if err != nil {
@@ -331,11 +341,11 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
 	filePath := metadataDirPath + "/" + ICEBERG_METADATA_FILE_NAME
 
-	tempFile, err := CreateTemporaryFile("manifest")
+	tempFile, err := storage.createTemporaryFile("manifest")
 	if err != nil {
 		return MetadataFile{}, err
 	}
-	defer DeleteTemporaryFile(tempFile)
+	defer storage.deleteTemporaryFile(tempFile)
 
 	err = storage.storageUtils.WriteMetadataFile(storage.fullBucketPath(), tempFile.Name(), pgSchemaColumns, manifestListFilesSortedAsc)
 	if err != nil {
@@ -368,11 +378,11 @@ func (storage *StorageS3) InternalTableMetadata(pgSchemaTable PgSchemaTable) (In
 func (storage *StorageS3) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
 	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
 
-	tempFile, err := CreateTemporaryFile("internal-metadata")
+	tempFile, err := storage.createTemporaryFile("internal-metadata")
 	if err != nil {
 		return err
 	}
-	defer DeleteTemporaryFile(tempFile)
+	defer storage.deleteTemporaryFile(tempFile)
 
 	err = storage.storageUtils.WriteInternalTableMetadataFile(tempFile.Name(), internalTableMetadata)
 	if err != nil {
@@ -491,4 +501,15 @@ func (storage *StorageS3) deleteNestedObjects(prefix string) (err error) {
 	}
 
 	return nil
+}
+
+func (storage *StorageS3) createTemporaryFile(prefix string) (file *os.File, err error) {
+	tempFile, err := os.CreateTemp("", prefix)
+	PanicIfError(err, nil)
+
+	return tempFile, nil
+}
+
+func (storage *StorageS3) deleteTemporaryFile(file *os.File) {
+	os.Remove(file.Name())
 }

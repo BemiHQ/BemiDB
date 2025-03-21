@@ -255,11 +255,11 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 	return recordCount, nil
 }
 
-func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {
+func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(fileSystemPrefix string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {
 	duckdb := NewDuckdb(
 		storage.config,
-		"CREATE TABLE existing_parquet AS SELECT * FROM '"+existingParquetFilePath+"'",
-		"CREATE TABLE new_parquet AS SELECT * FROM '"+newParquetFilePath+"'",
+		"CREATE TABLE existing_parquet AS SELECT * FROM '"+fileSystemPrefix+existingParquetFilePath+"'",
+		"CREATE TABLE new_parquet AS SELECT * FROM '"+fileSystemPrefix+newParquetFilePath+"'",
 	)
 
 	var pkColumnNames []string
@@ -281,6 +281,8 @@ func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(existingParquetFilePa
 }
 
 func (storage *StorageUtils) WriteOverwrittenParquetFile(duckdb *Duckdb, fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (recordCount int64, err error) {
+	defer fileWriter.Close()
+
 	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
 	LogDebug(storage.config, "Parquet schema:", schemaJson)
 	parquetWriter, err := writer.NewJSONWriter(schemaJson, fileWriter, PARQUET_PARALLEL_NUMBER)
@@ -540,7 +542,7 @@ func (storage *StorageUtils) WriteDeletedRecordsManifestFile(fileSystemPrefix st
 
 	avroFile, err := os.Create(filePath)
 	if err != nil {
-		return ManifestFile{}, fmt.Errorf("failed to create manifest file: %v", err)
+		return ManifestFile{}, fmt.Errorf("failed to create deleted-records manifest file: %v", err)
 	}
 	defer avroFile.Close()
 
