@@ -38,7 +38,7 @@ type Duckdb struct {
 	stopImplicitAwsCredentialsRefreshChan chan struct{}
 }
 
-func NewDuckdb(config *Config, bootQueries ...string) *Duckdb {
+func NewDuckdb(config *Config, withPgCompatibility bool) *Duckdb {
 	ctx := context.Background()
 	db, err := sql.Open("duckdb", "")
 	PanicIfError(err, config)
@@ -49,7 +49,8 @@ func NewDuckdb(config *Config, bootQueries ...string) *Duckdb {
 		stopImplicitAwsCredentialsRefreshChan: make(chan struct{}),
 	}
 
-	if len(bootQueries) == 0 {
+	bootQueries := []string{}
+	if withPgCompatibility {
 		bootQueries = slices.Concat(
 			// Set up DuckDB
 			DUCKDB_INIT_BOOT_QUERIES,

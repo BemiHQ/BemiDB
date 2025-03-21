@@ -21,7 +21,7 @@ var TEST_ICEBERG_WRITER_INITIAL_ROWS = [][]string{
 func TestWriteIncrementally(t *testing.T) {
 	config := loadTestConfig()
 	icebergWriter := NewIcebergWriter(config)
-	duckdb := NewDuckdb(config)
+	duckdb := NewDuckdb(config, true)
 	defer duckdb.Close()
 
 	t.Cleanup(func() {

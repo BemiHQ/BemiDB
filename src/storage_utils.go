@@ -256,11 +256,21 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 }
 
 func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(fileSystemPrefix string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {
-	duckdb := NewDuckdb(
-		storage.config,
-		"CREATE TABLE existing_parquet AS SELECT * FROM '"+fileSystemPrefix+existingParquetFilePath+"'",
-		"CREATE TABLE new_parquet AS SELECT * FROM '"+fileSystemPrefix+newParquetFilePath+"'",
-	)
+	duckdb := NewDuckdb(storage.config, false)
+
+	ctx := context.Background()
+	_, err := duckdb.ExecContext(ctx, "CREATE TABLE existing_parquet AS SELECT * FROM '$parquetPath'", map[string]string{
+		"parquetPath": fileSystemPrefix + existingParquetFilePath,
+	})
+	if err != nil {
+		return nil, err
+	}
+	_, err = duckdb.ExecContext(ctx, "CREATE TABLE new_parquet AS SELECT * FROM '$parquetPath'", map[string]string{
+		"parquetPath": fileSystemPrefix + newParquetFilePath,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	var pkColumnNames []string
 	for _, pgSchemaColumn := range pgSchemaColumns {

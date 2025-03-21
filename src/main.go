@@ -45,7 +45,7 @@ func start(config *Config) {
 	tcpListener := NewTcpListener(config)
 	LogInfo(config, "BemiDB: Listening on", tcpListener.Addr())
 
-	duckdb := NewDuckdb(config)
+	duckdb := NewDuckdb(config, true)
 	LogInfo(config, "DuckDB: Connected")
 	defer duckdb.Close()
 

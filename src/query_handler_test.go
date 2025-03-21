@@ -1559,7 +1559,7 @@ SET standard_conforming_strings = on;`
 
 func initQueryHandler() *QueryHandler {
 	config := loadTestConfig()
-	duckdb := NewDuckdb(config)
+	duckdb := NewDuckdb(config, true)
 	icebergReader := NewIcebergReader(config)
 	return NewQueryHandler(config, duckdb, icebergReader)
 }

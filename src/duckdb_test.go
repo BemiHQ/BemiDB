@@ -9,7 +9,7 @@ func TestNewDuckdb(t *testing.T) {
 	t.Run("Creates a new DuckDB instance", func(t *testing.T) {
 		config := loadTestConfig()
 
-		duckdb := NewDuckdb(config)
+		duckdb := NewDuckdb(config, false)
 		defer duckdb.Close()
 
 		rows, err := duckdb.QueryContext(context.Background(), "SELECT 1")
