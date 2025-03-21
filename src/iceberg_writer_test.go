@@ -1,35 +1,36 @@
 package main
 
 import (
+	"context"
 	"testing"
 )
 
-var TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
-	{ColumnName: "id", DataType: "integer", UdtName: "int4", IsNullable: "NO", NumericPrecision: "32", OrdinalPosition: "1", Namespace: "pg_catalog", PartOfPrimaryKey: true},
-	{ColumnName: "name", DataType: "character varying", UdtName: "varchar", IsNullable: "YES", CharacterMaximumLength: "255", OrdinalPosition: "2", Namespace: "pg_catalog"},
-}
 var TEST_ICEBERG_WRITER_SCHEMA_TABLE = IcebergSchemaTable{
 	Schema: "iceberg_writer_test",
 	Table:  "test_table",
 }
-var TEST_ICEBERG_WRITER_ROWS = [][]string{
+var TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+	{ColumnName: "id", DataType: "integer", UdtName: "int4", IsNullable: "NO", NumericPrecision: "32", OrdinalPosition: "1", Namespace: "pg_catalog", PartOfPrimaryKey: true},
+	{ColumnName: "name", DataType: "character varying", UdtName: "varchar", IsNullable: "YES", CharacterMaximumLength: "255", OrdinalPosition: "2", Namespace: "pg_catalog"},
+}
+var TEST_ICEBERG_WRITER_INITIAL_ROWS = [][]string{
 	{"1", "John"},
 	{"2", PG_NULL_STRING},
 }
 
 func TestWriteIncrementally(t *testing.T) {
-	t.Run("Processes an incremental INSERT", func(t *testing.T) {
-		config := loadTestConfig()
-		icebergWriter := NewIcebergWriter(config)
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_ROWS))
+	config := loadTestConfig()
+	icebergWriter := NewIcebergWriter(config)
+	duckdb := NewDuckdb(config)
+	defer duckdb.Close()
 
-		icebergWriter.WriteIncrementally(
-			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-			10,
-			createTestLoadRows([][]string{{"3", "Jane"}}),
-		)
+	t.Run("Processes an incremental INSERT", func(t *testing.T) {
+		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
+		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+			{"3", "Jane"},
+		}))
 
 		manifestListFiles := readManifestListFiles(t, icebergWriter)
 		if len(manifestListFiles) != 2 {
@@ -47,20 +48,20 @@ func TestWriteIncrementally(t *testing.T) {
 			AddedDataFiles: 1,
 			AddedRecords:   1,
 		})
+		testRecords(t, duckdb, [][]string{
+			{"1", "John"},
+			{"2", PG_NULL_STRING},
+			{"3", "Jane"},
+		})
 	})
 
 	t.Run("Processes an incremental UPDATE", func(t *testing.T) {
-		config := loadTestConfig()
-		icebergWriter := NewIcebergWriter(config)
 		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_ROWS))
+		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(
-			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-			10,
-			createTestLoadRows([][]string{{"1", "John Doe"}}),
-		)
+		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+			{"1", "John Doe"},
+		}))
 
 		manifestListFiles := readManifestListFiles(t, icebergWriter)
 		if len(manifestListFiles) != 3 {
@@ -86,20 +87,20 @@ func TestWriteIncrementally(t *testing.T) {
 			AddedDataFiles: 1,
 			AddedRecords:   1,
 		})
+		testRecords(t, duckdb, [][]string{
+			{"1", "John Doe"},
+			{"2", PG_NULL_STRING},
+		})
 	})
 
 	t.Run("Processes an incremental INSERT and UPDATE simultaneously", func(t *testing.T) {
-		config := loadTestConfig()
-		icebergWriter := NewIcebergWriter(config)
 		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_ROWS))
+		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(
-			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-			10,
-			createTestLoadRows([][]string{{"1", "John Doe"}, {"3", "Jane"}}),
-		)
+		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+			{"1", "John Doe"},
+			{"3", "Jane"},
+		}))
 
 		manifestListFiles := readManifestListFiles(t, icebergWriter)
 		if len(manifestListFiles) != 3 {
@@ -125,26 +126,23 @@ func TestWriteIncrementally(t *testing.T) {
 			AddedDataFiles: 1,
 			AddedRecords:   2,
 		})
+		testRecords(t, duckdb, [][]string{
+			{"1", "John Doe"},
+			{"2", PG_NULL_STRING},
+			{"3", "Jane"},
+		})
 	})
 
 	t.Run("Processes incremental INSERT -> INSERT", func(t *testing.T) {
-		config := loadTestConfig()
-		icebergWriter := NewIcebergWriter(config)
 		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_ROWS))
+		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(
-			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-			10,
-			createTestLoadRows([][]string{{"3", "Jane"}}),
-		)
-		icebergWriter.WriteIncrementally(
-			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-			10,
-			createTestLoadRows([][]string{{"4", "Alice"}}),
-		)
+		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+			{"3", "Jane"},
+		}))
+		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+			{"4", "Alice"},
+		}))
 
 		manifestListFiles := readManifestListFiles(t, icebergWriter)
 		if len(manifestListFiles) != 3 {
@@ -168,26 +166,24 @@ func TestWriteIncrementally(t *testing.T) {
 			AddedDataFiles: 1,
 			AddedRecords:   1,
 		})
+		testRecords(t, duckdb, [][]string{
+			{"1", "John"},
+			{"2", PG_NULL_STRING},
+			{"3", "Jane"},
+			{"4", "Alice"},
+		})
 	})
 
 	t.Run("Processes incremental UPDATE -> same-record UPDATE", func(t *testing.T) {
-		config := loadTestConfig()
-		icebergWriter := NewIcebergWriter(config)
 		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_ROWS))
+		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		icebergWriter.WriteIncrementally(
-			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-			10,
-			createTestLoadRows([][]string{{"2", "Jane"}}),
-		)
-		icebergWriter.WriteIncrementally(
-			TEST_ICEBERG_WRITER_SCHEMA_TABLE,
-			TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS,
-			10,
-			createTestLoadRows([][]string{{"2", "Alice"}}),
-		)
+		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+			{"2", "Jane"},
+		}))
+		icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, createTestLoadRows([][]string{
+			{"2", "Alice"},
+		}))
 
 		manifestListFiles := readManifestListFiles(t, icebergWriter)
 		if len(manifestListFiles) != 5 {
@@ -224,6 +220,10 @@ func TestWriteIncrementally(t *testing.T) {
 			Operation:      "append",
 			AddedDataFiles: 1,
 			AddedRecords:   1,
+		})
+		testRecords(t, duckdb, [][]string{
+			{"1", "John"},
+			{"2", "Alice"},
 		})
 	})
 }
@@ -266,5 +266,39 @@ func testManifestListFile(t *testing.T, actualManifestListFile ManifestListFile,
 	}
 	if actualManifestListFile.DeletedRecords != expectedManifestListFile.DeletedRecords {
 		t.Fatalf("Expected %d deleted records, got %d", expectedManifestListFile.DeletedRecords, actualManifestListFile.DeletedRecords)
+	}
+}
+
+func testRecords(t *testing.T, duckdb *Duckdb, expectedRecords [][]string) {
+	icebergReader := NewIcebergReader(duckdb.config)
+	metadataFilePath := icebergReader.MetadataFilePath(TEST_ICEBERG_WRITER_SCHEMA_TABLE)
+
+	rows, err := duckdb.QueryContext(context.Background(), "SELECT id::text, COALESCE(name, '"+PG_NULL_STRING+"') FROM iceberg_scan('"+metadataFilePath+"', skip_schema_inference = true) ORDER BY id")
+	if err != nil {
+		t.Fatalf("Error querying DuckDB: %v", err)
+	}
+	defer rows.Close()
+
+	actualRecords := [][]string{}
+	for rows.Next() {
+		row := make([]string, len(expectedRecords[0]))
+		err := rows.Scan(&row[0], &row[1])
+		if err != nil {
+			t.Fatalf("Error scanning row: %v", err)
+		}
+		actualRecords = append(actualRecords, row)
+	}
+
+	if len(actualRecords) != len(expectedRecords) {
+		t.Fatalf("Expected %d records, got %d", len(expectedRecords), len(actualRecords))
+	}
+
+	for i, expectedRecord := range expectedRecords {
+		actualRecord := actualRecords[i]
+		for j, expectedValue := range expectedRecord {
+			if actualRecord[j] != expectedValue {
+				t.Fatalf("Expected value '%s' at (%d, %d), got '%s'", expectedValue, i, j, actualRecord[j])
+			}
+		}
 	}
 }
