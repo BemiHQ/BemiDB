@@ -139,35 +139,35 @@ func (storage *StorageLocal) CreateMetadataDir(schemaTable IcebergSchemaTable) s
 	return metadataPath
 }
 
-func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (parquetFile ParquetFile, err error) {
+func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxWritePayloadSize int) (parquetFile ParquetFile, loadedAllRows bool, err error) {
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
 	filePath := filepath.Join(dataDirPath, fileName)
 
 	fileWriter, err := local.NewLocalFileWriter(filePath)
 	if err != nil {
-		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows)
+	recordCount, loadedAllRows, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows, maxWritePayloadSize)
 	if err != nil {
-		return ParquetFile{}, err
+		return ParquetFile{}, false, err
 	}
 	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", filePath)
 
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return ParquetFile{}, fmt.Errorf("failed to get Parquet file info: %v", err)
+		return ParquetFile{}, false, fmt.Errorf("failed to get Parquet file info: %v", err)
 	}
 	fileSize := fileInfo.Size()
 
 	fileReader, err := local.NewLocalFileReader(filePath)
 	if err != nil {
-		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for reading: %v", err)
 	}
 	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
 	if err != nil {
-		return ParquetFile{}, err
+		return ParquetFile{}, false, err
 	}
 
 	return ParquetFile{
@@ -176,7 +176,7 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 		Size:        fileSize,
 		RecordCount: recordCount,
 		Stats:       parquetStats,
-	}, nil
+	}, loadedAllRows, nil
 }
 
 func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {

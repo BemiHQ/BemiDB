@@ -29,7 +29,7 @@ func TestCreateParquet(t *testing.T) {
 			return TEST_STORAGE_ROWS
 		}
 
-		parquetFile, err := storage.CreateParquet(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows)
+		parquetFile, _, err := storage.CreateParquet(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows, 0)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -274,7 +274,7 @@ func createTestParquetFile(storage *StorageLocal, dir string) ParquetFile {
 		return TEST_STORAGE_ROWS
 	}
 
-	parquetFile, err := storage.CreateParquet(dir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows)
+	parquetFile, _, err := storage.CreateParquet(dir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows, 0)
 	if err != nil {
 		panic(err)
 	}

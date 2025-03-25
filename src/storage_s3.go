@@ -151,7 +151,7 @@ func (storage *StorageS3) CreateMetadataDir(schemaTable IcebergSchemaTable) (met
 	return tablePrefix + "metadata"
 }
 
-func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (parquetFile ParquetFile, err error) {
+func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxWritePayloadSize int) (parquetFile ParquetFile, loadedAllRows bool, err error) {
 	ctx := context.Background()
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
@@ -159,12 +159,12 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 
 	fileWriter, err := s3v2.NewS3FileWriterWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey, nil)
 	if err != nil {
-		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows)
+	recordCount, loadedAllRows, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows, maxWritePayloadSize)
 	if err != nil {
-		return ParquetFile{}, err
+		return ParquetFile{}, false, err
 	}
 	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", fileKey)
 
@@ -173,17 +173,17 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 		Key:    aws.String(fileKey),
 	})
 	if err != nil {
-		return ParquetFile{}, fmt.Errorf("failed to get Parquet file info: %v", err)
+		return ParquetFile{}, false, fmt.Errorf("failed to get Parquet file info: %v", err)
 	}
 	fileSize := *headObjectResponse.ContentLength
 
 	fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey)
 	if err != nil {
-		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for reading: %v", err)
 	}
 	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
 	if err != nil {
-		return ParquetFile{}, err
+		return ParquetFile{}, false, err
 	}
 
 	return ParquetFile{
@@ -192,7 +192,7 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 		Size:        fileSize,
 		RecordCount: recordCount,
 		Stats:       parquetStats,
-	}, nil
+	}, loadedAllRows, nil
 }
 
 func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {

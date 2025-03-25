@@ -217,19 +217,21 @@ func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manif
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string) (recordCount int64, err error) {
+func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxWritePayloadSize int) (recordCount int64, loadedAllRows bool, err error) {
 	defer fileWriter.Close()
 
 	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
 	LogDebug(storage.config, "Parquet schema:", schemaJson)
 	parquetWriter, err := writer.NewJSONWriter(schemaJson, fileWriter, PARQUET_PARALLEL_NUMBER)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create Parquet writer: %v", err)
+		return 0, false, fmt.Errorf("failed to create Parquet writer: %v", err)
 	}
 	parquetWriter.RowGroupSize = PARQUET_ROW_GROUP_SIZE
 	parquetWriter.PageSize = PARQUET_PAGE_SIZE
 	parquetWriter.CompressionType = PARQUET_COMPRESSION_TYPE
 
+	loadedAllRows = true
+	writtenPayloadSize := 0
 	rows := loadRows()
 	for len(rows) > 0 {
 		for _, row := range rows {
@@ -241,9 +243,15 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 			PanicIfError(err, storage.config)
 
 			if err = parquetWriter.Write(string(rowJson)); err != nil {
-				return 0, fmt.Errorf("Write error: %v", err)
+				return 0, false, fmt.Errorf("Write error: %v", err)
 			}
+			writtenPayloadSize += len(rowJson)
 			recordCount++
+		}
+
+		if maxWritePayloadSize > 0 && writtenPayloadSize >= maxWritePayloadSize {
+			loadedAllRows = false
+			break
 		}
 
 		rows = loadRows()
@@ -251,10 +259,10 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 
 	LogDebug(storage.config, "Stopping Parquet writer...")
 	if err := parquetWriter.WriteStop(); err != nil {
-		return 0, fmt.Errorf("failed to stop Parquet writer: %v", err)
+		return 0, false, fmt.Errorf("failed to stop Parquet writer: %v", err)
 	}
 
-	return recordCount, nil
+	return recordCount, loadedAllRows, nil
 }
 
 func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(fileSystemPrefix string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {
@@ -600,10 +608,10 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 	}
 
 	var manifestListRecords []interface{}
-
 	var addedFilesSize, addedDataFiles, addedRecords, removedFilesSize, deletedDataFiles, deletedRecords int64
+	sameSequenceNumbers := true
 
-	for _, manifestListItem := range manifestListItemsSortedDesc {
+	for i, manifestListItem := range manifestListItemsSortedDesc {
 		sequenceNumber := manifestListItem.SequenceNumber
 		manifestFile := manifestListItem.ManifestFile
 
@@ -636,25 +644,36 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 			manifestListRecord["added_rows_count"] = manifestFile.RecordCount
 			manifestListRecord["deleted_files_count"] = 0
 			manifestListRecord["deleted_rows_count"] = 0
+			addedFilesSize += manifestFile.DataFileSize
+			addedDataFiles += 1
+			addedRecords += manifestFile.RecordCount
 		}
 
 		manifestListRecords = append(manifestListRecords, manifestListRecord)
+
+		if sameSequenceNumbers && i > 0 && sequenceNumber != manifestListItemsSortedDesc[i-1].SequenceNumber {
+			sameSequenceNumbers = false
+		}
 	}
 
 	lastManifestFile := manifestListItemsSortedDesc[0].ManifestFile
 	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
-	addedDataFiles = 1
-	addedFilesSize = lastManifestFile.DataFileSize
-	addedRecords = lastManifestFile.RecordCount
 	if deletedDataFiles > 0 {
-		if len(manifestListItemsSortedDesc) == 2 && manifestListItemsSortedDesc[0].SequenceNumber == manifestListItemsSortedDesc[1].SequenceNumber {
+		if len(manifestListItemsSortedDesc) == 2 && sameSequenceNumbers {
 			operation = ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE
+			addedDataFiles = 1
+			addedFilesSize = lastManifestFile.DataFileSize
+			addedRecords = lastManifestFile.RecordCount
 		} else {
 			operation = ICEBERG_MANIFEST_LIST_OPERATION_DELETE
 			addedFilesSize = 0
 			addedDataFiles = 0
 			addedRecords = 0
 		}
+	} else if !sameSequenceNumbers { // Separate incremental inserts
+		addedDataFiles = 1
+		addedFilesSize = lastManifestFile.DataFileSize
+		addedRecords = lastManifestFile.RecordCount
 	}
 
 	avroFile, err := os.Create(filePath)

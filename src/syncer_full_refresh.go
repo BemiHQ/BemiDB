@@ -12,6 +12,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const (
+	MAX_WRITE_PARQUET_PAYLOAD_SIZE = 4 * 1024 * 1024 * 1024 // 4 GB (compressed to ~512 MB Parquet)
+)
+
 type SyncerFullRefresh struct {
 	config        *Config
 	icebergWriter *IcebergWriter
@@ -55,7 +59,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing to Iceberg...")
-	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, func() [][]string {
+	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, MAX_WRITE_PARQUET_PAYLOAD_SIZE, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
 		}
