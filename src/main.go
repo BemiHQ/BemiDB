@@ -3,6 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"time"
 )
 
@@ -15,6 +18,11 @@ func main() {
 	}
 
 	command := flag.Arg(0)
+
+	if false {
+		// Manually enable profiling with ppfrof
+		go func() { log.Println(http.ListenAndServe(":6060", nil)) }()
+	}
 
 	switch command {
 	case "start":

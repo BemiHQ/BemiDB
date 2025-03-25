@@ -84,3 +84,9 @@ tpch-generate:
 
 sniff:
 	sudo tshark -i lo0 -f 'tcp port 54321' -d tcp.port==54321,pgsql -O pgsql
+
+measure-mem:
+	devbox run "./benchmark/scripts/measure-memory.sh"
+
+profile-mem:
+	devbox run "watch -n 1 go tool pprof -top http://localhost:6060/debug/pprof/heap"

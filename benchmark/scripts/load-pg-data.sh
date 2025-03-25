@@ -5,6 +5,7 @@ unzip ./tpch.zip -d ./benchmark/data
 rm ./tpch.zip
 
 cd ./benchmark/data
+
 mv ./TPC-H_generated_data/* ./
 rm -rf ./TPC-H_generated_data
 rm -rf ./__MACOSX
