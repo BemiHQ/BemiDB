@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	MAX_IN_MEMORY_BUFFER_SIZE = 256 * 1024 * 1024 // 256 MB
-	MAX_PG_ROWS_BATCH_SIZE    = 1 * 1024 * 1024   // 1 MB (will get expanded 400x in memory when serializing to Parquet)
+	MAX_IN_MEMORY_BUFFER_SIZE = 128 * 1024 * 1024 // 128 MB (expands to ~160 MB memory usage)
+	MAX_PG_ROWS_BATCH_SIZE    = 1 * 1024 * 1024   // 1 MB
 	PING_PG_INTERVAL_SECONDS  = 24
 )
 

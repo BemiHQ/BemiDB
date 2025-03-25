@@ -22,6 +22,7 @@ import (
 const (
 	PARQUET_PARALLEL_NUMBER  = 4
 	PARQUET_ROW_GROUP_SIZE   = 128 * 1024 * 1024 // 128 MB
+	PARQUET_PAGE_SIZE        = 8 * 1024          // 8 KB
 	PARQUET_COMPRESSION_TYPE = parquet.CompressionCodec_ZSTD
 
 	ICEBERG_MANIFEST_STATUS_ADDED   = 1
@@ -226,6 +227,7 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 		return 0, fmt.Errorf("failed to create Parquet writer: %v", err)
 	}
 	parquetWriter.RowGroupSize = PARQUET_ROW_GROUP_SIZE
+	parquetWriter.PageSize = PARQUET_PAGE_SIZE
 	parquetWriter.CompressionType = PARQUET_COMPRESSION_TYPE
 
 	rows := loadRows()
