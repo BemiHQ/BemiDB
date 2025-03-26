@@ -11,3 +11,6 @@ RUN go mod download
 
 COPY src/ .
 RUN CGO_ENABLED=1 GOOS=$GOOS GOARCH=$GOARCH go build -o /app/bemidb
+
+ENTRYPOINT [ "/app/bemidb" ]
+CMD [ "start" ]
