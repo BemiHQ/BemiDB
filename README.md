@@ -66,6 +66,81 @@ psql postgres://localhost:54321/bemidb -c "SELECT table_schema, table_name FROM 
 psql postgres://localhost:54321/bemidb -c "SELECT COUNT(*) FROM [table_name]"
 ```
 
+<details>
+  <summary>Running in a Docker container</summary>
+
+```sh
+# Download the latest Docker image from GitHub Container Registry
+docker pull ghcr.io/bemihq/bemidb:latest
+
+# Sync data from a Postgres database on the host machine
+docker run \
+  -e PG_DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/dbname \
+  ghcr.io/bemihq/bemidb:latest sync
+
+# Start the BemiDB database
+docker run ghcr.io/bemihq/bemidb:latest start
+```
+</details>
+
+<details>
+  <summary>Running in a Kubernetes cluster</summary>
+
+You can run 2 deployments in parallel: one for periodic data syncing from a Postgres database and another for running the BemiDB database.
+In that case, you'd need to set up a shared volume between the two deployments or a shared S3 bucket for Iceberg data.
+See the [Configuration](#configuration) section for more details.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bemidb-sync
+  namespace: default
+  labels:
+    app.kubernetes.io/name: bemidb-sync
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bemidb-sync
+    spec:
+      containers:
+      - name: bemidb
+        image: ghcr.io/bemihq/bemidb:latest
+        command: ["sync"]
+        env:
+        - name: PG_DATABASE_URL
+          value: "postgres://postgres:postgres@postgres-host:5432/dbname"
+        - name: PG_SYNC_INTERVAL
+          value: "1h"
+        ...
+```
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bemidb-start
+  namespace: default
+  labels:
+    app.kubernetes.io/name: bemidb-start
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bemidb-start
+    spec:
+      containers:
+      - name: bemidb
+        image: ghcr.io/bemihq/bemidb:latest
+        command: ["start"]
+        ...
+```
+
+</details>
+
 ## Configuration
 
 ### Local disk storage
