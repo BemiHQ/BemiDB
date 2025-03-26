@@ -405,7 +405,7 @@ func init() {
 	icebergWriter.Write(
 		IcebergSchemaTable{Schema: "public", Table: "test_table"},
 		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS,
-		MAX_WRITE_PARQUET_PAYLOAD_SIZE,
+		MAX_PARQUET_PAYLOAD_THRESHOLD,
 		func() [][]string {
 			if i > 0 {
 				return [][]string{}
@@ -418,7 +418,7 @@ func init() {
 	icebergWriter.Write(
 		IcebergSchemaTable{Schema: "test_schema", Table: "simple_table"},
 		TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS,
-		MAX_WRITE_PARQUET_PAYLOAD_SIZE,
+		MAX_PARQUET_PAYLOAD_THRESHOLD,
 		func() [][]string {
 			if i > 0 {
 				return [][]string{}

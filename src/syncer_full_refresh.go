@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	MAX_WRITE_PARQUET_PAYLOAD_SIZE = 4 * 1024 * 1024 * 1024 // 4 GB (compressed to ~512 MB Parquet)
+	MAX_PARQUET_PAYLOAD_THRESHOLD = 4 * 1024 * 1024 * 1024 // 4 GB (compressed to ~512 MB Parquet)
 )
 
 type SyncerFullRefresh struct {
@@ -59,7 +59,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing to Iceberg...")
-	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, MAX_WRITE_PARQUET_PAYLOAD_SIZE, func() [][]string {
+	syncer.icebergWriter.Write(schemaTable, pgSchemaColumns, MAX_PARQUET_PAYLOAD_THRESHOLD, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
 		}

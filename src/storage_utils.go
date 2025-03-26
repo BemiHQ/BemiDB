@@ -217,7 +217,7 @@ func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manif
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxWritePayloadSize int) (recordCount int64, loadedAllRows bool, err error) {
+func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxPayloadThreshold int) (recordCount int64, loadedAllRows bool, err error) {
 	defer fileWriter.Close()
 
 	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
@@ -249,7 +249,7 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 			recordCount++
 		}
 
-		if maxWritePayloadSize > 0 && writtenPayloadSize >= maxWritePayloadSize {
+		if maxPayloadThreshold > 0 && writtenPayloadSize >= maxPayloadThreshold {
 			loadedAllRows = false
 			break
 		}

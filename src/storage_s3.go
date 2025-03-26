@@ -151,7 +151,7 @@ func (storage *StorageS3) CreateMetadataDir(schemaTable IcebergSchemaTable) (met
 	return tablePrefix + "metadata"
 }
 
-func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxWritePayloadSize int) (parquetFile ParquetFile, loadedAllRows bool, err error) {
+func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxPayloadThreshold int) (parquetFile ParquetFile, loadedAllRows bool, err error) {
 	ctx := context.Background()
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
@@ -162,7 +162,7 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, loadedAllRows, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows, maxWritePayloadSize)
+	recordCount, loadedAllRows, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows, maxPayloadThreshold)
 	if err != nil {
 		return ParquetFile{}, false, err
 	}

@@ -333,7 +333,7 @@ const (
 	}`
 )
 
-func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, maxWriteParquetPayloadSize int, loadRows func() [][]string) {
+func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, maxParquetPayloadThreshold int, loadRows func() [][]string) {
 	dataDirPath := icebergWriter.storage.CreateDataDir(schemaTable)
 	manifestListItemsSortedDesc := []ManifestListItem{}
 
@@ -342,7 +342,7 @@ func (icebergWriter *IcebergWriter) Write(schemaTable IcebergSchemaTable, pgSche
 	var parquetFileUuid string
 
 	for loadMoreRows {
-		parquetFile, loadedAllRows, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows, maxWriteParquetPayloadSize)
+		parquetFile, loadedAllRows, err := icebergWriter.storage.CreateParquet(dataDirPath, pgSchemaColumns, loadRows, maxParquetPayloadThreshold)
 		PanicIfError(err, icebergWriter.config)
 		if parquetFile.RecordCount == 0 && len(manifestListItemsSortedDesc) > 0 { // Parquet is empty and already written at least one Parquet previously
 			err = icebergWriter.storage.DeleteParquet(parquetFile)
