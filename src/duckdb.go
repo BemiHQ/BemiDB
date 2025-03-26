@@ -41,7 +41,7 @@ type Duckdb struct {
 func NewDuckdb(config *Config, withPgCompatibility bool) *Duckdb {
 	ctx := context.Background()
 	db, err := sql.Open("duckdb", "")
-	PanicIfError(err, config)
+	PanicIfError(config, err)
 
 	duckdb := &Duckdb{
 		db:                                    db,
@@ -70,7 +70,7 @@ func NewDuckdb(config *Config, withPgCompatibility bool) *Duckdb {
 
 	for _, query := range bootQueries {
 		_, err := duckdb.ExecContext(ctx, query, nil)
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 	}
 
 	switch config.StorageType {
@@ -84,7 +84,7 @@ func NewDuckdb(config *Config, withPgCompatibility bool) *Duckdb {
 
 		if config.LogLevel == LOG_LEVEL_TRACE {
 			_, err = duckdb.ExecContext(ctx, "SET enable_http_logging=true", nil)
-			PanicIfError(err, config)
+			PanicIfError(config, err)
 		}
 	}
 
@@ -140,7 +140,7 @@ func (duckdb *Duckdb) ExecInitFile() {
 	ctx := context.Background()
 	for _, query := range initFileQueries {
 		_, err := duckdb.ExecContext(ctx, query, nil)
-		PanicIfError(err, duckdb.config)
+		PanicIfError(duckdb.config, err)
 	}
 }
 
@@ -154,7 +154,7 @@ func (duckdb *Duckdb) setExplicitAwsCredentials(ctx context.Context) {
 		"endpoint":        config.Aws.S3Endpoint,
 		"s3Bucket":        "s3://" + config.Aws.S3Bucket,
 	})
-	PanicIfError(err, config)
+	PanicIfError(config, err)
 }
 
 func (duckdb *Duckdb) setImplicitAwsCredentials(ctx context.Context) {
@@ -165,7 +165,7 @@ func (duckdb *Duckdb) setImplicitAwsCredentials(ctx context.Context) {
 		"endpoint": config.Aws.S3Endpoint,
 		"s3Bucket": "s3://" + config.Aws.S3Bucket,
 	})
-	PanicIfError(err, config)
+	PanicIfError(config, err)
 }
 
 func (duckdb *Duckdb) autoRefreshImplicitAwsCredentials(ctx context.Context) {
@@ -199,12 +199,12 @@ func readInitFile(config *Config) []string {
 			LogDebug(config, "DuckDB: No init file found at", config.InitSqlFilepath)
 			return nil
 		}
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 	}
 
 	LogInfo(config, "DuckDB: Reading init file", config.InitSqlFilepath)
 	file, err := os.Open(config.InitSqlFilepath)
-	PanicIfError(err, config)
+	PanicIfError(config, err)
 	defer file.Close()
 
 	lines := []string{}
@@ -212,6 +212,6 @@ func readInitFile(config *Config) []string {
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-	PanicIfError(scanner.Err(), config)
+	PanicIfError(config, scanner.Err())
 	return lines
 }

@@ -1,18 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,27 +16,6 @@ import (
 
 	"golang.org/x/crypto/pbkdf2"
 )
-
-type AnonymousErrorData struct {
-	DbHost     string `json:"dbHost"`
-	OsName     string `json:"osName"`
-	Version    string `json:"version"`
-	Error      string `json:"error"`
-	StackTrace string `json:"stackTrace"`
-}
-
-func PanicIfError(err error, config *Config, message ...string) {
-	if err != nil {
-		if config != nil {
-			sendAnonymousErrorReport(config, err)
-		}
-		if len(message) == 1 {
-			panic(fmt.Errorf(message[0]+": %w", err))
-		}
-
-		panic(err)
-	}
-}
 
 func IntToString(i int) string {
 	return strconv.Itoa(i)
@@ -138,6 +113,19 @@ func HasExactOrWildcardMatch(strs []string, value string) bool {
 	return false
 }
 
+func ParseDatabaseHost(dbUrl string) string {
+	if dbUrl == "" {
+		return ""
+	}
+
+	url, err := url.Parse(dbUrl)
+	if err != nil {
+		return ""
+	}
+
+	return url.Hostname()
+}
+
 func hmacSha256Hash(key []byte, message []byte) []byte {
 	hash := hmac.New(sha256.New, key)
 	hash.Write(message)
@@ -148,47 +136,4 @@ func sha256Hash(data []byte) []byte {
 	hash := sha256.New()
 	hash.Write(data)
 	return hash.Sum(nil)
-}
-
-func sendAnonymousErrorReport(config *Config, err error) {
-	if config.DisableAnonymousAnalytics {
-		LogInfo(config, "Anonymous analytics is disabled")
-		return
-	}
-
-	stack := make([]byte, 4096)
-	n := runtime.Stack(stack, false)
-	stackTrace := string(stack[:n])
-
-	var dbHost string
-	if config != nil && config.Pg.DatabaseUrl != "" {
-		dbUrl, err := url.Parse(config.Pg.DatabaseUrl)
-		if err != nil {
-			return
-		}
-
-		hostname := dbUrl.Hostname()
-		switch hostname {
-		case "localhost", "127.0.0.1", "::1", "0.0.0.0":
-			return
-		default:
-			dbHost = hostname
-		}
-	}
-
-	data := AnonymousErrorData{
-		DbHost:     dbHost,
-		OsName:     runtime.GOOS + "-" + runtime.GOARCH,
-		Version:    config.Version,
-		Error:      err.Error(),
-		StackTrace: stackTrace,
-	}
-
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return
-	}
-
-	client := http.Client{Timeout: 5 * time.Second}
-	_, _ = client.Post("https://api.bemidb.com/api/errors", "application/json", bytes.NewBuffer(jsonData))
 }

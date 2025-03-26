@@ -122,7 +122,7 @@ func TestCreateManifestList(t *testing.T) {
 		storage := NewLocalStorage(config)
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
 
 		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
@@ -161,10 +161,10 @@ func TestCreateMetadata(t *testing.T) {
 		storage := NewLocalStorage(config)
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
 		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 
 		metadataFile, err := storage.CreateMetadata(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, []ManifestListFile{manifestListFile})
 
@@ -187,12 +187,12 @@ func TestExistingManifestListFiles(t *testing.T) {
 		storage := NewLocalStorage(config)
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
 		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 		_, err = storage.CreateMetadata(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, []ManifestListFile{manifestListFile})
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 
 		existingManifestListFiles, err := storage.ExistingManifestListFiles(tempDir)
 
@@ -233,10 +233,10 @@ func TestExistingManifestFiles(t *testing.T) {
 		storage := NewLocalStorage(config)
 		parquetFile := createTestParquetFile(storage, tempDir)
 		manifestFile, err := storage.CreateManifest(tempDir, parquetFile)
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 		manifestListItem := ManifestListItem{SequenceNumber: 1, ManifestFile: manifestFile}
 		manifestListFile, err := storage.CreateManifestList(tempDir, parquetFile.Uuid, []ManifestListItem{manifestListItem})
-		PanicIfError(err, config)
+		PanicIfError(config, err)
 
 		existingManifestListItems, err := storage.ExistingManifestListItems(manifestListFile)
 

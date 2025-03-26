@@ -446,7 +446,7 @@ func loadTestConfig() *Config {
 
 func setTestArgs(args []string) {
 	// Reset state
-	_config = Config{Version: VERSION}
+	_config = Config{}
 	_configParseValues = configParseValues{}
 
 	os.Args = append([]string{"cmd"}, args...)

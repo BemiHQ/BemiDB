@@ -240,7 +240,7 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 				rowMap[pgSchemaColumns[i].NormalizedColumnName()] = pgSchemaColumns[i].FormatParquetValue(rowValue)
 			}
 			rowJson, err := json.Marshal(rowMap)
-			PanicIfError(err, storage.config)
+			PanicIfError(storage.config, err)
 
 			if err = parquetWriter.Write(string(rowJson)); err != nil {
 				return 0, false, fmt.Errorf("Write error: %v", err)
@@ -908,7 +908,7 @@ func (storage *StorageUtils) buildSchemaJson(pgSchemaColumns []PgSchemaColumn) s
 		schemaMap["Fields"] = append(schemaMap["Fields"].([]map[string]interface{}), fieldMap)
 	}
 	schemaJson, err := json.Marshal(schemaMap)
-	PanicIfError(err, storage.config)
+	PanicIfError(storage.config, err)
 
 	return string(schemaJson)
 }

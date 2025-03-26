@@ -29,7 +29,6 @@ curl -L "$DOWNLOAD_URL" -o ./bemidb
 if [ "$ARCH" = "arm64" ] && [ "$OS" = "darwin" ]; then
   # Ensure /usr/local/lib exists
   if [ ! -d "/usr/local/lib" ]; then
-    echo "Creating /usr/local/lib directory..."
     sudo mkdir -p /usr/local/lib
   fi
 

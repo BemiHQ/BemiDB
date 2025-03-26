@@ -188,7 +188,7 @@ func TestLoadConfig(t *testing.T) {
 			"--pg-exclude-tables", "public.users,public.secrets",
 		})
 
-		config := LoadConfig()
+		config := LoadConfig(true)
 
 		if config.Port != "12345" {
 			t.Errorf("Expected port to be 12345, got %s", config.Port)

@@ -9,25 +9,29 @@ import (
 	"time"
 )
 
+const (
+	COMMAND_START   = "start"
+	COMMAND_SYNC    = "sync"
+	COMMAND_VERSION = "version"
+)
+
 func main() {
 	config := LoadConfig()
+	defer handlePanic(config)
 
-	if len(flag.Args()) == 0 {
-		start(config)
-		return
+	if config.LogLevel == LOG_LEVEL_TRACE {
+		go enableProfiling()
 	}
 
 	command := flag.Arg(0)
-
-	if false {
-		// Manually enable profiling with ppfrof
-		go func() { log.Println(http.ListenAndServe(":6060", nil)) }()
+	if len(flag.Args()) == 0 {
+		command = COMMAND_START
 	}
 
 	switch command {
-	case "start":
+	case COMMAND_START:
 		start(config)
-	case "sync":
+	case COMMAND_SYNC:
 		if config.Pg.SyncInterval != "" {
 			duration, err := time.ParseDuration(config.Pg.SyncInterval)
 			if err != nil {
@@ -42,7 +46,7 @@ func main() {
 		} else {
 			syncFromPg(config)
 		}
-	case "version":
+	case COMMAND_VERSION:
 		fmt.Println("BemiDB version:", VERSION)
 	default:
 		panic("Unknown command: " + command)
@@ -77,4 +81,17 @@ func syncFromPg(config *Config) {
 	syncer := NewSyncer(config)
 	syncer.SyncFromPostgres()
 	LogInfo(config, "Sync from PostgreSQL completed successfully.")
+}
+
+func enableProfiling() {
+	func() { log.Println(http.ListenAndServe(":6060", nil)) }()
+}
+
+func handlePanic(config *Config) {
+	func() {
+		if r := recover(); r != nil {
+			err, _ := r.(error)
+			HandleUnexpectedError(config, err)
+		}
+	}()
 }

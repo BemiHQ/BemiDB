@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.44.0"
+	VERSION = "0.45.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
@@ -83,7 +83,6 @@ type Config struct {
 	Aws                       AwsConfig
 	Pg                        PgConfig
 	DisableAnonymousAnalytics bool
-	Version                   string
 }
 
 type configParseValues struct {
@@ -93,7 +92,7 @@ type configParseValues struct {
 	pgIncrementallyRefreshedTables string
 }
 
-var _config = Config{Version: VERSION}
+var _config Config
 var _configParseValues configParseValues
 
 func init() {

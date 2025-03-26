@@ -50,7 +50,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 	// Read the header to get the column names
 	csvReader := csv.NewReader(cappedBuffer)
 	csvHeader, err := csvReader.Read()
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 
 	schemaTable := pgSchemaTable.ToIcebergSchemaTable()
 	pgSchemaColumns := syncer.pgTableSchemaColumns(structureConn, pgSchemaTable, csvHeader)
@@ -73,7 +73,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 				break
 			}
 			if err != nil {
-				PanicIfError(err, syncer.config)
+				PanicIfError(syncer.config, err)
 			}
 
 			rows = append(rows, row)
@@ -95,7 +95,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 
 func (syncer *SyncerFullRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeader []string) []PgSchemaColumn {
 	if len(csvHeader) == 0 {
-		PanicIfError(errors.New("couldn't read data from "+pgSchemaTable.String()), syncer.config)
+		PanicIfError(syncer.config, errors.New("couldn't read data from "+pgSchemaTable.String()))
 	}
 
 	var pgSchemaColumns []PgSchemaColumn
@@ -122,7 +122,7 @@ func (syncer *SyncerFullRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTa
 		pgSchemaTable.Table,
 		csvHeader,
 	)
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 	defer rows.Close()
 
 	for rows.Next() {
@@ -139,7 +139,7 @@ func (syncer *SyncerFullRefresh) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTa
 			&pgSchemaColumn.DatetimePrecision,
 			&pgSchemaColumn.Namespace,
 		)
-		PanicIfError(err, syncer.config)
+		PanicIfError(syncer.config, err)
 		pgSchemaColumns = append(pgSchemaColumns, *pgSchemaColumn)
 	}
 
@@ -153,7 +153,7 @@ func (syncer *SyncerFullRefresh) copyFromPgTable(pgSchemaTable PgSchemaTable, co
 		cappedBuffer,
 		"COPY "+pgSchemaTable.String()+" TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
 	)
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)...")
 
 	cappedBuffer.Close()
@@ -173,7 +173,7 @@ func (syncer *SyncerFullRefresh) pingPg(conn *pgx.Conn, stopPingChannel *chan st
 		case <-ticker.C:
 			LogDebug(syncer.config, "Pinging the database...")
 			_, err := conn.Exec(context.Background(), "SELECT 1")
-			PanicIfError(err, syncer.config)
+			PanicIfError(syncer.config, err)
 		}
 	}
 }

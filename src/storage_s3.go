@@ -38,7 +38,7 @@ func NewS3Storage(config *Config) *StorageS3 {
 	}
 
 	loadedAwsConfig, err := awsConfig.LoadDefaultConfig(context.Background(), awsConfigOptions...)
-	PanicIfError(err, config)
+	PanicIfError(config, err)
 
 	return &StorageS3{
 		s3Client:     s3.NewFromConfig(loadedAwsConfig),
@@ -505,7 +505,7 @@ func (storage *StorageS3) deleteNestedObjects(prefix string) (err error) {
 
 func (storage *StorageS3) createTemporaryFile(prefix string) (file *os.File, err error) {
 	tempFile, err := os.CreateTemp("", prefix)
-	PanicIfError(err, nil)
+	PanicIfError(storage.config, err)
 
 	return tempFile, nil
 }

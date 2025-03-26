@@ -46,9 +46,9 @@ func NewSyncer(config *Config) *Syncer {
 
 func (syncer *Syncer) SyncFromPostgres() {
 	ctx := context.Background()
-	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
-	syncer.sendAnonymousAnalytics(databaseUrl)
+	syncer.sendAnonymousAnalytics("sync-start")
 
+	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
 	icebergSchemaTables, icebergSchemaTablesErr := syncer.icebergReader.SchemaTables()
 
 	structureConn := syncer.newConnection(ctx, databaseUrl)
@@ -74,7 +74,7 @@ func (syncer *Syncer) SyncFromPostgres() {
 				// Read internal table metadata if it exists
 				if syncedPreviously && incrementalRefreshEnabled {
 					internalTableMetadata, err = syncer.icebergReader.storage.InternalTableMetadata(pgSchemaTable)
-					PanicIfError(err, syncer.config)
+					PanicIfError(syncer.config, err)
 					LogDebug(syncer.config, "Read internal table metadata to sync incrementally:", internalTableMetadata.String())
 				}
 
@@ -97,6 +97,8 @@ func (syncer *Syncer) SyncFromPostgres() {
 	if !syncer.config.Pg.PreserveUnsynced {
 		syncer.deleteOldIcebergSchemaTables(syncedPgSchemaTables)
 	}
+
+	syncer.sendAnonymousAnalytics("sync-finish")
 }
 
 // Example:
@@ -151,13 +153,13 @@ func (syncer *Syncer) listPgSchemas(conn *pgx.Conn) []string {
 		context.Background(),
 		"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'pg_toast', 'information_schema')",
 	)
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 	defer schemasRows.Close()
 
 	for schemasRows.Next() {
 		var schema string
 		err = schemasRows.Scan(&schema)
-		PanicIfError(err, syncer.config)
+		PanicIfError(syncer.config, err)
 		schemas = append(schemas, schema)
 	}
 
@@ -179,13 +181,13 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 		`,
 		schema,
 	)
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 	defer tablesRows.Close()
 
 	for tablesRows.Next() {
 		pgSchemaTable := PgSchemaTable{Schema: schema}
 		err = tablesRows.Scan(&pgSchemaTable.Table, &pgSchemaTable.ParentPartitionedTable)
-		PanicIfError(err, syncer.config)
+		PanicIfError(syncer.config, err)
 		pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
 	}
 
@@ -211,7 +213,7 @@ func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, con
 		pgSchemaTable.Schema,
 		pgSchemaTable.Table,
 	).Scan(&tableSize, &rowCount)
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount)
 
 	if tableSize == 0 || rowCount == 0 {
@@ -229,10 +231,10 @@ func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, con
 
 func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pgx.Conn {
 	conn, err := pgx.Connect(ctx, databaseUrl)
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 
 	_, err = conn.Exec(ctx, "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 
 	return conn
 }
@@ -247,7 +249,7 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 	}
 
 	icebergSchemas, err := syncer.icebergReader.Schemas()
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 
 	for _, icebergSchema := range icebergSchemas {
 		found := false
@@ -265,7 +267,7 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 	}
 
 	icebergSchemaTables, err := syncer.icebergReader.SchemaTables()
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 
 	for _, icebergSchemaTable := range icebergSchemaTables.Values() {
 		found := false
@@ -292,7 +294,7 @@ func (syncer *Syncer) writeInternalMetadata(pgSchemaTable PgSchemaTable, conn *p
 		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) ASC LIMIT 1",
 	).Scan(&xminMax)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		PanicIfError(err, syncer.config)
+		PanicIfError(syncer.config, err)
 	}
 
 	err = conn.QueryRow(
@@ -300,7 +302,7 @@ func (syncer *Syncer) writeInternalMetadata(pgSchemaTable PgSchemaTable, conn *p
 		"SELECT xmin FROM "+pgSchemaTable.String()+" ORDER BY age(xmin) DESC LIMIT 1",
 	).Scan(&xminMin)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		PanicIfError(err, syncer.config)
+		PanicIfError(syncer.config, err)
 	}
 
 	metadata := InternalTableMetadata{
@@ -309,36 +311,29 @@ func (syncer *Syncer) writeInternalMetadata(pgSchemaTable PgSchemaTable, conn *p
 		XminMin:      xminMin,
 	}
 	err = syncer.icebergWriter.storage.WriteInternalTableMetadata(pgSchemaTable, metadata)
-	PanicIfError(err, syncer.config)
+	PanicIfError(syncer.config, err)
 }
 
 type AnonymousAnalyticsData struct {
-	DbHost  string `json:"dbHost"`
+	Command string `json:"command"`
 	OsName  string `json:"osName"`
 	Version string `json:"version"`
+	PgHost  string `json:"pgHost"`
 }
 
-func (syncer *Syncer) sendAnonymousAnalytics(databaseUrl string) {
+func (syncer *Syncer) sendAnonymousAnalytics(command string) {
 	if syncer.config.DisableAnonymousAnalytics {
-		LogInfo(syncer.config, "Anonymous analytics is disabled")
-		return
-	}
-
-	dbUrl, err := url.Parse(databaseUrl)
-	if err != nil {
-		return
-	}
-
-	hostname := dbUrl.Hostname()
-	switch hostname {
-	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
 		return
 	}
 
 	data := AnonymousAnalyticsData{
-		DbHost:  hostname,
+		Command: command,
 		OsName:  runtime.GOOS + "-" + runtime.GOARCH,
-		Version: syncer.config.Version,
+		Version: VERSION,
+		PgHost:  ParseDatabaseHost(syncer.config.Pg.DatabaseUrl),
+	}
+	if data.PgHost == "" || data.PgHost == "localhost" || data.PgHost == "127.0.0.1" {
+		return
 	}
 
 	jsonData, err := json.Marshal(data)

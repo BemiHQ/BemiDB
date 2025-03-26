@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -45,13 +46,13 @@ func NewTcpListener(config *Config) net.Listener {
 	}
 
 	tcpListener, err := net.Listen(network, host+":"+config.Port)
-	PanicIfError(err, config)
+	PanicIfError(config, err)
 	return tcpListener
 }
 
 func AcceptConnection(config *Config, listener net.Listener) net.Conn {
 	conn, err := listener.Accept()
-	PanicIfError(err, config)
+	PanicIfError(config, err)
 	return conn
 }
 
@@ -177,10 +178,10 @@ func (postgres *Postgres) writeMessages(messages ...pgproto3.Message) {
 	var err error
 	for _, message := range messages {
 		buf, err = message.Encode(buf)
-		PanicIfError(err, nil, "Error encoding messages")
+		PanicIfError(postgres.config, fmt.Errorf("error encoding message: %v", err))
 	}
 	_, err = (*postgres.conn).Write(buf)
-	PanicIfError(err, nil, "Error writing messages")
+	PanicIfError(postgres.config, fmt.Errorf("error writing message: %v", err))
 }
 
 func (postgres *Postgres) writeError(err error) {
