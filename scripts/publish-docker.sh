@@ -16,8 +16,11 @@ docker manifest create ghcr.io/bemihq/bemidb:$version \
   ghcr.io/bemihq/bemidb:$version-arm64
 docker manifest annotate ghcr.io/bemihq/bemidb:$version ghcr.io/bemihq/bemidb:$version-amd64 --arch amd64
 docker manifest annotate ghcr.io/bemihq/bemidb:$version ghcr.io/bemihq/bemidb:$version-arm64 --arch arm64
-
 docker manifest push ghcr.io/bemihq/bemidb:$version
 
-docker tag ghcr.io/bemihq/bemidb:$version ghcr.io/bemihq/bemidb:latest
-docker push ghcr.io/bemihq/bemidb:latest
+docker manifest create ghcr.io/bemihq/bemidb:latest \
+  ghcr.io/bemihq/bemidb:$version-amd64 \
+  ghcr.io/bemihq/bemidb:$version-arm64
+docker manifest annotate ghcr.io/bemihq/bemidb:latest ghcr.io/bemihq/bemidb:$version-amd64 --arch amd64
+docker manifest annotate ghcr.io/bemihq/bemidb:latest ghcr.io/bemihq/bemidb:$version-arm64 --arch arm64
+docker manifest push ghcr.io/bemihq/bemidb:latest
