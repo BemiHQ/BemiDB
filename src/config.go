@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.43.0"
+	VERSION = "0.44.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
@@ -16,10 +16,9 @@ const (
 	ENV_PASSWORD          = "BEMIDB_PASSWORD"
 	ENV_HOST              = "BEMIDB_HOST"
 	ENV_INIT_SQL_FILEPATH = "BEMIDB_INIT_SQL"
-	ENV_STORAGE_PATH      = "BEMIDB_STORAGE_PATH"
-	ENV_LOG_LEVEL         = "BEMIDB_LOG_LEVEL"
-	ENV_STORAGE_TYPE      = "BEMIDB_STORAGE_TYPE"
 
+	ENV_STORAGE_PATH          = "BEMIDB_STORAGE_PATH"
+	ENV_STORAGE_TYPE          = "BEMIDB_STORAGE_TYPE"
 	ENV_AWS_REGION            = "AWS_REGION"
 	ENV_AWS_S3_ENDPOINT       = "AWS_S3_ENDPOINT"
 	ENV_AWS_S3_BUCKET         = "AWS_S3_BUCKET"
@@ -32,8 +31,10 @@ const (
 	ENV_PG_INCLUDE_TABLES                 = "PG_INCLUDE_TABLES"
 	ENV_PG_EXCLUDE_TABLES                 = "PG_EXCLUDE_TABLES"
 	ENV_PG_INCREMENTALLY_REFRESHED_TABLES = "PG_INCREMENTALLY_REFRESHED_TABLES"
+	ENV_PG_PRESERVE_UNSYNCED              = "PG_PRESERVE_UNSYNCED"
 
-	ENV_DISABLE_ANONYMOUS_ANALYTICS = "DISABLE_ANONYMOUS_ANALYTICS"
+	ENV_LOG_LEVEL                   = "BEMIDB_LOG_LEVEL"
+	ENV_DISABLE_ANONYMOUS_ANALYTICS = "BEMIDB_DISABLE_ANONYMOUS_ANALYTICS"
 
 	DEFAULT_PORT              = "54321"
 	DEFAULT_DATABASE          = "bemidb"
@@ -66,6 +67,7 @@ type PgConfig struct {
 	IncludeTables                []string // optional
 	ExcludeTables                []string // optional
 	IncrementallyRefreshedTables []string // optional
+	PreserveUnsynced             bool     // optional
 }
 
 type Config struct {
@@ -113,6 +115,7 @@ func registerFlags() {
 	flag.StringVar(&_configParseValues.pgIncludeTables, "pg-include-tables", os.Getenv(ENV_PG_INCLUDE_TABLES), "(Optional) Comma-separated list of tables to include in sync (format: schema.table)")
 	flag.StringVar(&_configParseValues.pgExcludeTables, "pg-exclude-tables", os.Getenv(ENV_PG_EXCLUDE_TABLES), "(Optional) Comma-separated list of tables to exclude from sync (format: schema.table)")
 	flag.StringVar(&_configParseValues.pgIncrementallyRefreshedTables, "pg-incrementally-refreshed-tables", os.Getenv(ENV_PG_INCREMENTALLY_REFRESHED_TABLES), "(Optional) Comma-separated list of tables to refresh incrementally (format: schema.table)")
+	flag.BoolVar(&_config.Pg.PreserveUnsynced, "pg-preserve-unsynced", os.Getenv(ENV_PG_PRESERVE_UNSYNCED) == "true", "(Optional) Do not delete the existing tables in BemiDB that are not part of the sync")
 	flag.StringVar(&_config.Pg.DatabaseUrl, "pg-database-url", os.Getenv(ENV_PG_DATABASE_URL), "PostgreSQL database URL to sync")
 	flag.StringVar(&_config.Aws.Region, "aws-region", os.Getenv(ENV_AWS_REGION), "AWS region")
 	flag.StringVar(&_config.Aws.S3Endpoint, "aws-s3-endpoint", os.Getenv(ENV_AWS_S3_ENDPOINT), "AWS S3 endpoint. Default: \""+DEFAULT_AWS_S3_ENDPOINT+"\"")

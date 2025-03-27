@@ -17,6 +17,9 @@ build-local:
 	rm -rf build/bemidb-* && \
 		cd src && go build -o ../build/bemidb-darwin-arm64
 
+publish:
+	./scripts/publish-docker.sh
+
 sync:
 	devbox run --env-file .env "cd src && go run . sync"
 
