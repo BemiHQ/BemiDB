@@ -18,6 +18,8 @@ const (
 	MAX_IN_MEMORY_BUFFER_SIZE = 128 * 1024 * 1024 // 128 MB (expands to ~160 MB memory usage)
 	MAX_PG_ROWS_BATCH_SIZE    = 1 * 1024 * 1024   // 1 MB
 	PING_PG_INTERVAL_SECONDS  = 24
+
+	MAX_PARQUET_PAYLOAD_THRESHOLD = 4 * 1024 * 1024 * 1024 // 4 GB (compressed to ~512 MB Parquet)
 )
 
 type Syncer struct {
@@ -65,8 +67,8 @@ func (syncer *Syncer) SyncFromPostgres() {
 		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
 				// Identify the batch size dynamically based on the table stats
-				rowCountPerBatch := syncer.calculateRowCountPerBatch(pgSchemaTable, structureConn)
-				LogDebug(syncer.config, "Row count per batch:", rowCountPerBatch)
+				dynamicRowCountPerBatch := syncer.calculatedynamicRowCountPerBatch(pgSchemaTable, structureConn)
+				LogDebug(syncer.config, "Row count per batch:", dynamicRowCountPerBatch)
 
 				syncedPreviously := icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable())
 				incrementalRefreshEnabled := syncer.config.Pg.IncrementallyRefreshedTables != nil && HasExactOrWildcardMatch(syncer.config.Pg.IncrementallyRefreshedTables, pgSchemaTable.ToConfigArg())
@@ -82,9 +84,9 @@ func (syncer *Syncer) SyncFromPostgres() {
 
 				// Sync the table
 				if internalTableMetadata.XminMax != nil && internalTableMetadata.XminMin != nil {
-					syncer.syncerIncrementalRefresh.SyncPgTable(pgSchemaTable, internalTableMetadata, rowCountPerBatch, structureConn, copyConn)
+					syncer.syncerIncrementalRefresh.SyncPgTable(pgSchemaTable, internalTableMetadata, dynamicRowCountPerBatch, structureConn, copyConn)
 				} else {
-					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, rowCountPerBatch, structureConn, copyConn)
+					syncer.syncerFullRefresh.SyncPgTable(pgSchemaTable, dynamicRowCountPerBatch, structureConn, copyConn)
 				}
 
 				LogDebug(syncer.config, "Writing internal metadata to Iceberg...")
@@ -196,7 +198,7 @@ func (syncer *Syncer) listPgSchemaTables(conn *pgx.Conn, schema string) []PgSche
 	return pgSchemaTables
 }
 
-func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, conn *pgx.Conn) int {
+func (syncer *Syncer) calculatedynamicRowCountPerBatch(pgSchemaTable PgSchemaTable, conn *pgx.Conn) int {
 	var tableSize int64
 	var rowCount int64
 
@@ -223,12 +225,12 @@ func (syncer *Syncer) calculateRowCountPerBatch(pgSchemaTable PgSchemaTable, con
 	}
 
 	rowSize := tableSize / rowCount
-	rowCountPerBatch := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
-	if rowCountPerBatch == 0 {
+	dynamicRowCountPerBatch := int(MAX_PG_ROWS_BATCH_SIZE / rowSize)
+	if dynamicRowCountPerBatch == 0 {
 		return 1
 	}
 
-	return rowCountPerBatch
+	return dynamicRowCountPerBatch
 }
 
 func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pgx.Conn {

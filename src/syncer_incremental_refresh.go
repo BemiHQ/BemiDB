@@ -24,7 +24,7 @@ func NewSyncerIncrementalRefresh(config *Config, icebergWriter *IcebergWriter) *
 	}
 }
 
-func (syncer *SyncerIncrementalRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata, rowCountPerBatch int, structureConn *pgx.Conn, copyConn *pgx.Conn) {
+func (syncer *SyncerIncrementalRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata, dynamicRowCountPerBatch int, structureConn *pgx.Conn, copyConn *pgx.Conn) {
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
 
@@ -55,7 +55,7 @@ func (syncer *SyncerIncrementalRefresh) SyncPgTable(pgSchemaTable PgSchemaTable,
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing incrementally to Iceberg...")
-	syncer.icebergWriter.WriteIncrementally(schemaTable, pgSchemaColumns, rowCountPerBatch, func() [][]string {
+	syncer.icebergWriter.WriteIncrementally(schemaTable, pgSchemaColumns, dynamicRowCountPerBatch, MAX_PARQUET_PAYLOAD_THRESHOLD, func() [][]string {
 		if reachedEnd {
 			return [][]string{}
 		}
@@ -73,7 +73,7 @@ func (syncer *SyncerIncrementalRefresh) SyncPgTable(pgSchemaTable PgSchemaTable,
 			}
 
 			rows = append(rows, row)
-			if len(rows) >= rowCountPerBatch {
+			if len(rows) >= dynamicRowCountPerBatch {
 				break
 			}
 		}

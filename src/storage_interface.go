@@ -96,7 +96,7 @@ type StorageInterface interface {
 	CreateDataDir(schemaTable IcebergSchemaTable) (dataDirPath string)
 	CreateMetadataDir(schemaTable IcebergSchemaTable) (metadataDirPath string)
 	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxPayloadThreshold int) (parquetFile ParquetFile, loadedAllRows bool, err error)
-	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
+	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePaths []string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
 	CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error)

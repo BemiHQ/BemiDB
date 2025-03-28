@@ -17,6 +17,7 @@ import (
 	"github.com/xitongsys/parquet-go/schema"
 	"github.com/xitongsys/parquet-go/source"
 	"github.com/xitongsys/parquet-go/writer"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -63,6 +64,15 @@ type ManifestListsJson struct {
 			DeletedRecords   string `json:"deleted-records"`
 		} `json:"summary"`
 	} `json:"snapshots"`
+}
+
+type ManifestListSequenceStats struct {
+	AddedFilesSize   int64
+	AddedDataFiles   int64
+	AddedRecords     int64
+	RemovedFilesSize int64
+	DeletedDataFiles int64
+	DeletedRecords   int64
 }
 
 type StorageUtils struct {
@@ -265,19 +275,23 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 	return recordCount, loadedAllRows, nil
 }
 
-func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(fileSystemPrefix string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {
+func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(fileSystemPrefix string, existingParquetFilePath string, newParquetFilePaths []string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {
 	duckdb := NewDuckdb(storage.config, false)
 
 	ctx := context.Background()
-	_, err := duckdb.ExecContext(ctx, "CREATE TABLE existing_parquet AS SELECT * FROM '$parquetPath'", map[string]string{
-		"parquetPath": fileSystemPrefix + existingParquetFilePath,
-	})
+	_, err := duckdb.ExecContext(ctx, "CREATE TABLE existing_parquet AS SELECT * FROM read_parquet('"+fileSystemPrefix+existingParquetFilePath+"')", nil)
 	if err != nil {
 		return nil, err
 	}
-	_, err = duckdb.ExecContext(ctx, "CREATE TABLE new_parquet AS SELECT * FROM '$parquetPath'", map[string]string{
-		"parquetPath": fileSystemPrefix + newParquetFilePath,
-	})
+
+	newParquetFilePathsSql := ""
+	for i, newParquetFilePath := range newParquetFilePaths {
+		newParquetFilePathsSql += "'" + fileSystemPrefix + newParquetFilePath + "'"
+		if i < len(newParquetFilePaths)-1 {
+			newParquetFilePathsSql += ", "
+		}
+	}
+	_, err = duckdb.ExecContext(ctx, "CREATE TABLE new_parquet AS SELECT * FROM read_parquet(["+newParquetFilePathsSql+"])", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +314,7 @@ func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(fileSystemPrefix stri
 	return nil, nil
 }
 
-func (storage *StorageUtils) WriteOverwrittenParquetFile(duckdb *Duckdb, fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (recordCount int64, err error) {
+func (storage *StorageUtils) WriteOverwrittenParquetFile(duckdb *Duckdb, fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (recordCount int64, err error) {
 	defer fileWriter.Close()
 
 	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
@@ -326,7 +340,7 @@ func (storage *StorageUtils) WriteOverwrittenParquetFile(duckdb *Duckdb, fileWri
 	sql := storage.selectNonOverlappingRowsSql(columnNames, pkColumnNames)
 	for {
 		rowCountInBatch := 0
-		rows, err := duckdb.QueryContext(ctx, sql+" LIMIT "+IntToString(rowCountPerBatch)+" OFFSET "+IntToString(batch*rowCountPerBatch))
+		rows, err := duckdb.QueryContext(ctx, sql+" LIMIT "+IntToString(dynamicRowCountPerBatch)+" OFFSET "+IntToString(batch*dynamicRowCountPerBatch))
 		if err != nil {
 			return 0, fmt.Errorf("failed to query non-overlapping rows: %v", err)
 		}
@@ -346,7 +360,7 @@ func (storage *StorageUtils) WriteOverwrittenParquetFile(duckdb *Duckdb, fileWri
 			recordCount++
 		}
 
-		if rowCountInBatch < rowCountPerBatch {
+		if rowCountInBatch < dynamicRowCountPerBatch {
 			break
 		}
 
@@ -608,11 +622,12 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 	}
 
 	var manifestListRecords []interface{}
-	var addedFilesSize, addedDataFiles, addedRecords, removedFilesSize, deletedDataFiles, deletedRecords int64
-	sameSequenceNumbers := true
 
-	for i, manifestListItem := range manifestListItemsSortedDesc {
+	statsBySequenceNumber := make(map[string]ManifestListSequenceStats)
+
+	for _, manifestListItem := range manifestListItemsSortedDesc {
 		sequenceNumber := manifestListItem.SequenceNumber
+		sequenceStats := statsBySequenceNumber[IntToString(sequenceNumber)]
 		manifestFile := manifestListItem.ManifestFile
 
 		manifestListRecord := map[string]interface{}{
@@ -636,44 +651,21 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 			manifestListRecord["added_rows_count"] = 0
 			manifestListRecord["deleted_files_count"] = 1
 			manifestListRecord["deleted_rows_count"] = manifestFile.RecordCount
-			removedFilesSize += manifestFile.DataFileSize
-			deletedDataFiles++
-			deletedRecords += manifestFile.RecordCount
+			sequenceStats.RemovedFilesSize += manifestFile.DataFileSize
+			sequenceStats.DeletedDataFiles += 1
+			sequenceStats.DeletedRecords += manifestFile.RecordCount
 		} else {
 			manifestListRecord["added_files_count"] = 1
 			manifestListRecord["added_rows_count"] = manifestFile.RecordCount
 			manifestListRecord["deleted_files_count"] = 0
 			manifestListRecord["deleted_rows_count"] = 0
-			addedFilesSize += manifestFile.DataFileSize
-			addedDataFiles += 1
-			addedRecords += manifestFile.RecordCount
+			sequenceStats.AddedFilesSize += manifestFile.DataFileSize
+			sequenceStats.AddedDataFiles += 1
+			sequenceStats.AddedRecords += manifestFile.RecordCount
 		}
 
+		statsBySequenceNumber[IntToString(sequenceNumber)] = sequenceStats
 		manifestListRecords = append(manifestListRecords, manifestListRecord)
-
-		if sameSequenceNumbers && i > 0 && sequenceNumber != manifestListItemsSortedDesc[i-1].SequenceNumber {
-			sameSequenceNumbers = false
-		}
-	}
-
-	lastManifestFile := manifestListItemsSortedDesc[0].ManifestFile
-	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
-	if deletedDataFiles > 0 {
-		if len(manifestListItemsSortedDesc) == 2 && sameSequenceNumbers {
-			operation = ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE
-			addedDataFiles = 1
-			addedFilesSize = lastManifestFile.DataFileSize
-			addedRecords = lastManifestFile.RecordCount
-		} else {
-			operation = ICEBERG_MANIFEST_LIST_OPERATION_DELETE
-			addedFilesSize = 0
-			addedDataFiles = 0
-			addedRecords = 0
-		}
-	} else if !sameSequenceNumbers { // Separate incremental inserts
-		addedDataFiles = 1
-		addedFilesSize = lastManifestFile.DataFileSize
-		addedRecords = lastManifestFile.RecordCount
 	}
 
 	avroFile, err := os.Create(filePath)
@@ -696,18 +688,29 @@ func (storage *StorageUtils) WriteManifestListFile(fileSystemPrefix string, file
 		return ManifestListFile{}, fmt.Errorf("failed to write manifest list record: %v", err)
 	}
 
+	sequenceNumbers := maps.Keys(statsBySequenceNumber)
+	lastManifestListItem := manifestListItemsSortedDesc[0]
+	lastSequenceStats := statsBySequenceNumber[IntToString(lastManifestListItem.SequenceNumber)]
+
+	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
+	if len(sequenceNumbers) == 1 && len(manifestListRecords) == 2 && lastSequenceStats.AddedDataFiles == 1 && lastSequenceStats.DeletedDataFiles == 1 {
+		operation = ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE
+	} else if lastSequenceStats.AddedDataFiles == 0 && lastSequenceStats.DeletedDataFiles > 0 {
+		operation = ICEBERG_MANIFEST_LIST_OPERATION_DELETE
+	}
+
 	manifestListFile := ManifestListFile{
-		SequenceNumber:   manifestListItemsSortedDesc[0].SequenceNumber,
-		SnapshotId:       lastManifestFile.SnapshotId,
+		SequenceNumber:   lastManifestListItem.SequenceNumber,
+		SnapshotId:       lastManifestListItem.ManifestFile.SnapshotId,
 		TimestampMs:      time.Now().UnixNano() / int64(time.Millisecond),
 		Path:             filePath,
 		Operation:        operation,
-		AddedFilesSize:   addedFilesSize,
-		AddedDataFiles:   addedDataFiles,
-		AddedRecords:     addedRecords,
-		RemovedFilesSize: removedFilesSize,
-		DeletedDataFiles: deletedDataFiles,
-		DeletedRecords:   deletedRecords,
+		AddedFilesSize:   lastSequenceStats.AddedFilesSize,
+		AddedDataFiles:   lastSequenceStats.AddedDataFiles,
+		AddedRecords:     lastSequenceStats.AddedRecords,
+		RemovedFilesSize: lastSequenceStats.RemovedFilesSize,
+		DeletedDataFiles: lastSequenceStats.DeletedDataFiles,
+		DeletedRecords:   lastSequenceStats.DeletedRecords,
 	}
 	return manifestListFile, nil
 }

@@ -179,7 +179,7 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 	}, loadedAllRows, nil
 }
 
-func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, rowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
+func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePaths []string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
 	filePath := filepath.Join(dataDirPath, fileName)
@@ -189,7 +189,7 @@ func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existi
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(storage.fileSystemPrefix(), existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
+	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(storage.fileSystemPrefix(), existingParquetFilePath, newParquetFilePaths, pgSchemaColumns)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -200,7 +200,7 @@ func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existi
 	}
 	defer duckdb.Close()
 
-	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(duckdb, fileWriter, pgSchemaColumns, rowCountPerBatch)
+	recordCount, err := storage.storageUtils.WriteOverwrittenParquetFile(duckdb, fileWriter, pgSchemaColumns, dynamicRowCountPerBatch)
 	if err != nil {
 		return ParquetFile{}, err
 	}

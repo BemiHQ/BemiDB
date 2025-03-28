@@ -12,10 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const (
-	MAX_PARQUET_PAYLOAD_THRESHOLD = 4 * 1024 * 1024 * 1024 // 4 GB (compressed to ~512 MB Parquet)
-)
-
 type SyncerFullRefresh struct {
 	config        *Config
 	icebergWriter *IcebergWriter
@@ -28,7 +24,7 @@ func NewSyncerFullRefresh(config *Config, icebergWriter *IcebergWriter) *SyncerF
 	}
 }
 
-func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCountPerBatch int, structureConn *pgx.Conn, copyConn *pgx.Conn) {
+func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, dynamicRowCountPerBatch int, structureConn *pgx.Conn, copyConn *pgx.Conn) {
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
 
@@ -77,7 +73,7 @@ func (syncer *SyncerFullRefresh) SyncPgTable(pgSchemaTable PgSchemaTable, rowCou
 			}
 
 			rows = append(rows, row)
-			if len(rows) >= rowCountPerBatch {
+			if len(rows) >= dynamicRowCountPerBatch {
 				break
 			}
 		}

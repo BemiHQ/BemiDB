@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"net"
 
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -175,13 +174,10 @@ func (postgres *Postgres) handleExtendedQuery(queryHandler *QueryHandler, parseM
 
 func (postgres *Postgres) writeMessages(messages ...pgproto3.Message) {
 	var buf []byte
-	var err error
 	for _, message := range messages {
-		buf, err = message.Encode(buf)
-		PanicIfError(postgres.config, fmt.Errorf("error encoding message: %v", err))
+		buf, _ = message.Encode(buf)
 	}
-	_, err = (*postgres.conn).Write(buf)
-	PanicIfError(postgres.config, fmt.Errorf("error writing message: %v", err))
+	(*postgres.conn).Write(buf)
 }
 
 func (postgres *Postgres) writeError(err error) {
