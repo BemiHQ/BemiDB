@@ -634,7 +634,8 @@ func (queryHandler *QueryHandler) columnTypeOid(col *sql.ColumnType) uint32 {
 			}
 		}
 
-		panic("Unsupported serialized column type: " + col.DatabaseTypeName())
+		Panic(queryHandler.config, "Unsupported serialized column type: "+col.DatabaseTypeName())
+		return 0
 	}
 }
 
@@ -700,7 +701,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 			var value NullArray
 			valuePtrs[i] = &value
 		default:
-			panic("Unsupported data row type: " + col.ScanType().String())
+			Panic(queryHandler.config, "Unsupported data row type: "+col.ScanType().String())
 		}
 	}
 
@@ -772,7 +773,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 				case "TIMESTAMPTZ":
 					values = append(values, []byte(value.Time.Format("2006-01-02 15:04:05.999999-07:00")))
 				default:
-					panic("Unsupported scanned time type: " + cols[i].DatabaseTypeName())
+					Panic(queryHandler.config, "Unsupported scanned time type: "+cols[i].DatabaseTypeName())
 				}
 			} else {
 				values = append(values, nil)
@@ -810,7 +811,7 @@ func (queryHandler *QueryHandler) generateDataRow(rows *sql.Rows, cols []*sql.Co
 		case *string:
 			values = append(values, []byte(*value))
 		default:
-			panic("Unsupported scanned row type: " + cols[i].ScanType().Name())
+			Panic(queryHandler.config, "Unsupported scanned row type: "+cols[i].ScanType().Name())
 		}
 	}
 	dataRow := pgproto3.DataRow{Values: values}

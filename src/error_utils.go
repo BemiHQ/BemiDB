@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -20,6 +21,16 @@ func PanicIfError(config *Config, err error) {
 		printUnexpectedError(config, err)
 		os.Exit(1)
 	}
+}
+
+func Panic(config *Config, message string) {
+	err := errors.New(message)
+	PanicIfError(config, err)
+}
+
+func PrintErrorAndExit(config *Config, message string) {
+	LogError(config, message+"\n")
+	os.Exit(1)
 }
 
 func HandleUnexpectedError(config *Config, err error) {

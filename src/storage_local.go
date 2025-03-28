@@ -357,10 +357,7 @@ func (storage *StorageLocal) fileSystemPrefix() string {
 func (storage *StorageLocal) nestedDirectories(path string) (dirs []string, err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
-		LogError(storage.config, "failed to read directory: "+path+".\n\n"+
-			"Please make sure to run 'bemidb sync' first.\n"+
-			"See https://github.com/BemiHQ/BemiDB#quickstart for more information.\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("no Iceberg directory found (%v)", err.Error())
 	}
 
 	for _, file := range files {

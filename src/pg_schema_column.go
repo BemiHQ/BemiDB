@@ -121,7 +121,7 @@ func (pgSchemaColumn PgSchemaColumn) ToIcebergSchemaFieldMap() IcebergSchemaFiel
 
 	id, err := StringToInt(pgSchemaColumn.OrdinalPosition)
 	if err != nil {
-		panic(err)
+		Panic(pgSchemaColumn.config, err.Error())
 	}
 
 	icebergSchemaField.Id = id
@@ -325,7 +325,8 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveValue(value string) interf
 		}
 	}
 
-	panic("Unsupported PostgreSQL value: " + value)
+	Panic(pgSchemaColumn.config, "Unsupported PostgreSQL value: "+value)
+	return nil
 }
 
 func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveTypes() (primitiveType string, primitiveConvertedType string) {
@@ -373,7 +374,8 @@ func (pgSchemaColumn *PgSchemaColumn) parquetPrimitiveTypes() (primitiveType str
 		}
 	}
 
-	panic("Unsupported PostgreSQL type: " + pgSchemaColumn.UdtName)
+	Panic(pgSchemaColumn.config, "Unsupported PostgreSQL type: "+pgSchemaColumn.UdtName)
+	return "", ""
 }
 
 func (pgSchemaColumn *PgSchemaColumn) icebergPrimitiveType() string {
@@ -423,5 +425,6 @@ func (pgSchemaColumn *PgSchemaColumn) icebergPrimitiveType() string {
 		}
 	}
 
-	panic("Unsupported PostgreSQL type: " + pgSchemaColumn.UdtName)
+	Panic(pgSchemaColumn.config, "Unsupported PostgreSQL type: "+pgSchemaColumn.UdtName)
+	return ""
 }

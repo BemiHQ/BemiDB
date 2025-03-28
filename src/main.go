@@ -35,7 +35,11 @@ func main() {
 		if config.Pg.SyncInterval != "" {
 			duration, err := time.ParseDuration(config.Pg.SyncInterval)
 			if err != nil {
-				panic("Invalid interval format: " + config.Pg.SyncInterval)
+				PrintErrorAndExit(config, "Invalid interval format: "+config.Pg.SyncInterval+".\n\n"+
+					"Supported formats: 1h, 20m, 30s.\n"+
+					"See https://github.com/BemiHQ/BemiDB#sync-command-options for more information.",
+				)
+
 			}
 			LogInfo(config, "Starting sync loop with interval:", config.Pg.SyncInterval)
 			for {
@@ -49,7 +53,10 @@ func main() {
 	case COMMAND_VERSION:
 		fmt.Println("BemiDB version:", VERSION)
 	default:
-		panic("Unknown command: " + command)
+		PrintErrorAndExit(config, "Unknown command: "+command+".\n\n"+
+			"Supported commands: "+COMMAND_START+", "+COMMAND_SYNC+", "+COMMAND_VERSION+".\n"+
+			"See https://github.com/BemiHQ/BemiDB#quickstart for more information.",
+		)
 	}
 }
 

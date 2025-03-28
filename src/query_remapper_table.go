@@ -193,6 +193,12 @@ func (remapper *QueryRemapperTable) RemapTableFunctionCall(rangeFunction *pgQuer
 
 func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 	newIcebergSchemaTables, err := remapper.icebergReader.SchemaTables()
+
+	if err != nil && strings.Contains(err.Error(), "no Iceberg directory found") {
+		PrintErrorAndExit(remapper.config, err.Error()+".\n\n"+
+			"Please make sure to run 'bemidb sync' first.\n"+
+			"See https://github.com/BemiHQ/BemiDB#quickstart for more information.")
+	}
 	PanicIfError(remapper.config, err)
 
 	ctx := context.Background()

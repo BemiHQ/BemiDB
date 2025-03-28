@@ -30,7 +30,9 @@ type Syncer struct {
 
 func NewSyncer(config *Config) *Syncer {
 	if config.Pg.DatabaseUrl == "" {
-		panic("Missing PostgreSQL database URL")
+		PrintErrorAndExit(config, "Missing PostgreSQL database URL.\n\n"+
+			"See https://github.com/BemiHQ/BemiDB#sync-command-options for more information.",
+		)
 	}
 
 	icebergWriter := NewIcebergWriter(config)

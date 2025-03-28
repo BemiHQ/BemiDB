@@ -25,7 +25,8 @@ func (utils *ParserUtils) SchemaFunction(functionCall *pgQuery.FuncCall) *QueryS
 			Function: functionCall.Funcname[1].GetString_().Sval,
 		}
 	default:
-		panic("Invalid function call")
+		Panic(utils.config, "Invalid function call")
+		return nil
 	}
 }
 
