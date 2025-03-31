@@ -23,4 +23,5 @@ docker manifest annotate ghcr.io/bemihq/bemidb:latest ghcr.io/bemihq/bemidb:$ver
 docker manifest annotate ghcr.io/bemihq/bemidb:latest ghcr.io/bemihq/bemidb:$version-arm64 --arch arm64
 docker manifest push ghcr.io/bemihq/bemidb:latest
 
-echo "\nSee https://github.com/orgs/BemiHQ/packages/container/package/bemidb"
+echo
+echo "See https://github.com/orgs/BemiHQ/packages/container/package/bemidb"

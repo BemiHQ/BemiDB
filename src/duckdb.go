@@ -92,7 +92,7 @@ func NewDuckdb(config *Config, withPgCompatibility bool) *Duckdb {
 }
 
 func (duckdb *Duckdb) ExecContext(ctx context.Context, query string, args map[string]string) (sql.Result, error) {
-	LogDebug(duckdb.config, "Querying DuckDB:", query, args)
+	LogDebug(duckdb.config, "Querying DuckDB:", query)
 	return duckdb.db.ExecContext(ctx, replaceNamedStringArgs(query, args))
 }
 
