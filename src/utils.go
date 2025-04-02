@@ -33,6 +33,11 @@ func StringToInt64(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
 
+func StringToUint32(s string) (uint32, error) {
+	i, err := strconv.ParseUint(s, 10, 32)
+	return uint32(i), err
+}
+
 func StringToScramSha256(password string) string {
 	saltLength := 16
 	digestLength := 32
@@ -93,6 +98,17 @@ func StringContainsUpper(str string) bool {
 		}
 	}
 	return false
+}
+
+func Reverse[T any](originalSlice []T) []T {
+	length := len(originalSlice)
+	reversedSlice := make([]T, length)
+
+	for i, elem := range originalSlice {
+		reversedSlice[length-1-i] = elem
+	}
+
+	return reversedSlice
 }
 
 func HasExactOrWildcardMatch(strs []string, value string) bool {

@@ -21,15 +21,15 @@ func TestCreateParquet(t *testing.T) {
 		config := loadTestConfig()
 		storage := NewLocalStorage(config)
 		loadedRows := false
-		loadRows := func() [][]string {
+		loadRows := func() ([][]string, InternalTableMetadata) {
 			if loadedRows {
-				return [][]string{}
+				return [][]string{}, InternalTableMetadata{}
 			}
 			loadedRows = true
-			return TEST_STORAGE_ROWS
+			return TEST_STORAGE_ROWS, InternalTableMetadata{}
 		}
 
-		parquetFile, _, err := storage.CreateParquet(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows, 0)
+		parquetFile, _, _, err := storage.CreateParquet(tempDir, TEST_STORAGE_PG_SCHEMA_COLUMNS, 0, loadRows)
 
 		if err != nil {
 			t.Errorf("Expected no error, got %v", err)
@@ -266,15 +266,15 @@ func TestExistingManifestFiles(t *testing.T) {
 
 func createTestParquetFile(storage *StorageLocal, dir string) ParquetFile {
 	loadedRows := false
-	loadRows := func() [][]string {
+	loadRows := func() ([][]string, InternalTableMetadata) {
 		if loadedRows {
-			return [][]string{}
+			return [][]string{}, InternalTableMetadata{}
 		}
 		loadedRows = true
-		return TEST_STORAGE_ROWS
+		return TEST_STORAGE_ROWS, InternalTableMetadata{}
 	}
 
-	parquetFile, _, err := storage.CreateParquet(dir, TEST_STORAGE_PG_SCHEMA_COLUMNS, loadRows, 0)
+	parquetFile, _, _, err := storage.CreateParquet(dir, TEST_STORAGE_PG_SCHEMA_COLUMNS, 0, loadRows)
 	if err != nil {
 		panic(err)
 	}

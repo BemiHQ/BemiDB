@@ -57,9 +57,10 @@ type MetadataFile struct {
 }
 
 type InternalTableMetadata struct {
-	LastSyncedAt int64   `json:"last-synced-at"`
-	XminMax      *uint32 `json:"xmin-max"`
-	XminMin      *uint32 `json:"xmin-min"`
+	LastSyncedAt    int64   `json:"last-synced-at"`
+	LastRefreshMode string  `json:"last-refresh-mode"`
+	XminMin         *uint32 `json:"xmin-min"`
+	XminMax         *uint32 `json:"xmin-max"`
 }
 
 func (internalTableMetadata InternalTableMetadata) XminMaxString() string {
@@ -77,7 +78,13 @@ func (internalTableMetadata InternalTableMetadata) XminMinString() string {
 }
 
 func (internalTableMetadata InternalTableMetadata) String() string {
-	return fmt.Sprintf("LastSyncedAt: %d, XminMax: %s, XminMin: %s", internalTableMetadata.LastSyncedAt, internalTableMetadata.XminMaxString(), internalTableMetadata.XminMinString())
+	return fmt.Sprintf(
+		"LastSyncedAt: %d, LastRefreshMode: %s, XminMax: %s, XminMin: %s",
+		internalTableMetadata.LastSyncedAt,
+		internalTableMetadata.LastRefreshMode,
+		internalTableMetadata.XminMaxString(),
+		internalTableMetadata.XminMinString(),
+	)
 }
 
 type StorageInterface interface {
@@ -95,8 +102,8 @@ type StorageInterface interface {
 	DeleteSchemaTable(schemaTable IcebergSchemaTable) (err error)
 	CreateDataDir(schemaTable IcebergSchemaTable) (dataDirPath string)
 	CreateMetadataDir(schemaTable IcebergSchemaTable) (metadataDirPath string)
-	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxPayloadThreshold int) (parquetFile ParquetFile, loadedAllRows bool, err error)
-	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePaths []string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
+	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (parquetFile ParquetFile, internalTableMetadata InternalTableMetadata, loadedAllRows bool, err error)
+	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)
 	CreateDeletedRecordsManifest(metadataDirPath string, uuid string, existingManifestFile ManifestFile) (deletedRecsManifestFile ManifestFile, err error)
@@ -106,7 +113,7 @@ type StorageInterface interface {
 	// Read (internal)
 	InternalTableMetadata(pgSchemaTable PgSchemaTable) (internalTableMetadata InternalTableMetadata, err error)
 	// Write (internal)
-	WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) (err error)
+	WriteInternalTableMetadata(metadataDirPath string, internalTableMetadata InternalTableMetadata) (err error)
 }
 
 func NewStorage(config *Config) StorageInterface {

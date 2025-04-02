@@ -139,35 +139,36 @@ func (storage *StorageLocal) CreateMetadataDir(schemaTable IcebergSchemaTable) s
 	return metadataPath
 }
 
-func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxPayloadThreshold int) (parquetFile ParquetFile, loadedAllRows bool, err error) {
+func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (parquetFile ParquetFile, internalTableMetadata InternalTableMetadata, loadedAllRows bool, err error) {
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
 	filePath := filepath.Join(dataDirPath, fileName)
 
 	fileWriter, err := local.NewLocalFileWriter(filePath)
 	if err != nil {
-		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, loadedAllRows, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows, maxPayloadThreshold)
+	var recordCount int64
+	recordCount, internalTableMetadata, loadedAllRows, err = storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, maxPayloadThreshold, loadRows)
 	if err != nil {
-		return ParquetFile{}, false, err
+		return parquetFile, internalTableMetadata, loadedAllRows, err
 	}
 	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", filePath)
 
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return ParquetFile{}, false, fmt.Errorf("failed to get Parquet file info: %v", err)
+		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to get Parquet file info: %v", err)
 	}
 	fileSize := fileInfo.Size()
 
 	fileReader, err := local.NewLocalFileReader(filePath)
 	if err != nil {
-		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to open Parquet file for reading: %v", err)
 	}
 	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
 	if err != nil {
-		return ParquetFile{}, false, err
+		return parquetFile, internalTableMetadata, loadedAllRows, err
 	}
 
 	return ParquetFile{
@@ -176,10 +177,10 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 		Size:        fileSize,
 		RecordCount: recordCount,
 		Stats:       parquetStats,
-	}, loadedAllRows, nil
+	}, internalTableMetadata, loadedAllRows, nil
 }
 
-func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePaths []string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
+func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
 	filePath := filepath.Join(dataDirPath, fileName)
@@ -189,7 +190,7 @@ func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existi
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(storage.fileSystemPrefix(), existingParquetFilePath, newParquetFilePaths, pgSchemaColumns)
+	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(storage.fileSystemPrefix(), existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -305,8 +306,8 @@ func (storage *StorageLocal) InternalTableMetadata(pgSchemaTable PgSchemaTable) 
 
 // Write (internal) ----------------------------------------------------------------------------------------------------
 
-func (storage *StorageLocal) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
-	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
+func (storage *StorageLocal) WriteInternalTableMetadata(metadataDirPath string, internalTableMetadata InternalTableMetadata) error {
+	filePath := filepath.Join(metadataDirPath, INTERNAL_METADATA_FILE_NAME)
 
 	err := storage.storageUtils.WriteInternalTableMetadataFile(filePath, internalTableMetadata)
 	if err != nil {

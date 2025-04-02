@@ -151,7 +151,7 @@ func (storage *StorageS3) CreateMetadataDir(schemaTable IcebergSchemaTable) (met
 	return tablePrefix + "metadata"
 }
 
-func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, loadRows func() [][]string, maxPayloadThreshold int) (parquetFile ParquetFile, loadedAllRows bool, err error) {
+func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (parquetFile ParquetFile, internalTableMetadata InternalTableMetadata, loadedAllRows bool, err error) {
 	ctx := context.Background()
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
@@ -159,12 +159,13 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 
 	fileWriter, err := s3v2.NewS3FileWriterWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey, nil)
 	if err != nil {
-		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	recordCount, loadedAllRows, err := storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, loadRows, maxPayloadThreshold)
+	var recordCount int64
+	recordCount, internalTableMetadata, loadedAllRows, err = storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, maxPayloadThreshold, loadRows)
 	if err != nil {
-		return ParquetFile{}, false, err
+		return parquetFile, internalTableMetadata, loadedAllRows, err
 	}
 	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", fileKey)
 
@@ -173,17 +174,17 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 		Key:    aws.String(fileKey),
 	})
 	if err != nil {
-		return ParquetFile{}, false, fmt.Errorf("failed to get Parquet file info: %v", err)
+		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to get Parquet file info: %v", err)
 	}
 	fileSize := *headObjectResponse.ContentLength
 
 	fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.s3Client, storage.config.Aws.S3Bucket, fileKey)
 	if err != nil {
-		return ParquetFile{}, false, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to open Parquet file for reading: %v", err)
 	}
 	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
 	if err != nil {
-		return ParquetFile{}, false, err
+		return parquetFile, internalTableMetadata, loadedAllRows, err
 	}
 
 	return ParquetFile{
@@ -192,10 +193,10 @@ func (storage *StorageS3) CreateParquet(dataDirPath string, pgSchemaColumns []Pg
 		Size:        fileSize,
 		RecordCount: recordCount,
 		Stats:       parquetStats,
-	}, loadedAllRows, nil
+	}, internalTableMetadata, loadedAllRows, nil
 }
 
-func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePaths []string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
+func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {
 	ctx := context.Background()
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
@@ -206,7 +207,7 @@ func (storage *StorageS3) CreateOverwrittenParquet(dataDirPath string, existingP
 		return ParquetFile{}, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
-	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(storage.fullBucketPath(), existingParquetFilePath, newParquetFilePaths, pgSchemaColumns)
+	duckdb, err := storage.storageUtils.NewDuckDBIfHasOverlappingRows(storage.fullBucketPath(), existingParquetFilePath, newParquetFilePath, pgSchemaColumns)
 	if err != nil {
 		return ParquetFile{}, err
 	}
@@ -375,8 +376,8 @@ func (storage *StorageS3) InternalTableMetadata(pgSchemaTable PgSchemaTable) (In
 
 // Write (internal) ----------------------------------------------------------------------------------------------------
 
-func (storage *StorageS3) WriteInternalTableMetadata(pgSchemaTable PgSchemaTable, internalTableMetadata InternalTableMetadata) error {
-	filePath := storage.internalTableMetadataFilePath(pgSchemaTable)
+func (storage *StorageS3) WriteInternalTableMetadata(metadataDirPath string, internalTableMetadata InternalTableMetadata) error {
+	filePath := metadataDirPath + "/" + INTERNAL_METADATA_FILE_NAME
 
 	tempFile, err := storage.createTemporaryFile("internal-metadata")
 	if err != nil {

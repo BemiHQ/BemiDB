@@ -20,18 +20,19 @@ var TEST_ICEBERG_WRITER_INITIAL_ROWS = [][]string{
 
 func TestWrite(t *testing.T) {
 	config := loadTestConfig()
-	icebergWriter := NewIcebergWriter(config)
+	icebergTableWriter := createIcebergTableWriter(config)
 	duckdb := NewDuckdb(config, true)
 	defer duckdb.Close()
 
 	t.Cleanup(func() {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
+		icebergTableWriter = createIcebergTableWriter(config)
+		icebergTableWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
 	})
 
 	t.Run("Processes a full sync with a single Parquet file", func(t *testing.T) {
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-		testManifestListFiles(t, icebergWriter,
+		testManifestListFiles(t, icebergTableWriter.storage,
 			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 		)
 		testRecords(t, duckdb, [][]string{
@@ -41,9 +42,11 @@ func TestWrite(t *testing.T) {
 	})
 
 	t.Run("Processes a full sync with two Parquet files", func(t *testing.T) {
-		icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 1, createTestLoadRowsByOne(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		icebergTableWriter.maxParquetPayloadThreshold = 1
 
-		testManifestListFiles(t, icebergWriter,
+		icebergTableWriter.Write(createTestLoadRowsByOne(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+
+		testManifestListFiles(t, icebergTableWriter.storage,
 			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 2, AddedRecords: 2},
 		)
 		testRecords(t, duckdb, [][]string{
@@ -55,23 +58,25 @@ func TestWrite(t *testing.T) {
 
 func TestWriteIncrementally(t *testing.T) {
 	config := loadTestConfig()
-	icebergWriter := NewIcebergWriter(config)
+	icebergTableWriter := createIcebergTableWriter(config)
 	duckdb := NewDuckdb(config, true)
 	defer duckdb.Close()
 
 	t.Cleanup(func() {
-		icebergWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
+		icebergTableWriter = createIcebergTableWriter(config)
+		icebergTableWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
 	})
 
 	t.Run("Single incremental sync", func(t *testing.T) {
 		t.Run("Processes an incremental INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 			)
@@ -83,14 +88,16 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes an incremental INSERT with two Parquet files", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
+			icebergTableWriter.maxParquetPayloadThreshold = 1
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, 1, createTestLoadRowsByOne([][]string{
+			icebergTableWriter.Write(createTestLoadRowsByOne([][]string{
 				{"3", "Jane"},
 				{"4", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 2, AddedRecords: 2},
 			)
@@ -103,13 +110,14 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes an incremental UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -121,18 +129,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes an incremental UPDATE with two Parquet files", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John"},
 				{"2", PG_NULL_STRING},
 				{"3", "Alice"},
 			}))
+			icebergTableWriter.continuedRefresh = true
+			icebergTableWriter.maxParquetPayloadThreshold = 1
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, 1, createTestLoadRowsByOne([][]string{
+			icebergTableWriter.Write(createTestLoadRowsByOne([][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 3, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 2, AddedRecords: 2},
@@ -145,14 +155,15 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes an incremental full UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -164,19 +175,21 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes an incremental full UPDATE with three Parquet files", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John"},
 				{"2", PG_NULL_STRING},
 				{"3", "Alice"},
 			}))
+			icebergTableWriter.continuedRefresh = true
+			icebergTableWriter.maxParquetPayloadThreshold = 1
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, 1, createTestLoadRowsByOne([][]string{
+			icebergTableWriter.Write(createTestLoadRowsByOne([][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
 				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 3},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 3, AddedRecords: 3},
@@ -189,14 +202,15 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes an incremental INSERT & UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 				{"3", "Jane"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -209,15 +223,16 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes an incremental INSERT & full UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 				{"3", "Alice"},
 			}))
+			icebergTableWriter.continuedRefresh = true
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
@@ -232,16 +247,17 @@ func TestWriteIncrementally(t *testing.T) {
 
 	t.Run("Two incremental syncs", func(t *testing.T) {
 		t.Run("Processes incremental INSERT -> INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -255,16 +271,17 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> same-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
@@ -278,17 +295,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> same-record UPDATE & INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 				{"4", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
@@ -303,17 +321,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT & UPDATE -> same-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -328,16 +347,17 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> initial-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
@@ -351,17 +371,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> initial-record UPDATE & INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Alice"},
 				{"4", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
@@ -376,17 +397,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> initial & inserted-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Alice"},
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
@@ -401,18 +423,19 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> full UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 				{"2", "Alice"},
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
@@ -427,17 +450,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT & UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -452,16 +476,17 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -475,17 +500,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental full UPDATE -> INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -499,17 +525,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental full UPDATE -> UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 2},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -523,17 +550,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> full UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Jane"},
 				{"2", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -548,16 +576,17 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> same-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -571,17 +600,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> same-record UPDATE & INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Alice"},
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -596,16 +626,17 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Alice"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -620,17 +651,18 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> initial-record UPDATE & INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Alice"},
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -648,19 +680,20 @@ func TestWriteIncrementally(t *testing.T) {
 
 	t.Run("Three incremental syncs", func(t *testing.T) {
 		t.Run("Processes incremental INSERT -> INSERT -> last-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -676,19 +709,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> INSERT -> previous-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -704,19 +738,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> INSERT -> initial-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -732,19 +767,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> same-record UPDATE -> INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
@@ -760,19 +796,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> initial-record UPDATE -> INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
@@ -788,19 +825,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> same-record UPDATE -> same-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
@@ -816,19 +854,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> same-record UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
@@ -844,19 +883,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> initial-record UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
@@ -872,19 +912,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> initial-record UPDATE -> inserted-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
@@ -900,19 +941,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental INSERT -> initial-record UPDATE -> updated-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
@@ -928,19 +970,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> INSERT -> INSERT", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"4", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -956,19 +999,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> INSERT -> inserted-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -984,19 +1028,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> INSERT -> updated-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -1012,19 +1057,20 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> INSERT -> initial-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "Bob"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -1040,21 +1086,22 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> INSERT -> full UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"1", "John Doe"},
 				{"2", "Bob"},
 				{"3", "Alice Smith"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -1072,20 +1119,21 @@ func TestWriteIncrementally(t *testing.T) {
 		})
 
 		t.Run("Processes incremental UPDATE -> INSERT -> updated and inserted-record UPDATE", func(t *testing.T) {
-			icebergWriter.Write(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Jane"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"3", "Alice"},
 			}))
-			icebergWriter.WriteIncrementally(TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 10, MAX_PARQUET_PAYLOAD_THRESHOLD, createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows([][]string{
 				{"2", "Bob"},
 				{"3", "Alice Smith"},
 			}))
 
-			testManifestListFiles(t, icebergWriter,
+			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
 				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
 				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
@@ -1105,34 +1153,38 @@ func TestWriteIncrementally(t *testing.T) {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-func createTestLoadRows(testRows [][]string) func() [][]string {
+func createIcebergTableWriter(config *Config) *IcebergWriterTable {
+	return NewIcebergWriterTable(config, TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 777, MAX_PARQUET_PAYLOAD_THRESHOLD, false)
+}
+
+func createTestLoadRows(testRows [][]string) func() ([][]string, InternalTableMetadata) {
 	loadedRows := false
-	return func() [][]string {
+	return func() ([][]string, InternalTableMetadata) {
 		if loadedRows {
-			return [][]string{}
+			return [][]string{}, InternalTableMetadata{}
 		}
 		loadedRows = true
-		return testRows
+		return testRows, InternalTableMetadata{}
 	}
 }
 
-func createTestLoadRowsByOne(testRows [][]string) func() [][]string {
+func createTestLoadRowsByOne(testRows [][]string) func() ([][]string, InternalTableMetadata) {
 	loadedRowIndex := -1
 
-	return func() [][]string {
+	return func() ([][]string, InternalTableMetadata) {
 		if loadedRowIndex == len(testRows)-1 {
-			return [][]string{}
+			return [][]string{}, InternalTableMetadata{}
 		}
 
 		row := testRows[loadedRowIndex+1]
 		loadedRowIndex++
-		return [][]string{row}
+		return [][]string{row}, InternalTableMetadata{}
 	}
 }
 
-func testManifestListFiles(t *testing.T, icebergWriter *IcebergWriter, expectedManifestListFiles ...ManifestListFile) {
-	metadataDirPath := icebergWriter.storage.CreateMetadataDir(TEST_ICEBERG_WRITER_SCHEMA_TABLE)
-	manifestListFiles, err := icebergWriter.storage.ExistingManifestListFiles(metadataDirPath)
+func testManifestListFiles(t *testing.T, storage StorageInterface, expectedManifestListFiles ...ManifestListFile) {
+	metadataDirPath := storage.CreateMetadataDir(TEST_ICEBERG_WRITER_SCHEMA_TABLE)
+	manifestListFiles, err := storage.ExistingManifestListFiles(metadataDirPath)
 	if err != nil {
 		t.Fatalf("Error reading manifest list files: %v", err)
 	}
