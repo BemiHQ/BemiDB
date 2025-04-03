@@ -404,8 +404,7 @@ func init() {
 	internalTableMetadata := InternalTableMetadata{
 		LastSyncedAt:    123,
 		LastRefreshMode: REFRESH_MODE_FULL,
-		XminMin:         &xmin,
-		XminMax:         &xmin,
+		MaxXmin:         &xmin,
 	}
 
 	icebergWriter := NewIcebergWriterTable(

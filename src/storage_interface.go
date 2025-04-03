@@ -59,31 +59,22 @@ type MetadataFile struct {
 type InternalTableMetadata struct {
 	LastSyncedAt    int64   `json:"last-synced-at"`
 	LastRefreshMode string  `json:"last-refresh-mode"`
-	XminMin         *uint32 `json:"xmin-min"`
-	XminMax         *uint32 `json:"xmin-max"`
+	MaxXmin         *uint32 `json:"max-xmin"`
 }
 
-func (internalTableMetadata InternalTableMetadata) XminMaxString() string {
-	if internalTableMetadata.XminMax == nil {
+func (internalTableMetadata InternalTableMetadata) MaxXminString() string {
+	if internalTableMetadata.MaxXmin == nil {
 		return "null"
 	}
-	return fmt.Sprint(*internalTableMetadata.XminMax)
-}
-
-func (internalTableMetadata InternalTableMetadata) XminMinString() string {
-	if internalTableMetadata.XminMin == nil {
-		return "null"
-	}
-	return fmt.Sprint(*internalTableMetadata.XminMin)
+	return fmt.Sprint(*internalTableMetadata.MaxXmin)
 }
 
 func (internalTableMetadata InternalTableMetadata) String() string {
 	return fmt.Sprintf(
-		"LastSyncedAt: %d, LastRefreshMode: %s, XminMax: %s, XminMin: %s",
+		"LastSyncedAt: %d, LastRefreshMode: %s, MaxXmin: %s",
 		internalTableMetadata.LastSyncedAt,
 		internalTableMetadata.LastRefreshMode,
-		internalTableMetadata.XminMaxString(),
-		internalTableMetadata.XminMinString(),
+		internalTableMetadata.MaxXminString(),
 	)
 }
 
