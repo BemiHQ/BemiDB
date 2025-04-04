@@ -4,7 +4,14 @@ import (
 	"fmt"
 )
 
-var STORAGE_TYPES = []string{STORAGE_TYPE_LOCAL, STORAGE_TYPE_S3}
+type RefreshMode string
+
+const (
+	RefreshModeFull                  RefreshMode = "FULL"
+	RefreshModeFullInProgress        RefreshMode = "FULL_IN_PROGRESS"
+	RefreshModeIncremental           RefreshMode = "INCREMENTAL"
+	RefreshModeIncrementalInProgress RefreshMode = "INCREMENTAL_IN_PROGRESS"
+)
 
 type ParquetFileStats struct {
 	ColumnSizes     map[int]int64
@@ -57,9 +64,13 @@ type MetadataFile struct {
 }
 
 type InternalTableMetadata struct {
-	LastSyncedAt    int64   `json:"last-synced-at"`
-	LastRefreshMode string  `json:"last-refresh-mode"`
-	MaxXmin         *uint32 `json:"max-xmin"`
+	LastSyncedAt    int64       `json:"last-synced-at"`
+	LastRefreshMode RefreshMode `json:"last-refresh-mode"`
+	MaxXmin         *uint32     `json:"max-xmin"`
+}
+
+func (internalTableMetadata InternalTableMetadata) InProgress() bool {
+	return internalTableMetadata.LastRefreshMode == RefreshModeIncrementalInProgress || internalTableMetadata.LastRefreshMode == RefreshModeFullInProgress
 }
 
 func (internalTableMetadata InternalTableMetadata) MaxXminString() string {
@@ -93,7 +104,7 @@ type StorageInterface interface {
 	DeleteSchemaTable(schemaTable IcebergSchemaTable) (err error)
 	CreateDataDir(schemaTable IcebergSchemaTable) (dataDirPath string)
 	CreateMetadataDir(schemaTable IcebergSchemaTable) (metadataDirPath string)
-	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (parquetFile ParquetFile, internalTableMetadata InternalTableMetadata, loadedAllRows bool, err error)
+	CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (parquetFile ParquetFile, internalTableMetadata InternalTableMetadata, err error)
 	CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error)
 	DeleteParquet(parquetFile ParquetFile) (err error)
 	CreateManifest(metadataDirPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error)

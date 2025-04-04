@@ -544,20 +544,19 @@ func (storage *StorageUtils) ParseParquetFilePath(fileSystemPrefix string, manif
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (recordCount int64, internalTableMetadata InternalTableMetadata, loadedAllRows bool, err error) {
+func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (recordCount int64, internalTableMetadata InternalTableMetadata, err error) {
 	defer fileWriter.Close()
 
 	schemaJson := storage.buildSchemaJson(pgSchemaColumns)
 	LogDebug(storage.config, "Parquet schema:", schemaJson)
 	parquetWriter, err := writer.NewJSONWriter(schemaJson, fileWriter, PARQUET_PARALLEL_NUMBER)
 	if err != nil {
-		return recordCount, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to create Parquet writer: %v", err)
+		return recordCount, internalTableMetadata, fmt.Errorf("failed to create Parquet writer: %v", err)
 	}
 	parquetWriter.RowGroupSize = PARQUET_ROW_GROUP_SIZE
 	parquetWriter.PageSize = PARQUET_PAGE_SIZE
 	parquetWriter.CompressionType = PARQUET_COMPRESSION_TYPE
 
-	loadedAllRows = true
 	writtenPayloadSize := 0
 	rows, lastInternalTableMetadata := loadRows()
 
@@ -571,16 +570,13 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 			PanicIfError(storage.config, err)
 
 			if err = parquetWriter.Write(string(rowJson)); err != nil {
-				return recordCount, internalTableMetadata, loadedAllRows, fmt.Errorf("Write error: %v", err)
+				return recordCount, internalTableMetadata, fmt.Errorf("Write error: %v", err)
 			}
 			writtenPayloadSize += len(rowJson)
 			recordCount++
 		}
 
-		internalTableMetadata = lastInternalTableMetadata
-
 		if maxPayloadThreshold > 0 && writtenPayloadSize >= maxPayloadThreshold {
-			loadedAllRows = false
 			break
 		}
 
@@ -589,10 +585,10 @@ func (storage *StorageUtils) WriteParquetFile(fileWriter source.ParquetFile, pgS
 
 	LogDebug(storage.config, "Stopping Parquet writer...")
 	if err := parquetWriter.WriteStop(); err != nil {
-		return recordCount, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to stop Parquet writer: %v", err)
+		return recordCount, internalTableMetadata, fmt.Errorf("failed to stop Parquet writer: %v", err)
 	}
 
-	return recordCount, internalTableMetadata, loadedAllRows, nil
+	return recordCount, lastInternalTableMetadata, nil
 }
 
 func (storage *StorageUtils) NewDuckDBIfHasOverlappingRows(fileSystemPrefix string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn) (*Duckdb, error) {

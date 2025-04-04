@@ -34,12 +34,8 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 	metadataDirPath := writer.storage.CreateMetadataDir(writer.schemaTable)
 
 	var lastSequenceNumber int
-	var firstNewParquetFile ParquetFile
-	var newParquetCount int
+	newManifestListItemsSortedDesc := []ManifestListItem{}
 	existingManifestListItemsSortedDesc := []ManifestListItem{}
-	loadMoreRows := true
-
-	finalManifestListItemsSortedAsc := []ManifestListItem{}
 	finalManifestListFilesSortedAsc := []ManifestListFile{}
 
 	if writer.continuedRefresh {
@@ -49,12 +45,16 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 		existingManifestListItemsSortedDesc, err = writer.storage.ExistingManifestListItems(existingManifestListFilesSortedAsc[len(existingManifestListFilesSortedAsc)-1])
 		PanicIfError(writer.config, err)
 
-		finalManifestListFilesSortedAsc = existingManifestListFilesSortedAsc
 		lastSequenceNumber = existingManifestListItemsSortedDesc[0].SequenceNumber
+		finalManifestListFilesSortedAsc = existingManifestListFilesSortedAsc
 	}
 
+	var firstNewParquetFile ParquetFile
+	var newParquetCount int
+	loadMoreRows := true
+
 	for loadMoreRows {
-		newParquetFile, newInternalTableMetadata, loadedAllRows, err := writer.storage.CreateParquet(
+		newParquetFile, newInternalTableMetadata, err := writer.storage.CreateParquet(
 			dataDirPath,
 			writer.pgSchemaColumns,
 			writer.maxParquetPayloadThreshold,
@@ -62,10 +62,14 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 		)
 		PanicIfError(writer.config, err)
 
-		// If Parquet is empty and we are continuing to refresh / process subsequent chunks, delete it and exit (no trailing Parquet files)
+		// If Parquet is empty and we are continuing to refresh / process subsequent chunks, delete it, mark the sync as completed and exit (no trailing Parquet files)
 		if newParquetFile.RecordCount == 0 && (writer.continuedRefresh || newParquetCount > 0) {
 			err = writer.storage.DeleteParquet(newParquetFile)
 			PanicIfError(writer.config, err)
+
+			err = writer.storage.WriteInternalTableMetadata(metadataDirPath, newInternalTableMetadata)
+			PanicIfError(writer.config, err)
+
 			return
 		}
 
@@ -74,20 +78,18 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 			firstNewParquetFile = newParquetFile
 		}
 
-		if writer.continuedRefresh {
-			var overwrittenManifestListItemsSortedAsc []ManifestListItem
+		if writer.continuedRefresh && (newInternalTableMetadata.LastRefreshMode == RefreshModeIncremental || newInternalTableMetadata.LastRefreshMode == RefreshModeIncrementalInProgress) {
 			var overwrittenManifestListFilesSortedAsc []ManifestListFile
 
-			overwrittenManifestListItemsSortedAsc, overwrittenManifestListFilesSortedAsc, lastSequenceNumber = writer.overwriteExistingFiles(
+			existingManifestListItemsSortedDesc, overwrittenManifestListFilesSortedAsc, lastSequenceNumber = writer.overwriteExistingFiles(
 				dataDirPath,
 				metadataDirPath,
-				Reverse(existingManifestListItemsSortedDesc),
+				existingManifestListItemsSortedDesc,
 				newParquetFile,
 				firstNewParquetFile,
 				lastSequenceNumber,
 			)
 
-			finalManifestListItemsSortedAsc = append(finalManifestListItemsSortedAsc, overwrittenManifestListItemsSortedAsc...)
 			finalManifestListFilesSortedAsc = append(finalManifestListFilesSortedAsc, overwrittenManifestListFilesSortedAsc...)
 		}
 
@@ -96,23 +98,20 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 
 		lastSequenceNumber++
 		newManifestListItem := ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: newManifestFile}
-		finalManifestListItemsSortedAsc = append(finalManifestListItemsSortedAsc, newManifestListItem)
+		newManifestListItemsSortedDesc = append([]ManifestListItem{newManifestListItem}, newManifestListItemsSortedDesc...)
 
-		newManifestListFile, err := writer.storage.CreateManifestList(metadataDirPath, firstNewParquetFile.Uuid, Reverse(finalManifestListItemsSortedAsc))
+		finalManifestListItemsSortedDesc := append(newManifestListItemsSortedDesc, existingManifestListItemsSortedDesc...)
+		newManifestListFile, err := writer.storage.CreateManifestList(metadataDirPath, firstNewParquetFile.Uuid, finalManifestListItemsSortedDesc)
 		PanicIfError(writer.config, err)
 
 		finalManifestListFilesSortedAsc = append(finalManifestListFilesSortedAsc, newManifestListFile)
 		_, err = writer.storage.CreateMetadata(metadataDirPath, writer.pgSchemaColumns, finalManifestListFilesSortedAsc)
 		PanicIfError(writer.config, err)
 
-		loadMoreRows = !loadedAllRows
-
-		if !loadMoreRows {
-			newInternalTableMetadata.LastRefreshMode = REFRESH_MODE_FULL
-		}
 		err = writer.storage.WriteInternalTableMetadata(metadataDirPath, newInternalTableMetadata)
 		PanicIfError(writer.config, err)
 
+		loadMoreRows = newInternalTableMetadata.InProgress()
 		LogDebug(writer.config, "Written", newParquetCount, "Parquet file(s). Load more rows:", loadMoreRows)
 	}
 }
@@ -120,15 +119,15 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 func (writer *IcebergWriterTable) overwriteExistingFiles(
 	dataDirPath string,
 	metadataDirPath string,
-	existingManifestListItemsSortedAsc []ManifestListItem,
+	originalExistingManifestListItemsSortedDesc []ManifestListItem,
 	newParquetFile ParquetFile,
 	firstNewParquetFile ParquetFile,
-	lastSequenceNumber int,
-) ([]ManifestListItem, []ManifestListFile, int) {
-	overwrittenManifestListItemsSortedAsc := []ManifestListItem{}
-	overwrittenManifestListFilesSortedAsc := []ManifestListFile{}
+	originalLastSequenceNumber int,
+) (existingManifestListItemsSortedDesc []ManifestListItem, overwrittenManifestListFilesSortedAsc []ManifestListFile, lastSequenceNumber int) {
+	originalExistingManifestListItemsSortedAsc := Reverse(originalExistingManifestListItemsSortedDesc)
+	lastSequenceNumber = originalLastSequenceNumber
 
-	for i, existingManifestListItem := range existingManifestListItemsSortedAsc {
+	for i, existingManifestListItem := range originalExistingManifestListItemsSortedAsc {
 		existingManifestFile := existingManifestListItem.ManifestFile
 		existingParquetFilePath, err := writer.storage.ExistingParquetFilePath(existingManifestFile)
 		PanicIfError(writer.config, err)
@@ -139,7 +138,7 @@ func (writer *IcebergWriterTable) overwriteExistingFiles(
 		// Keep as is if no overlapping records found
 		if overwrittenParquetFile.Path == "" {
 			LogDebug(writer.config, "No overlapping records found")
-			overwrittenManifestListItemsSortedAsc = append(overwrittenManifestListItemsSortedAsc, existingManifestListItem)
+			existingManifestListItemsSortedDesc = append([]ManifestListItem{existingManifestListItem}, existingManifestListItemsSortedDesc...)
 			continue
 		}
 
@@ -151,17 +150,17 @@ func (writer *IcebergWriterTable) overwriteExistingFiles(
 			PanicIfError(writer.config, err)
 
 			// Constructing a new manifest list without the previous manifest file and with the new "deleted" manifest file
-			overwrittenManifestListItemsSortedAsc := []ManifestListItem{}
-			for j, existingItem := range existingManifestListItemsSortedAsc {
+			finalManifestListItemsSortedAsc := []ManifestListItem{}
+			for j, existingItem := range originalExistingManifestListItemsSortedAsc {
 				if i != j {
-					overwrittenManifestListItemsSortedAsc = append(overwrittenManifestListItemsSortedAsc, existingItem)
+					finalManifestListItemsSortedAsc = append(finalManifestListItemsSortedAsc, existingItem)
 				}
 			}
 			lastSequenceNumber++
 			overwrittenManifestListItem := ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: deletedRecsManifestFile}
-			overwrittenManifestListItemsSortedAsc = append(overwrittenManifestListItemsSortedAsc, overwrittenManifestListItem)
+			finalManifestListItemsSortedAsc = append(finalManifestListItemsSortedAsc, overwrittenManifestListItem)
 
-			overwrittenManifestList, err := writer.storage.CreateManifestList(metadataDirPath, firstNewParquetFile.Uuid, Reverse(overwrittenManifestListItemsSortedAsc))
+			overwrittenManifestList, err := writer.storage.CreateManifestList(metadataDirPath, firstNewParquetFile.Uuid, Reverse(finalManifestListItemsSortedAsc))
 			PanicIfError(writer.config, err)
 			overwrittenManifestListFilesSortedAsc = append(overwrittenManifestListFilesSortedAsc, overwrittenManifestList)
 			continue
@@ -181,10 +180,10 @@ func (writer *IcebergWriterTable) overwriteExistingFiles(
 			overwrittenManifestList, err := writer.storage.CreateManifestList(metadataDirPath, firstNewParquetFile.Uuid, []ManifestListItem{overwrittenManifestListItem, deletedRecsManifestListItem})
 			PanicIfError(writer.config, err)
 
-			overwrittenManifestListItemsSortedAsc = append(overwrittenManifestListItemsSortedAsc, overwrittenManifestListItem)
+			existingManifestListItemsSortedDesc = append([]ManifestListItem{overwrittenManifestListItem}, existingManifestListItemsSortedDesc...)
 			overwrittenManifestListFilesSortedAsc = append(overwrittenManifestListFilesSortedAsc, overwrittenManifestList)
 		}
 	}
 
-	return overwrittenManifestListItemsSortedAsc, overwrittenManifestListFilesSortedAsc, lastSequenceNumber
+	return existingManifestListItemsSortedDesc, overwrittenManifestListFilesSortedAsc, lastSequenceNumber
 }

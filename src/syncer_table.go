@@ -12,12 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const (
-	REFRESH_MODE_FULL             = "FULL"
-	REFRESH_MODE_FULL_IN_PROGRESS = "FULL_IN_PROGRESS"
-	REFRESH_MODE_INCREMENTAL      = "INCREMENTAL"
-)
-
 type SyncerTable struct {
 	config *Config
 }
@@ -29,7 +23,7 @@ func NewSyncerTable(config *Config) *SyncerTable {
 func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureConn *pgx.Conn, copyConn *pgx.Conn, existingInternalTableMetadata InternalTableMetadata, incrementalRefresh bool) {
 	// If there is the previous internal metadata and (we perform an incremental refresh or perform a full refresh with the previous full-in-progress mode)
 	continuedRefresh := existingInternalTableMetadata.MaxXmin != nil &&
-		(incrementalRefresh || existingInternalTableMetadata.LastRefreshMode == REFRESH_MODE_FULL_IN_PROGRESS)
+		(incrementalRefresh || existingInternalTableMetadata.LastRefreshMode == RefreshModeFullInProgress)
 
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
@@ -72,6 +66,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 
 	reachedEnd := false
 	totalRowCount := 0
+	var maxXmin uint32
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing incrementally to Iceberg...")
@@ -79,13 +74,8 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 		var newInternalTableMetadata InternalTableMetadata
 		var rows [][]string
 
-		if reachedEnd {
-			return rows, newInternalTableMetadata
-		}
-
 		for {
 			row, err := csvReader.Read()
-
 			if err == io.EOF {
 				reachedEnd = true
 				break
@@ -94,9 +84,8 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 				PanicIfError(syncer.config, err)
 			}
 
-			xmin, err := StringToUint32(row[len(row)-1])
+			maxXmin, err = StringToUint32(row[len(row)-1])
 			PanicIfError(syncer.config, err)
-			newInternalTableMetadata.MaxXmin = &xmin
 
 			row = row[:len(row)-1] // Ignore the last column (xmin)
 			rows = append(rows, row)
@@ -107,15 +96,24 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 		}
 
 		totalRowCount += len(rows)
-		LogDebug(syncer.config, "Writing", totalRowCount, "total rows to Parquet files...")
+		LogDebug(syncer.config, "Total rows written to Parquet files:", totalRowCount)
 		runtime.GC() // To reduce Parquet Go memory leakage
 
-		if incrementalRefresh {
-			newInternalTableMetadata.LastRefreshMode = REFRESH_MODE_INCREMENTAL
-		} else {
-			newInternalTableMetadata.LastRefreshMode = REFRESH_MODE_FULL_IN_PROGRESS
-		}
+		newInternalTableMetadata.MaxXmin = &maxXmin
 		newInternalTableMetadata.LastSyncedAt = time.Now().Unix()
+		if reachedEnd {
+			if incrementalRefresh {
+				newInternalTableMetadata.LastRefreshMode = RefreshModeIncremental
+			} else {
+				newInternalTableMetadata.LastRefreshMode = RefreshModeFull
+			}
+		} else {
+			if incrementalRefresh {
+				newInternalTableMetadata.LastRefreshMode = RefreshModeIncrementalInProgress
+			} else {
+				newInternalTableMetadata.LastRefreshMode = RefreshModeFullInProgress
+			}
+		}
 
 		return rows, newInternalTableMetadata
 	})
@@ -204,6 +202,7 @@ func (syncer *SyncerTable) copyFromPgTable(
 	LogInfo(syncer.config, "Reading from Postgres:", pgSchemaTable.String()+"...")
 
 	if continuedRefresh {
+		// Check for wrap-arounds
 		var wrapAroundCount int64
 		err := copyConn.QueryRow(ctx, "SELECT (txid_snapshot_xmin(txid_current_snapshot()) >> 32)").Scan(&wrapAroundCount)
 		PanicIfError(syncer.config, err)
@@ -211,8 +210,13 @@ func (syncer *SyncerTable) copyFromPgTable(
 			Panic(syncer.config, Int64ToString(wrapAroundCount)+" wrap-arounds detected. Cannot continue the sync process.")
 		}
 
+		xminOperator := ">"
+		if internalTableMetadata.InProgress() {
+			xminOperator = ">=" // Include the last xmin in case there are rows with the same xmin to sync
+		}
+
 		result, err := copyConn.PgConn().CopyTo(ctx, cappedBuffer,
-			"COPY (SELECT *, xmin::text::bigint AS xmin FROM "+pgSchemaTable.String()+" WHERE xmin::text::bigint >= "+internalTableMetadata.MaxXminString()+" ORDER BY xmin::text::bigint ASC) "+
+			"COPY (SELECT *, xmin::text::bigint AS xmin FROM "+pgSchemaTable.String()+" WHERE xmin::text::bigint "+xminOperator+" "+internalTableMetadata.MaxXminString()+" ORDER BY xmin::text::bigint ASC) "+
 				"TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
 		)
 		PanicIfError(syncer.config, err)

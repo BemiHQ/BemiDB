@@ -139,36 +139,36 @@ func (storage *StorageLocal) CreateMetadataDir(schemaTable IcebergSchemaTable) s
 	return metadataPath
 }
 
-func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (parquetFile ParquetFile, internalTableMetadata InternalTableMetadata, loadedAllRows bool, err error) {
+func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns []PgSchemaColumn, maxPayloadThreshold int, loadRows func() ([][]string, InternalTableMetadata)) (parquetFile ParquetFile, internalTableMetadata InternalTableMetadata, err error) {
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
 	filePath := filepath.Join(dataDirPath, fileName)
 
 	fileWriter, err := local.NewLocalFileWriter(filePath)
 	if err != nil {
-		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to open Parquet file for writing: %v", err)
+		return parquetFile, internalTableMetadata, fmt.Errorf("failed to open Parquet file for writing: %v", err)
 	}
 
 	var recordCount int64
-	recordCount, internalTableMetadata, loadedAllRows, err = storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, maxPayloadThreshold, loadRows)
+	recordCount, internalTableMetadata, err = storage.storageUtils.WriteParquetFile(fileWriter, pgSchemaColumns, maxPayloadThreshold, loadRows)
 	if err != nil {
-		return parquetFile, internalTableMetadata, loadedAllRows, err
+		return parquetFile, internalTableMetadata, err
 	}
 	LogDebug(storage.config, "Parquet file with", recordCount, "record(s) created at:", filePath)
 
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to get Parquet file info: %v", err)
+		return parquetFile, internalTableMetadata, fmt.Errorf("failed to get Parquet file info: %v", err)
 	}
 	fileSize := fileInfo.Size()
 
 	fileReader, err := local.NewLocalFileReader(filePath)
 	if err != nil {
-		return parquetFile, internalTableMetadata, loadedAllRows, fmt.Errorf("failed to open Parquet file for reading: %v", err)
+		return parquetFile, internalTableMetadata, fmt.Errorf("failed to open Parquet file for reading: %v", err)
 	}
 	parquetStats, err := storage.storageUtils.ReadParquetStats(fileReader)
 	if err != nil {
-		return parquetFile, internalTableMetadata, loadedAllRows, err
+		return parquetFile, internalTableMetadata, err
 	}
 
 	return ParquetFile{
@@ -177,7 +177,7 @@ func (storage *StorageLocal) CreateParquet(dataDirPath string, pgSchemaColumns [
 		Size:        fileSize,
 		RecordCount: recordCount,
 		Stats:       parquetStats,
-	}, internalTableMetadata, loadedAllRows, nil
+	}, internalTableMetadata, nil
 }
 
 func (storage *StorageLocal) CreateOverwrittenParquet(dataDirPath string, existingParquetFilePath string, newParquetFilePath string, pgSchemaColumns []PgSchemaColumn, dynamicRowCountPerBatch int) (overwrittenParquetFile ParquetFile, err error) {

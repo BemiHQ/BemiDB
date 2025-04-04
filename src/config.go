@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.46.1"
+	VERSION = "0.47.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"
@@ -51,6 +51,8 @@ const (
 	STORAGE_TYPE_LOCAL = "LOCAL"
 	STORAGE_TYPE_S3    = "S3"
 )
+
+var STORAGE_TYPES = []string{STORAGE_TYPE_LOCAL, STORAGE_TYPE_S3}
 
 type AwsConfig struct {
 	Region          string

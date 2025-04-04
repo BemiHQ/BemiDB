@@ -17,20 +17,16 @@ var TEST_ICEBERG_WRITER_INITIAL_ROWS = [][]string{
 	{"1", "John"},
 	{"2", PG_NULL_STRING},
 }
+var TEST_XMIN0 = uint32(0)
+var TEST_XMIN1 = uint32(1)
 
-func TestWrite(t *testing.T) {
+func TestWriteFull(t *testing.T) {
 	config := loadTestConfig()
-	icebergTableWriter := createIcebergTableWriter(config)
 	duckdb := NewDuckdb(config, true)
 	defer duckdb.Close()
 
-	t.Cleanup(func() {
-		icebergTableWriter = createIcebergTableWriter(config)
-		icebergTableWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-	})
-
-	t.Run("Processes a full sync with a single Parquet file", func(t *testing.T) {
-		icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+	t.Run("Processes a full sync with a single Parquet file", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+		icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
 		testManifestListFiles(t, icebergTableWriter.storage,
 			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -39,40 +35,68 @@ func TestWrite(t *testing.T) {
 			{"1", "John"},
 			{"2", PG_NULL_STRING},
 		})
-	})
+		testInternalTableMetadata(t, icebergTableWriter.storage,
+			InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeFull, MaxXmin: &TEST_XMIN1},
+		)
+	}))
 
-	t.Run("Processes a full sync with two Parquet files", func(t *testing.T) {
+	t.Run("Processes a full sync with two Parquet files", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
 		icebergTableWriter.maxParquetPayloadThreshold = 1
 
-		icebergTableWriter.Write(createTestLoadRowsByOne(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		icebergTableWriter.Write(createTestLoadRowsByOne(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 
 		testManifestListFiles(t, icebergTableWriter.storage,
-			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 2, AddedRecords: 2},
+			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+			ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 		)
 		testRecords(t, duckdb, [][]string{
 			{"1", "John"},
 			{"2", PG_NULL_STRING},
 		})
-	})
+		testInternalTableMetadata(t, icebergTableWriter.storage,
+			InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeFull, MaxXmin: &TEST_XMIN1},
+		)
+	}))
+
+	t.Run("Continues and processes a full in-progress sync", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+		icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		overrideTestInternalTableMetadata(t, icebergTableWriter.storage, InternalTableMetadata{
+			LastSyncedAt:    111,
+			LastRefreshMode: RefreshModeFullInProgress,
+			MaxXmin:         &TEST_XMIN0,
+		})
+		icebergTableWriter.continuedRefresh = true
+
+		icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, [][]string{
+			{"3", "Jane"},
+		}))
+
+		testManifestListFiles(t, icebergTableWriter.storage,
+			ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+		)
+		testRecords(t, duckdb, [][]string{
+			{"1", "John"},
+			{"2", PG_NULL_STRING},
+			{"3", "Jane"},
+		})
+		testInternalTableMetadata(t, icebergTableWriter.storage,
+			InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeFull, MaxXmin: &TEST_XMIN1},
+		)
+	}))
 }
 
-func TestWriteIncrementally(t *testing.T) {
+func TestWriteIncremental(t *testing.T) {
 	config := loadTestConfig()
-	icebergTableWriter := createIcebergTableWriter(config)
 	duckdb := NewDuckdb(config, true)
 	defer duckdb.Close()
 
-	t.Cleanup(func() {
-		icebergTableWriter = createIcebergTableWriter(config)
-		icebergTableWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
-	})
-
 	t.Run("Single incremental sync", func(t *testing.T) {
-		t.Run("Processes an incremental INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes an incremental INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
 
@@ -85,21 +109,25 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", PG_NULL_STRING},
 				{"3", "Jane"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes an incremental INSERT with two Parquet files", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes an incremental INSERT with two Parquet files", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 			icebergTableWriter.maxParquetPayloadThreshold = 1
 
-			icebergTableWriter.Write(createTestLoadRowsByOne([][]string{
+			icebergTableWriter.Write(createTestLoadRowsByOne(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 				{"4", "Alice"},
 			}))
 
 			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
-				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 2, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 			)
 			testRecords(t, duckdb, [][]string{
 				{"1", "John"},
@@ -107,13 +135,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Jane"},
 				{"4", "Alice"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes an incremental UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes an incremental UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 			}))
 
@@ -126,10 +157,13 @@ func TestWriteIncrementally(t *testing.T) {
 				{"1", "John Doe"},
 				{"2", PG_NULL_STRING},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes an incremental UPDATE with two Parquet files", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+		t.Run("Processes an incremental UPDATE with two Parquet files", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John"},
 				{"2", PG_NULL_STRING},
 				{"3", "Alice"},
@@ -137,28 +171,33 @@ func TestWriteIncrementally(t *testing.T) {
 			icebergTableWriter.continuedRefresh = true
 			icebergTableWriter.maxParquetPayloadThreshold = 1
 
-			icebergTableWriter.Write(createTestLoadRowsByOne([][]string{
+			icebergTableWriter.Write(createTestLoadRowsByOne(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
 
 			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
-				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 3, AddedDataFiles: 1, AddedRecords: 1},
-				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 2, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 3, AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 			)
 			testRecords(t, duckdb, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 				{"3", "Alice"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes an incremental full UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes an incremental full UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
@@ -172,10 +211,13 @@ func TestWriteIncrementally(t *testing.T) {
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes an incremental full UPDATE with three Parquet files", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+		t.Run("Processes an incremental full UPDATE with three Parquet files", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John"},
 				{"2", PG_NULL_STRING},
 				{"3", "Alice"},
@@ -183,7 +225,7 @@ func TestWriteIncrementally(t *testing.T) {
 			icebergTableWriter.continuedRefresh = true
 			icebergTableWriter.maxParquetPayloadThreshold = 1
 
-			icebergTableWriter.Write(createTestLoadRowsByOne([][]string{
+			icebergTableWriter.Write(createTestLoadRowsByOne(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 				{"3", "Bob"},
@@ -191,21 +233,28 @@ func TestWriteIncrementally(t *testing.T) {
 
 			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 3},
-				ManifestListFile{SequenceNumber: 2, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 3},
-				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 3, AddedRecords: 3},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 3, AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 4, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 5, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 6, Operation: "delete", DeletedDataFiles: 1, DeletedRecords: 1},
+				ManifestListFile{SequenceNumber: 7, Operation: "append", AddedDataFiles: 1, AddedRecords: 1},
 			)
 			testRecords(t, duckdb, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 				{"3", "Bob"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes an incremental INSERT & UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes an incremental INSERT & UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"3", "Jane"},
 			}))
@@ -220,17 +269,20 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", PG_NULL_STRING},
 				{"3", "Jane"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes an incremental INSERT & full UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes an incremental INSERT & full UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.continuedRefresh = true
 
 			testManifestListFiles(t, icebergTableWriter.storage,
 				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
@@ -242,18 +294,79 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Alice"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
+
+		t.Run("Continues and processes an incremental INSERT in-progress sync with the same rows (same xmins)", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			overrideTestInternalTableMetadata(t, icebergTableWriter.storage, InternalTableMetadata{
+				LastSyncedAt:    111,
+				LastRefreshMode: RefreshModeIncrementalInProgress,
+				MaxXmin:         &TEST_XMIN0,
+			})
+			icebergTableWriter.continuedRefresh = true
+
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
+				{"2", PG_NULL_STRING},
+				{"3", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergTableWriter.storage,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+				{"3", "Alice"},
+			})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
+
+		t.Run("Continues and processes an incremental INSERT & UPDATE in-progress sync", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			overrideTestInternalTableMetadata(t, icebergTableWriter.storage, InternalTableMetadata{
+				LastSyncedAt:    111,
+				LastRefreshMode: RefreshModeIncrementalInProgress,
+				MaxXmin:         &TEST_XMIN0,
+			})
+			icebergTableWriter.continuedRefresh = true
+
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
+				{"2", "Jane"},
+				{"3", "Alice"},
+			}))
+
+			testManifestListFiles(t, icebergTableWriter.storage,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+				ManifestListFile{SequenceNumber: 2, Operation: "overwrite", DeletedDataFiles: 1, DeletedRecords: 2, AddedDataFiles: 1, AddedRecords: 1},
+				ManifestListFile{SequenceNumber: 3, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", "Jane"},
+				{"3", "Alice"},
+			})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 	})
 
 	t.Run("Two incremental syncs", func(t *testing.T) {
-		t.Run("Processes incremental INSERT -> INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Alice"},
 			}))
 
@@ -268,16 +381,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Jane"},
 				{"4", "Alice"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes incremental INSERT -> same-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
 
@@ -292,16 +408,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", PG_NULL_STRING},
 				{"3", "Alice"},
 			})
-		})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
 
-		t.Run("Processes incremental INSERT -> same-record UPDATE & INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE & INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 				{"4", "Bob"},
 			}))
@@ -318,17 +437,17 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Alice"},
 				{"4", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT & UPDATE -> same-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT & UPDATE -> same-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Bob"},
 			}))
 
@@ -344,16 +463,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> initial-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Alice"},
 			}))
 
@@ -368,16 +487,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", PG_NULL_STRING},
 				{"3", "Jane"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> initial-record UPDATE & INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial-record UPDATE & INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Alice"},
 				{"4", "Bob"},
 			}))
@@ -394,16 +513,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Jane"},
 				{"4", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> initial & inserted-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial & inserted-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Alice"},
 				{"3", "Bob"},
 			}))
@@ -420,16 +539,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", PG_NULL_STRING},
 				{"3", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> full UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> full UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Alice"},
 				{"3", "Bob"},
@@ -447,17 +566,17 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Alice"},
 				{"3", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT & UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT & UPDATE -> initial-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Bob"},
 			}))
 
@@ -473,16 +592,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
 
@@ -497,17 +616,17 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental full UPDATE -> INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental full UPDATE -> INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
 
@@ -522,17 +641,17 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental full UPDATE -> UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental full UPDATE -> UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Alice"},
 			}))
 
@@ -547,16 +666,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"1", "Alice"},
 				{"2", "Jane"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> full UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> full UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Jane"},
 				{"2", "Alice"},
 			}))
@@ -573,16 +692,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"1", "Jane"},
 				{"2", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> same-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> same-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Alice"},
 			}))
 
@@ -597,16 +716,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"1", "John"},
 				{"2", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> same-record UPDATE & INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> same-record UPDATE & INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Alice"},
 				{"3", "Bob"},
 			}))
@@ -623,16 +742,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Alice"},
 				{"3", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> initial-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Alice"},
 			}))
 
@@ -648,16 +767,16 @@ func TestWriteIncrementally(t *testing.T) {
 				{"1", "Alice"},
 				{"2", "Jane"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> initial-record UPDATE & INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> initial-record UPDATE & INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Alice"},
 				{"3", "Bob"},
 			}))
@@ -675,21 +794,21 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Bob"},
 			})
-		})
+		}))
 	})
 
 	t.Run("Three incremental syncs", func(t *testing.T) {
-		t.Run("Processes incremental INSERT -> INSERT -> last-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> INSERT -> last-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Bob"},
 			}))
 
@@ -706,19 +825,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Jane"},
 				{"4", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> INSERT -> previous-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> INSERT -> previous-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Bob"},
 			}))
 
@@ -735,19 +854,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Bob"},
 				{"4", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> INSERT -> initial-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> INSERT -> initial-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Bob"},
 			}))
 
@@ -764,19 +883,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Jane"},
 				{"4", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> same-record UPDATE -> INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE -> INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Bob"},
 			}))
 
@@ -793,19 +912,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Alice"},
 				{"4", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> initial-record UPDATE -> INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Bob"},
 			}))
 
@@ -822,19 +941,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Jane"},
 				{"4", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> same-record UPDATE -> same-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE -> same-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Bob"},
 			}))
 
@@ -851,19 +970,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", PG_NULL_STRING},
 				{"3", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> same-record UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> same-record UPDATE -> initial-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Bob"},
 			}))
 
@@ -880,19 +999,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Bob"},
 				{"3", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> initial-record UPDATE -> initial-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> initial-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Bob"},
 			}))
 
@@ -909,19 +1028,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Alice"},
 				{"3", "Jane"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> initial-record UPDATE -> inserted-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> inserted-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Bob"},
 			}))
 
@@ -938,19 +1057,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Alice"},
 				{"3", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental INSERT -> initial-record UPDATE -> updated-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental INSERT -> initial-record UPDATE -> updated-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Bob"},
 			}))
 
@@ -967,19 +1086,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Bob"},
 				{"3", "Jane"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> INSERT -> INSERT", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> INSERT -> INSERT", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"4", "Bob"},
 			}))
 
@@ -996,19 +1115,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"3", "Alice"},
 				{"4", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> INSERT -> inserted-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> INSERT -> inserted-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Bob"},
 			}))
 
@@ -1025,19 +1144,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Bob"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> INSERT -> updated-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> INSERT -> updated-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Bob"},
 			}))
 
@@ -1054,19 +1173,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Bob"},
 				{"3", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> INSERT -> initial-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> INSERT -> initial-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "Bob"},
 			}))
 
@@ -1083,19 +1202,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Jane"},
 				{"3", "Alice"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> INSERT -> full UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> INSERT -> full UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"1", "John Doe"},
 				{"2", "Bob"},
 				{"3", "Alice Smith"},
@@ -1116,19 +1235,19 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Bob"},
 				{"3", "Alice Smith"},
 			})
-		})
+		}))
 
-		t.Run("Processes incremental UPDATE -> INSERT -> updated and inserted-record UPDATE", func(t *testing.T) {
-			icebergTableWriter.Write(createTestLoadRows(TEST_ICEBERG_WRITER_INITIAL_ROWS))
+		t.Run("Processes incremental UPDATE -> INSERT -> updated and inserted-record UPDATE", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true
 
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Jane"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"3", "Alice"},
 			}))
-			icebergTableWriter.Write(createTestLoadRows([][]string{
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{
 				{"2", "Bob"},
 				{"3", "Alice Smith"},
 			}))
@@ -1147,38 +1266,75 @@ func TestWriteIncrementally(t *testing.T) {
 				{"2", "Bob"},
 				{"3", "Alice Smith"},
 			})
-		})
+		}))
 	})
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-func createIcebergTableWriter(config *Config) *IcebergWriterTable {
-	return NewIcebergWriterTable(config, TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 777, MAX_PARQUET_PAYLOAD_THRESHOLD, false)
-}
+func withTestIcebergTableWriter(config *Config, testFunc func(t *testing.T, icebergTableWriter *IcebergWriterTable)) func(*testing.T) {
+	return func(t *testing.T) {
+		icebergTableWriter := NewIcebergWriterTable(config, TEST_ICEBERG_WRITER_SCHEMA_TABLE, TEST_ICEBERG_WRITER_PG_SCHEMA_COLUMNS, 777, MAX_PARQUET_PAYLOAD_THRESHOLD, false)
 
-func createTestLoadRows(testRows [][]string) func() ([][]string, InternalTableMetadata) {
-	loadedRows := false
-	return func() ([][]string, InternalTableMetadata) {
-		if loadedRows {
-			return [][]string{}, InternalTableMetadata{}
-		}
-		loadedRows = true
-		return testRows, InternalTableMetadata{}
+		testFunc(t, icebergTableWriter)
+
+		icebergTableWriter.storage.DeleteSchema(TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema)
 	}
 }
 
-func createTestLoadRowsByOne(testRows [][]string) func() ([][]string, InternalTableMetadata) {
-	loadedRowIndex := -1
+func createTestLoadRows(refreshMode RefreshMode, testRows [][]string) func() ([][]string, InternalTableMetadata) {
+	internalTableMetadata := InternalTableMetadata{
+		LastSyncedAt:    123,
+		LastRefreshMode: refreshMode,
+		MaxXmin:         &TEST_XMIN1,
+	}
 
+	loadedAllRows := false
+	return func() ([][]string, InternalTableMetadata) {
+		if loadedAllRows {
+			return [][]string{}, internalTableMetadata
+		}
+		loadedAllRows = true
+		return testRows, internalTableMetadata
+	}
+}
+
+func createTestLoadRowsByOne(refreshMode RefreshMode, testRows [][]string) func() ([][]string, InternalTableMetadata) {
+	var inProgressRefreshMode RefreshMode
+	if refreshMode == RefreshModeFull {
+		inProgressRefreshMode = RefreshModeFullInProgress
+	} else {
+		inProgressRefreshMode = RefreshModeIncrementalInProgress
+	}
+
+	internalTableMetadata := InternalTableMetadata{
+		LastSyncedAt:    123,
+		LastRefreshMode: inProgressRefreshMode,
+		MaxXmin:         &TEST_XMIN1,
+	}
+
+	loadedRowIndex := -1
 	return func() ([][]string, InternalTableMetadata) {
 		if loadedRowIndex == len(testRows)-1 {
-			return [][]string{}, InternalTableMetadata{}
+			return [][]string{}, internalTableMetadata
 		}
 
 		row := testRows[loadedRowIndex+1]
+
 		loadedRowIndex++
-		return [][]string{row}, InternalTableMetadata{}
+		if loadedRowIndex == len(testRows)-1 {
+			internalTableMetadata.LastRefreshMode = refreshMode
+		}
+
+		return [][]string{row}, internalTableMetadata
+	}
+}
+
+func overrideTestInternalTableMetadata(t *testing.T, storage StorageInterface, internalTableMetadata InternalTableMetadata) {
+	metadataDirPath := storage.CreateMetadataDir(TEST_ICEBERG_WRITER_SCHEMA_TABLE)
+	err := storage.WriteInternalTableMetadata(metadataDirPath, internalTableMetadata)
+	if err != nil {
+		t.Fatalf("Failed to write internal table metadata: %v", err)
 	}
 }
 
@@ -1247,5 +1403,25 @@ func testRecords(t *testing.T, duckdb *Duckdb, expectedRecords [][]string) {
 				t.Fatalf("Expected value '%s' at %d, got '%s'", expectedValue, i, actualRecord[j])
 			}
 		}
+	}
+}
+
+func testInternalTableMetadata(t *testing.T, storage StorageInterface, expectedInternalTableMetadata InternalTableMetadata) {
+	actualInternalTableMetadata, err := storage.InternalTableMetadata(PgSchemaTable{
+		Schema: TEST_ICEBERG_WRITER_SCHEMA_TABLE.Schema,
+		Table:  TEST_ICEBERG_WRITER_SCHEMA_TABLE.Table,
+	})
+	if err != nil {
+		t.Fatalf("Error reading internal table metadata: %v", err)
+	}
+
+	if actualInternalTableMetadata.LastSyncedAt != expectedInternalTableMetadata.LastSyncedAt {
+		t.Fatalf("Expected LastSyncedAt %d, got %d", expectedInternalTableMetadata.LastSyncedAt, actualInternalTableMetadata.LastSyncedAt)
+	}
+	if actualInternalTableMetadata.LastRefreshMode != expectedInternalTableMetadata.LastRefreshMode {
+		t.Fatalf("Expected LastRefreshMode %s, got %s", expectedInternalTableMetadata.LastRefreshMode, actualInternalTableMetadata.LastRefreshMode)
+	}
+	if *actualInternalTableMetadata.MaxXmin != *expectedInternalTableMetadata.MaxXmin {
+		t.Fatalf("Expected MaxXmin %v, got %v", expectedInternalTableMetadata.MaxXmin, actualInternalTableMetadata.MaxXmin)
 	}
 }

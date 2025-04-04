@@ -13,6 +13,8 @@ import (
 )
 
 func TestHandleQuery(t *testing.T) {
+	createTestTables(t)
+
 	var responsesByQuery = map[string]map[string][]string{
 		// PG functions
 		"SELECT VERSION()": {
@@ -1274,6 +1276,8 @@ func TestHandleParseQuery(t *testing.T) {
 }
 
 func TestHandleBindQuery(t *testing.T) {
+	createTestTables(t)
+
 	t.Run("Handles BIND extended query step with text format parameter", func(t *testing.T) {
 		queryHandler := initQueryHandler()
 		parseMessage := &pgproto3.Parse{Query: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"}
@@ -1562,6 +1566,57 @@ func initQueryHandler() *QueryHandler {
 	duckdb := NewDuckdb(config, true)
 	icebergReader := NewIcebergReader(config)
 	return NewQueryHandler(config, duckdb, icebergReader)
+}
+
+func createTestTables(t *testing.T) {
+	config := loadTestConfig()
+	xmin := uint32(0)
+	internalTableMetadata := InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeFull, MaxXmin: &xmin}
+
+	icebergWriter := NewIcebergWriterTable(
+		config,
+		IcebergSchemaTable{Schema: "public", Table: "test_table"},
+		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS,
+		777,
+		MAX_PARQUET_PAYLOAD_THRESHOLD,
+		false,
+	)
+	i := 0
+	icebergWriter.Write(
+		func() ([][]string, InternalTableMetadata) {
+			if i > 0 {
+				return [][]string{}, internalTableMetadata
+			}
+
+			i++
+			return PUBLIC_TEST_TABLE_LOADED_ROWS, internalTableMetadata
+		},
+	)
+
+	icebergWriter = NewIcebergWriterTable(
+		config,
+		IcebergSchemaTable{Schema: "test_schema", Table: "simple_table"},
+		TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS,
+		777,
+		MAX_PARQUET_PAYLOAD_THRESHOLD,
+		false,
+	)
+	i = 0
+	icebergWriter.Write(
+		func() ([][]string, InternalTableMetadata) {
+			if i > 0 {
+				return [][]string{}, internalTableMetadata
+			}
+
+			i++
+			return TEST_SCHEMA_SIMPLE_TABLE_LOADED_ROWS, internalTableMetadata
+		},
+	)
+
+	t.Cleanup(func() {
+		icebergWriter.storage.DeleteSchema("public")
+		icebergWriter.storage.DeleteSchema("test_schema")
+	})
 }
 
 func testNoError(t *testing.T, err error) {

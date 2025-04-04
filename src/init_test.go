@@ -391,7 +391,7 @@ var TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 var TEST_SCHEMA_SIMPLE_TABLE_LOADED_ROWS = [][]string{}
 
 func init() {
-	config := loadTestConfig()
+	loadTestConfig()
 
 	for i := range PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS {
 		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].OrdinalPosition = IntToString(i + 1)
@@ -399,53 +399,6 @@ func init() {
 			PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].IsNullable = "YES"
 		}
 	}
-
-	xmin := uint32(0)
-	internalTableMetadata := InternalTableMetadata{
-		LastSyncedAt:    123,
-		LastRefreshMode: REFRESH_MODE_FULL,
-		MaxXmin:         &xmin,
-	}
-
-	icebergWriter := NewIcebergWriterTable(
-		config,
-		IcebergSchemaTable{Schema: "public", Table: "test_table"},
-		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS,
-		777,
-		MAX_PARQUET_PAYLOAD_THRESHOLD,
-		false,
-	)
-	i := 0
-	icebergWriter.Write(
-		func() ([][]string, InternalTableMetadata) {
-			if i > 0 {
-				return [][]string{}, internalTableMetadata
-			}
-
-			i++
-			return PUBLIC_TEST_TABLE_LOADED_ROWS, internalTableMetadata
-		},
-	)
-
-	icebergWriter = NewIcebergWriterTable(
-		config,
-		IcebergSchemaTable{Schema: "test_schema", Table: "simple_table"},
-		TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS,
-		777,
-		MAX_PARQUET_PAYLOAD_THRESHOLD,
-		false,
-	)
-	i = 0
-	icebergWriter.Write(
-		func() ([][]string, InternalTableMetadata) {
-			if i > 0 {
-				return [][]string{}, internalTableMetadata
-			}
-
-			i++
-			return TEST_SCHEMA_SIMPLE_TABLE_LOADED_ROWS, internalTableMetadata
-		},
-	)
 }
 
 func loadTestConfig() *Config {
