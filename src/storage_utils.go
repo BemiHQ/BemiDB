@@ -1195,7 +1195,7 @@ func (storage *StorageUtils) hasOverlappingRows(pkColumnNames []string, duckdb *
 func (storage *StorageUtils) selectNonOverlappingRowsSql(columnNames []string, pkColumnNames []string) string {
 	selectExpressions := []string{}
 	for _, columnName := range columnNames {
-		selectExpressions = append(selectExpressions, columnName+" := existing_parquet."+columnName)
+		selectExpressions = append(selectExpressions, "\""+columnName+"\""+" := existing_parquet."+columnName)
 	}
 	whereConditions := []string{}
 	if len(pkColumnNames) == 0 {

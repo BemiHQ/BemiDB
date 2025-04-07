@@ -114,6 +114,24 @@ func TestWriteIncremental(t *testing.T) {
 			)
 		}))
 
+		t.Run("Processes an incremental no-op sync", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
+			icebergTableWriter.continuedRefresh = true
+
+			icebergTableWriter.Write(createTestLoadRows(RefreshModeIncremental, [][]string{}))
+
+			testManifestListFiles(t, icebergTableWriter.storage,
+				ManifestListFile{SequenceNumber: 1, Operation: "append", AddedDataFiles: 1, AddedRecords: 2},
+			)
+			testRecords(t, duckdb, [][]string{
+				{"1", "John"},
+				{"2", PG_NULL_STRING},
+			})
+			testInternalTableMetadata(t, icebergTableWriter.storage,
+				InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeIncremental, MaxXmin: &TEST_XMIN1},
+			)
+		}))
+
 		t.Run("Processes an incremental INSERT with two Parquet files", withTestIcebergTableWriter(config, func(t *testing.T, icebergTableWriter *IcebergWriterTable) {
 			icebergTableWriter.Write(createTestLoadRows(RefreshModeFull, TEST_ICEBERG_WRITER_INITIAL_ROWS))
 			icebergTableWriter.continuedRefresh = true

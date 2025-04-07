@@ -67,6 +67,9 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 	reachedEnd := false
 	totalRowCount := 0
 	var maxXmin uint32
+	if existingInternalTableMetadata.MaxXmin != nil {
+		maxXmin = *existingInternalTableMetadata.MaxXmin
+	}
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing incrementally to Iceberg...")
@@ -99,8 +102,10 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 		LogDebug(syncer.config, "Total rows written to Parquet files:", totalRowCount)
 		runtime.GC() // To reduce Parquet Go memory leakage
 
-		newInternalTableMetadata.MaxXmin = &maxXmin
 		newInternalTableMetadata.LastSyncedAt = time.Now().Unix()
+		if maxXmin != 0 {
+			newInternalTableMetadata.MaxXmin = &maxXmin
+		}
 		if reachedEnd {
 			if incrementalRefresh {
 				newInternalTableMetadata.LastRefreshMode = RefreshModeIncremental
