@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION = "0.47.1"
+	VERSION = "0.48.0"
 
 	ENV_PORT              = "BEMIDB_PORT"
 	ENV_DATABASE          = "BEMIDB_DATABASE"

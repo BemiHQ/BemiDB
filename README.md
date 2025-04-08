@@ -178,7 +178,7 @@ BemiDB natively supports S3 storage. You can specify the S3 settings using the f
 
 <a name="iam"></a>
 <details>
-<summary><b>IAM policy example</b></summary>
+<summary><b>AWS IAM policy example</b></summary>
 
 Here is the minimal IAM policy required for BemiDB to work with S3:
 
@@ -203,6 +203,42 @@ Here is the minimal IAM policy required for BemiDB to work with S3:
     ]
 }
 ```
+</details>
+
+<a name="minio"></a>
+<details>
+<summary><b>MinIO object storage example</b></summary>
+
+BemiDB can work with various S3-compatible object storage solutions, such as MinIO.
+
+1. You can run MinIO locally:
+
+```sh
+minio server ./minio-data
+# API: http://192.168.68.102:9000  http://127.0.0.1:9000
+#    RootUser: minioadmin
+#    RootPass: minioadmin
+# WebUI: http://192.168.68.102:65218 http://127.0.0.1:65218
+#    RootUser: minioadmin
+#    RootPass: minioadmin
+```
+
+2. Open the MinIO WebUI and create a bucket, for example, `bemidb-bucket`.
+
+3. Run BemiDB with the following command:
+
+```sh
+./bemidb \
+  --storage-type S3 \
+  --storage-path iceberg \
+  --aws-s3-bucket bemidb-bucket \
+  --aws-s3-endpoint 127.0.0.1:9000 \
+  --aws-region us-east-1 \
+  --aws-access-key-id minioadmin \
+  --aws-secret-access-key minioadmin \
+  sync
+```
+
 </details>
 
 ### Syncing configuration

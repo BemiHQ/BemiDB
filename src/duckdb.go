@@ -82,6 +82,17 @@ func NewDuckdb(config *Config, withPgCompatibility bool) *Duckdb {
 			duckdb.autoRefreshImplicitAwsCredentials(ctx)
 		}
 
+		if IsLocalHost(config.Aws.S3Endpoint) {
+			_, err = duckdb.ExecContext(ctx, "SET s3_use_ssl=false", nil)
+			PanicIfError(config, err)
+		}
+
+		if config.Aws.S3Endpoint != DEFAULT_AWS_S3_ENDPOINT {
+			// Use endpoint/bucket/key (path, deprecated on AWS) instead of bucket.endpoint/key (vhost)
+			_, err = duckdb.ExecContext(ctx, "SET s3_url_style='path'", nil)
+			PanicIfError(config, err)
+		}
+
 		if config.LogLevel == LOG_LEVEL_TRACE {
 			_, err = duckdb.ExecContext(ctx, "SET enable_http_logging=true", nil)
 			PanicIfError(config, err)

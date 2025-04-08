@@ -142,6 +142,10 @@ func ParseDatabaseHost(dbUrl string) string {
 	return url.Hostname()
 }
 
+func IsLocalHost(host string) bool {
+	return strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost")
+}
+
 func hmacSha256Hash(key []byte, message []byte) []byte {
 	hash := hmac.New(sha256.New, key)
 	hash.Write(message)

@@ -260,7 +260,7 @@ func (syncer *Syncer) sendAnonymousAnalytics(command string) {
 		Version: VERSION,
 		PgHost:  ParseDatabaseHost(syncer.config.Pg.DatabaseUrl),
 	}
-	if data.PgHost == "" || data.PgHost == "localhost" || data.PgHost == "127.0.0.1" {
+	if data.PgHost == "" || IsLocalHost(data.PgHost) {
 		return
 	}
 
