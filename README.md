@@ -67,8 +67,9 @@ psql postgres://localhost:54321/bemidb -c "SELECT table_schema, table_name FROM 
 psql postgres://localhost:54321/bemidb -c "SELECT COUNT(*) FROM [table_name]"
 ```
 
+<a name="docker"></a>
 <details>
-<summary>Running in a Docker container</summary>
+<summary><b>Running in a Docker container</b></summary>
 
 ```sh
 # Download the latest Docker image
@@ -84,8 +85,9 @@ docker run ghcr.io/bemihq/bemidb:latest start
 ```
 </details>
 
+<a name="kubernetes"></a>
 <details>
-<summary>Running in a Kubernetes cluster</summary>
+<summary><b>Running in a Kubernetes cluster</b></summary>
 
 You can run 2 deployments in parallel, one for data syncing from a Postgres database and another for running the BemiDB database.
 
@@ -174,8 +176,9 @@ BemiDB natively supports S3 storage. You can specify the S3 settings using the f
   start
 ```
 
+<a name="iam"></a>
 <details>
-<summary>IAM policy example</summary>
+<summary><b>IAM policy example</b></summary>
 
 Here is the minimal IAM policy required for BemiDB to work with S3:
 

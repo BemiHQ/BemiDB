@@ -28,6 +28,10 @@ func NewS3Storage(config *Config) *StorageS3 {
 		awsConfig.WithRegion(config.Aws.Region),
 	}
 
+	if config.LogLevel == LOG_LEVEL_TRACE {
+		awsConfigOptions = append(awsConfigOptions, awsConfig.WithClientLogMode(aws.LogRequest))
+	}
+
 	if config.Aws.AccessKeyId != "" && config.Aws.SecretAccessKey != "" {
 		awsCredentials := credentials.NewStaticCredentialsProvider(
 			config.Aws.AccessKeyId,
