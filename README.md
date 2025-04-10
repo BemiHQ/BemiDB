@@ -34,7 +34,7 @@ It consists of a single binary that seamlessly connects to a Postgres database, 
 - **Run complex analytical queries like it's your Postgres database**. Without worrying about performance impact and indexing.
 - **Simplify your data stack down to a single binary**. No complex setup, no data movement, no weird acronyms like CDC, ETL, DW.
 - **Integrate with Postgres-compatible tools and services**. Querying and visualizing data with BI tools, notebooks, and ORMs.
-- **Automatically centralize all data in a data lakehouse**. Using Iceberg tables with Parquet data files on object storage.
+- **Automatically centralize all data in a data lakehouse**. Using Iceberg tables with Parquet data files in object storage.
 - **Continuously archive data from your Postgres database**. Keeping and querying historical data without affecting the main database.
 
 ## Quickstart

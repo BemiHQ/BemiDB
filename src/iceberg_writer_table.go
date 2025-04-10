@@ -78,7 +78,7 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 			firstNewParquetFile = newParquetFile
 		}
 
-		if writer.continuedRefresh && (newInternalTableMetadata.LastRefreshMode == RefreshModeIncremental || newInternalTableMetadata.LastRefreshMode == RefreshModeIncrementalInProgress) {
+		if writer.continuedRefresh {
 			var overwrittenManifestListFilesSortedAsc []ManifestListFile
 
 			existingManifestListItemsSortedDesc, overwrittenManifestListFilesSortedAsc, lastSequenceNumber = writer.overwriteExistingFiles(
@@ -111,7 +111,7 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 		err = writer.storage.WriteInternalTableMetadata(metadataDirPath, newInternalTableMetadata)
 		PanicIfError(writer.config, err)
 
-		loadMoreRows = newInternalTableMetadata.InProgress()
+		loadMoreRows = newInternalTableMetadata.IsInProgress()
 		LogDebug(writer.config, "Written", newParquetCount, "Parquet file(s). Load more rows:", loadMoreRows)
 	}
 }

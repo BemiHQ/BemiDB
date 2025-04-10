@@ -46,7 +46,7 @@ benchmark:
 	devbox run "time psql postgres://127.0.0.1:54321/bemidb < ./benchmark/queries.sql"
 
 pg-init:
-	devbox run initdb &&
+	devbox run initdb && \
 		sed -i "s/#log_statement = 'none'/log_statement = 'all'/g" ./.devbox/virtenv/postgresql/data/postgresql.conf && \
 		sed -i "s/#logging_collector = off/logging_collector = on/g" ./.devbox/virtenv/postgresql/data/postgresql.conf && \
 		sed -i "s/#log_directory = 'log'/log_directory = 'log'/g" ./.devbox/virtenv/postgresql/data/postgresql.conf

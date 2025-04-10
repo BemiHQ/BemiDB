@@ -64,28 +64,33 @@ type MetadataFile struct {
 }
 
 type InternalTableMetadata struct {
-	LastSyncedAt    int64       `json:"last-synced-at"`
 	LastRefreshMode RefreshMode `json:"last-refresh-mode"`
+	LastSyncedAt    int64       `json:"last-synced-at"`
+	LastTxid        int64       `json:"last-txid"`
 	MaxXmin         *uint32     `json:"max-xmin"`
 }
 
-func (internalTableMetadata InternalTableMetadata) InProgress() bool {
+func (internalTableMetadata InternalTableMetadata) IsInProgress() bool {
 	return internalTableMetadata.LastRefreshMode == RefreshModeIncrementalInProgress || internalTableMetadata.LastRefreshMode == RefreshModeFullInProgress
 }
 
 func (internalTableMetadata InternalTableMetadata) MaxXminString() string {
 	if internalTableMetadata.MaxXmin == nil {
-		return "null"
+		panic("MaxXmin is unexpectedly null. " + internalTableMetadata.String())
 	}
-	return fmt.Sprint(*internalTableMetadata.MaxXmin)
+	return Uint32ToString(*internalTableMetadata.MaxXmin)
+}
+
+func (internalTableMetadata InternalTableMetadata) LastWrappedAroundTxidString() string {
+	return Int64ToString(PgWraparoundTxid(internalTableMetadata.LastTxid))
 }
 
 func (internalTableMetadata InternalTableMetadata) String() string {
 	return fmt.Sprintf(
-		"LastSyncedAt: %d, LastRefreshMode: %s, MaxXmin: %s",
-		internalTableMetadata.LastSyncedAt,
+		"LastRefreshMode: %s, LastSyncedAt: %d, MaxXmin: %d",
 		internalTableMetadata.LastRefreshMode,
-		internalTableMetadata.MaxXminString(),
+		internalTableMetadata.LastSyncedAt,
+		*internalTableMetadata.MaxXmin,
 	)
 }
 

@@ -24,6 +24,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 	// If there is the previous internal metadata and (we perform an incremental refresh or perform a full refresh with the previous full-in-progress mode)
 	continuedRefresh := existingInternalTableMetadata.MaxXmin != nil &&
 		(incrementalRefresh || existingInternalTableMetadata.LastRefreshMode == RefreshModeFullInProgress)
+	currentTxid := syncer.currentTxid(structureConn)
 
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := NewCappedBuffer(MAX_IN_MEMORY_BUFFER_SIZE, syncer.config)
@@ -32,7 +33,9 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 	// Copy from PG to cappedBuffer in a separate goroutine in parallel ------------------------------------------------
 	waitGroup.Add(1)
 	go func() {
-		syncer.copyFromPgTable(pgSchemaTable, copyConn, existingInternalTableMetadata, continuedRefresh, cappedBuffer, &waitGroup)
+		LogInfo(syncer.config, "Reading from Postgres:", pgSchemaTable.String()+"...")
+		copySql := syncer.CopyFromPgTableSql(pgSchemaTable, existingInternalTableMetadata, currentTxid, continuedRefresh)
+		syncer.copyFromPgTable(copySql, copyConn, cappedBuffer, &waitGroup)
 	}()
 
 	// Ping PG using structureConn in a separate goroutine in parallel to keep the connection alive --------------------
@@ -43,6 +46,13 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 	}()
 
 	// Read from cappedBuffer and write to Iceberg ---------------------------------------------------------------------
+
+	var lastTxid int64
+	if existingInternalTableMetadata.LastRefreshMode == RefreshModeFullInProgress && existingInternalTableMetadata.LastTxid != 0 {
+		lastTxid = existingInternalTableMetadata.LastTxid // We'll continue from the initial txid after a full sync is completed
+	} else {
+		lastTxid = currentTxid
+	}
 
 	// Identify the batch size dynamically based on the table stats
 	dynamicRowCountPerBatch := syncer.calculatedynamicRowCountPerBatch(pgSchemaTable, structureConn)
@@ -99,10 +109,11 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 		}
 
 		totalRowCount += len(rows)
-		LogDebug(syncer.config, "Total rows written to Parquet files:", totalRowCount)
+		LogDebug(syncer.config, "Current total rows written to Parquet files:", totalRowCount, "...")
 		runtime.GC() // To reduce Parquet Go memory leakage
 
 		newInternalTableMetadata.LastSyncedAt = time.Now().Unix()
+		newInternalTableMetadata.LastTxid = lastTxid
 		if maxXmin != 0 {
 			newInternalTableMetadata.MaxXmin = &maxXmin
 		}
@@ -125,6 +136,83 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 
 	close(stopPingChannel) // Stop the pingPg goroutine
 	waitGroup.Wait()       // Wait for the Read goroutine to finish
+}
+
+func (syncer *SyncerTable) CopyFromPgTableSql(
+	pgSchemaTable PgSchemaTable,
+	existingInternalTableMetadata InternalTableMetadata,
+	currentTxid int64,
+	continuedRefresh bool,
+) string {
+	initialWraparoundTxid := PgWraparoundTxid(existingInternalTableMetadata.LastTxid)
+	currentWraparoundTxid := PgWraparoundTxid(currentTxid)
+	var previousMaxXmin int64
+	if existingInternalTableMetadata.MaxXmin != nil {
+		previousMaxXmin = int64(*existingInternalTableMetadata.MaxXmin)
+	}
+
+	if !continuedRefresh || // After a successful full sync or when missing the previous internal metadata (e.g., old BemiDB version)
+		(continuedRefresh && // When an overlapping wraparound occurred during an incremental or interrupted full sync (prev max xmin & curr wraparound txid)
+			IsPgWraparoundTxid(currentTxid) &&
+			currentWraparoundTxid < initialWraparoundTxid &&
+			currentWraparoundTxid > previousMaxXmin) {
+		// [**************************************************************************************************]
+		// 0                                                                                           curr max xmin
+		//
+		// [***********************|########################|************************|************************]
+		// 0                 prev max xmin        curr wraparound txid     init (wraparound) txid           32^2
+		return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
+			" ORDER BY xmin::text::bigint ASC)" +
+			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
+	}
+
+	if continuedRefresh && // When no wraparound occurred after an incremental or interrupted full sync
+		currentWraparoundTxid >= initialWraparoundTxid &&
+		currentWraparoundTxid >= previousMaxXmin {
+		// [-----------------------|************************|************************|************************]
+		// 0                 prev max xmin       init (wraparound) txid    curr (wraparound) txid           32^2
+		//
+		// [-----------------------|------------------------|************************|************************]
+		// 0            init (wraparound) txid        prev max xmin        curr (wraparound) txid           32^2
+		operator := ">"
+		if existingInternalTableMetadata.IsInProgress() {
+			operator = ">="
+		}
+		return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
+			" WHERE xmin::text::bigint " + operator + " " + existingInternalTableMetadata.MaxXminString() +
+			" ORDER BY xmin::text::bigint ASC)" +
+			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
+	}
+
+	if continuedRefresh && // When a non-overlapping wraparound occurred after an incremental or interrupted full sync
+		IsPgWraparoundTxid(currentTxid) &&
+		currentWraparoundTxid < previousMaxXmin {
+		// [***********************|------------------------|************************|************************]
+		// 0             curr wraparound txid        prev max xmin        init (wraparound) txid            32^2
+		//
+		// [***********************|------------------------|------------------------|************************]
+		// 0             curr wraparound txid     init (wraparound) txid      prev max xmin                 32^2
+		//
+		// [***********************|************************|------------------------|************************]
+		// 0            init (wraparound) txid     curr wraparound txid       prev max xmin                 32^2
+		operator := ">"
+		if existingInternalTableMetadata.IsInProgress() {
+			operator = ">="
+		}
+		return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
+			" WHERE xmin::text::bigint " + operator + " " + existingInternalTableMetadata.MaxXminString() +
+			" OR xmin::text::bigint <= " + Int64ToString(currentWraparoundTxid) +
+			" ORDER BY xmin::text::bigint <= " + Int64ToString(currentWraparoundTxid) + " ASC, xmin::text::bigint ASC)" + // Ordered by FALSE, then TRUE
+			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
+	}
+
+	Panic(syncer.config, "Unexpected case for the COPY SQL statement. Previous max xmin: "+
+		Int64ToString(previousMaxXmin)+
+		", initial wraparound txid: "+
+		Int64ToString(initialWraparoundTxid)+
+		", current wraparound txid: "+
+		Int64ToString(currentWraparoundTxid))
+	return ""
 }
 
 func (syncer *SyncerTable) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeaders []string) []PgSchemaColumn {
@@ -195,48 +283,21 @@ func (syncer *SyncerTable) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable Pg
 	return pgSchemaColumns
 }
 
-func (syncer *SyncerTable) copyFromPgTable(
-	pgSchemaTable PgSchemaTable,
-	copyConn *pgx.Conn,
-	internalTableMetadata InternalTableMetadata,
-	continuedRefresh bool,
-	cappedBuffer *CappedBuffer,
-	waitGroup *sync.WaitGroup,
-) {
-	ctx := context.Background()
-	LogInfo(syncer.config, "Reading from Postgres:", pgSchemaTable.String()+"...")
-
-	if continuedRefresh {
-		// Check for wrap-arounds
-		var wrapAroundCount int64
-		err := copyConn.QueryRow(ctx, "SELECT (txid_snapshot_xmin(txid_current_snapshot()) >> 32)").Scan(&wrapAroundCount)
-		PanicIfError(syncer.config, err)
-		if wrapAroundCount > 0 {
-			Panic(syncer.config, Int64ToString(wrapAroundCount)+" wrap-arounds detected. Cannot continue the sync process.")
-		}
-
-		xminOperator := ">"
-		if internalTableMetadata.InProgress() {
-			xminOperator = ">=" // Include the last xmin in case there are rows with the same xmin to sync
-		}
-
-		result, err := copyConn.PgConn().CopyTo(ctx, cappedBuffer,
-			"COPY (SELECT *, xmin::text::bigint AS xmin FROM "+pgSchemaTable.String()+" WHERE xmin::text::bigint "+xminOperator+" "+internalTableMetadata.MaxXminString()+" ORDER BY xmin::text::bigint ASC) "+
-				"TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
-		)
-		PanicIfError(syncer.config, err)
-		LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)...")
-	} else {
-		result, err := copyConn.PgConn().CopyTo(ctx, cappedBuffer,
-			"COPY (SELECT *, xmin::text::bigint AS xmin FROM "+pgSchemaTable.String()+" ORDER BY xmin::text::bigint ASC) "+
-				"TO STDOUT WITH CSV HEADER NULL '"+PG_NULL_STRING+"'",
-		)
-		PanicIfError(syncer.config, err)
-		LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)...")
-	}
+func (syncer *SyncerTable) copyFromPgTable(copySql string, copyConn *pgx.Conn, cappedBuffer *CappedBuffer, waitGroup *sync.WaitGroup) {
+	LogDebug(syncer.config, copySql)
+	result, err := copyConn.PgConn().CopyTo(context.Background(), cappedBuffer, copySql)
+	PanicIfError(syncer.config, err)
+	LogInfo(syncer.config, "Copied", result.RowsAffected(), "row(s)...")
 
 	cappedBuffer.Close()
 	waitGroup.Done()
+}
+
+func (syncer *SyncerTable) currentTxid(conn *pgx.Conn) int64 {
+	var txid int64
+	err := conn.QueryRow(context.Background(), `SELECT txid_snapshot_xmin(txid_current_snapshot())`).Scan(&txid)
+	PanicIfError(syncer.config, err)
+	return txid
 }
 
 func (syncer *SyncerTable) calculatedynamicRowCountPerBatch(pgSchemaTable PgSchemaTable, conn *pgx.Conn) int {

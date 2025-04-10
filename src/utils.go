@@ -25,6 +25,10 @@ func Int64ToString(i int64) string {
 	return strconv.FormatInt(i, 10)
 }
 
+func Uint32ToString(i uint32) string {
+	return strconv.FormatUint(uint64(i), 10)
+}
+
 func StringToInt(s string) (int, error) {
 	return strconv.Atoi(s)
 }
@@ -144,6 +148,14 @@ func ParseDatabaseHost(dbUrl string) string {
 
 func IsLocalHost(host string) bool {
 	return strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost")
+}
+
+func PgWraparoundTxid(txid int64) int64 {
+	return txid % (int64(1) << 32)
+}
+
+func IsPgWraparoundTxid(txid int64) bool {
+	return txid > (int64(1) << 32)
 }
 
 func hmacSha256Hash(key []byte, message []byte) []byte {
