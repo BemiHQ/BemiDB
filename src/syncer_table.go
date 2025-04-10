@@ -151,68 +151,64 @@ func (syncer *SyncerTable) CopyFromPgTableSql(
 		previousMaxXmin = int64(*existingInternalTableMetadata.MaxXmin)
 	}
 
-	if !continuedRefresh || // After a successful full sync or when missing the previous internal metadata (e.g., old BemiDB version)
-		(continuedRefresh && // When an overlapping wraparound occurred during an incremental or interrupted full sync (prev max xmin & curr wraparound txid)
-			IsPgWraparoundTxid(currentTxid) &&
-			currentWraparoundTxid < initialWraparoundTxid &&
-			currentWraparoundTxid > previousMaxXmin) {
+	if continuedRefresh {
+		if currentWraparoundTxid >= initialWraparoundTxid && currentWraparoundTxid >= previousMaxXmin {
+			// When no wraparound occurred after an incremental or interrupted full sync
+			//
+			// [-----------------------|************************|************************|************************]
+			// 0                 prev max xmin       init (wraparound) txid    curr (wraparound) txid           32^2
+			//
+			// [-----------------------|------------------------|************************|************************]
+			// 0            init (wraparound) txid        prev max xmin        curr (wraparound) txid           32^2
+			operator := ">"
+			if existingInternalTableMetadata.IsInProgress() {
+				operator = ">="
+			}
+			return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
+				" WHERE xmin::text::bigint " + operator + " " + existingInternalTableMetadata.MaxXminString() +
+				" ORDER BY xmin::text::bigint ASC)" +
+				" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
+		} else if IsPgWraparoundTxid(currentTxid) {
+			// When a wraparound occurred after an incremental or interrupted full sync
+			//
+			// [***********************|------------------------|************************|************************]
+			// 0             curr wraparound txid        prev max xmin        init (wraparound) txid            32^2
+			//
+			// [***********************|------------------------|------------------------|************************]
+			// 0             curr wraparound txid     init (wraparound) txid      prev max xmin                 32^2
+			//
+			// [-----------------------|************************|------------------------|------------------------]
+			// 0                 prev max xmin        curr wraparound txid     init (wraparound) txid           32^2
+			//
+			// [***********************|************************|------------------------|************************]
+			// 0            init (wraparound) txid     curr wraparound txid       prev max xmin                 32^2
+			operator := ">"
+			if existingInternalTableMetadata.IsInProgress() {
+				operator = ">="
+			}
+			return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
+				" WHERE xmin::text::bigint " + operator + " " + existingInternalTableMetadata.MaxXminString() +
+				" OR xmin::text::bigint <= " + Int64ToString(currentWraparoundTxid) +
+				" ORDER BY xmin::text::bigint <= " + Int64ToString(currentWraparoundTxid) + " ASC, xmin::text::bigint ASC)" + // Ordered by FALSE, then TRUE
+				" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
+		} else {
+			Panic(syncer.config, "Unexpected case for the COPY SQL statement. Previous max xmin: "+
+				Int64ToString(previousMaxXmin)+
+				", initial wraparound txid: "+
+				Int64ToString(initialWraparoundTxid)+
+				", current wraparound txid: "+
+				Int64ToString(currentWraparoundTxid))
+			return ""
+		}
+	} else {
+		// When a new full sync after a successful one or when missing the previous internal metadata (e.g., old BemiDB version)
+		//
 		// [**************************************************************************************************]
 		// 0                                                                                           curr max xmin
-		//
-		// [***********************|########################|************************|************************]
-		// 0                 prev max xmin        curr wraparound txid     init (wraparound) txid           32^2
 		return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
 			" ORDER BY xmin::text::bigint ASC)" +
 			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
 	}
-
-	if continuedRefresh && // When no wraparound occurred after an incremental or interrupted full sync
-		currentWraparoundTxid >= initialWraparoundTxid &&
-		currentWraparoundTxid >= previousMaxXmin {
-		// [-----------------------|************************|************************|************************]
-		// 0                 prev max xmin       init (wraparound) txid    curr (wraparound) txid           32^2
-		//
-		// [-----------------------|------------------------|************************|************************]
-		// 0            init (wraparound) txid        prev max xmin        curr (wraparound) txid           32^2
-		operator := ">"
-		if existingInternalTableMetadata.IsInProgress() {
-			operator = ">="
-		}
-		return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
-			" WHERE xmin::text::bigint " + operator + " " + existingInternalTableMetadata.MaxXminString() +
-			" ORDER BY xmin::text::bigint ASC)" +
-			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
-	}
-
-	if continuedRefresh && // When a non-overlapping wraparound occurred after an incremental or interrupted full sync
-		IsPgWraparoundTxid(currentTxid) &&
-		currentWraparoundTxid < previousMaxXmin {
-		// [***********************|------------------------|************************|************************]
-		// 0             curr wraparound txid        prev max xmin        init (wraparound) txid            32^2
-		//
-		// [***********************|------------------------|------------------------|************************]
-		// 0             curr wraparound txid     init (wraparound) txid      prev max xmin                 32^2
-		//
-		// [***********************|************************|------------------------|************************]
-		// 0            init (wraparound) txid     curr wraparound txid       prev max xmin                 32^2
-		operator := ">"
-		if existingInternalTableMetadata.IsInProgress() {
-			operator = ">="
-		}
-		return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
-			" WHERE xmin::text::bigint " + operator + " " + existingInternalTableMetadata.MaxXminString() +
-			" OR xmin::text::bigint <= " + Int64ToString(currentWraparoundTxid) +
-			" ORDER BY xmin::text::bigint <= " + Int64ToString(currentWraparoundTxid) + " ASC, xmin::text::bigint ASC)" + // Ordered by FALSE, then TRUE
-			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
-	}
-
-	Panic(syncer.config, "Unexpected case for the COPY SQL statement. Previous max xmin: "+
-		Int64ToString(previousMaxXmin)+
-		", initial wraparound txid: "+
-		Int64ToString(initialWraparoundTxid)+
-		", current wraparound txid: "+
-		Int64ToString(currentWraparoundTxid))
-	return ""
 }
 
 func (syncer *SyncerTable) pgTableSchemaColumns(conn *pgx.Conn, pgSchemaTable PgSchemaTable, csvHeaders []string) []PgSchemaColumn {

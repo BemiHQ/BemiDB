@@ -39,22 +39,6 @@ func TestCopyFromPgTableSql(t *testing.T) {
 				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
 			}
 		})
-
-		// [***********************|########################|************************|************************]
-		// 0                 prev max xmin        curr wraparound txid      init (wraparound) txid          32^2
-		t.Run("Runs a full refresh if an overlapping wraparound occurred during a full sync", func(t *testing.T) {
-			previousMaxXmin := uint32(2_000_000_000)
-			currentTxid := int64(3_000_000_000) + (int64(1) << 32)
-			initialTxid := int64(4_000_000_000)
-			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
-
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
-
-			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
-			if sql != expected {
-				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
-			}
-		})
 	})
 
 	t.Run("Continued in-progress refresh without a wraparound", func(t *testing.T) {
@@ -152,6 +136,22 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 3000000000 OR xmin::text::bigint <= 1000000000 ORDER BY xmin::text::bigint <= 1000000000 ASC, xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
+			if sql != expected {
+				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
+			}
+		})
+
+		// [-----------------------|************************|------------------------|------------------------]
+		// 0                 prev max xmin        curr wraparound txid     init (wraparound) txid           32^2
+		t.Run("Continues a full refresh if a wraparound occurred during a full sync and max xmin was reset", func(t *testing.T) {
+			previousMaxXmin := uint32(1_000_000_000)
+			currentTxid := int64(2_000_000_000) + (int64(1) << 32)
+			initialTxid := int64(3_000_000_000)
+			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
+
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
+
+			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 OR xmin::text::bigint <= 2000000000 ORDER BY xmin::text::bigint <= 2000000000 ASC, xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
 				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
 			}
