@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -1676,8 +1675,4 @@ func testCommandCompleteTag(t *testing.T, message pgproto3.Message, expectedTag 
 	if string(commandComplete.CommandTag) != expectedTag {
 		t.Errorf("Expected the command tag to be %v, got %v", expectedTag, string(commandComplete.CommandTag))
 	}
-}
-
-func Uint32ToString(i uint32) string {
-	return strconv.FormatUint(uint64(i), 10)
 }
