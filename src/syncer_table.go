@@ -33,7 +33,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 	// Copy from PG to cappedBuffer in a separate goroutine in parallel ------------------------------------------------
 	waitGroup.Add(1)
 	go func() {
-		copySql := syncer.CopyFromPgTableSql(pgSchemaTable, existingInternalTableMetadata, incrementalRefresh, currentTxid)
+		copySql := syncer.CopyFromPgTableSql(pgSchemaTable, existingInternalTableMetadata, currentTxid)
 		LogInfo(syncer.config, "Reading from Postgres:", pgSchemaTable.String()+"...")
 		syncer.copyFromPgTable(copySql, copyConn, cappedBuffer, &waitGroup)
 	}()
@@ -138,12 +138,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 	waitGroup.Wait()       // Wait for the Read goroutine to finish
 }
 
-func (syncer *SyncerTable) CopyFromPgTableSql(
-	pgSchemaTable PgSchemaTable,
-	existingInternalTableMetadata InternalTableMetadata,
-	incrementalRefresh bool,
-	currentTxid int64,
-) string {
+func (syncer *SyncerTable) CopyFromPgTableSql(pgSchemaTable PgSchemaTable, existingInternalTableMetadata InternalTableMetadata, currentTxid int64) string {
 	initialWrapAroundTxid := PgWrappedAroundTxid(existingInternalTableMetadata.LastTxid)
 	currentWrapAroundTxid := PgWrappedAroundTxid(currentTxid)
 	var previousMaxXmin int64
@@ -155,7 +150,7 @@ func (syncer *SyncerTable) CopyFromPgTableSql(
 		(existingInternalTableMetadata.LastRefreshMode == "" || // When missing the previous internal metadata (e.g., old BemiDB version)
 			initialWrapAroundTxid == 0 ||
 			previousMaxXmin == 0) ||
-		(existingInternalTableMetadata.LastRefreshMode == RefreshModeFullInProgress && // When an overlapping wrap-around occurred during a full sync (prev max xmin & curr wrap-around txid)
+		(existingInternalTableMetadata.IsInProgress() && // When an overlapping wrap-around occurred during a full sync (prev max xmin & curr wrap-around txid)
 			IsPgWrappedAroundTxid(currentTxid) &&
 			currentWrapAroundTxid < initialWrapAroundTxid &&
 			currentWrapAroundTxid > previousMaxXmin) {
@@ -169,7 +164,7 @@ func (syncer *SyncerTable) CopyFromPgTableSql(
 			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
 	}
 
-	if existingInternalTableMetadata.LastRefreshMode == RefreshModeFullInProgress && // When no wrap-around occurred after an interrupted full sync
+	if existingInternalTableMetadata.IsInProgress() && // When no wrap-around occurred after an interrupted full sync
 		currentWrapAroundTxid > initialWrapAroundTxid &&
 		currentWrapAroundTxid > previousMaxXmin {
 		// [-----------------------|************************|************************|************************]
@@ -183,7 +178,7 @@ func (syncer *SyncerTable) CopyFromPgTableSql(
 			" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
 	}
 
-	if existingInternalTableMetadata.LastRefreshMode == RefreshModeFullInProgress && // When a non-overlapping wrap-around occurred after an interrupted full sync
+	if existingInternalTableMetadata.IsInProgress() && // When a non-overlapping wrap-around occurred after an interrupted full sync
 		IsPgWrappedAroundTxid(currentTxid) &&
 		currentWrapAroundTxid < previousMaxXmin {
 		// [***********************|------------------------|************************|************************]

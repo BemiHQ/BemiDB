@@ -78,10 +78,7 @@ func (writer *IcebergWriterTable) Write(loadRows func() ([][]string, InternalTab
 			firstNewParquetFile = newParquetFile
 		}
 
-		// Overwrite if it's an incremental refresh (UPDATEs) or there has been a transactional wrap-around (overlaying XMINs)
-		if writer.continuedRefresh && (newInternalTableMetadata.LastRefreshMode == RefreshModeIncremental ||
-			newInternalTableMetadata.LastRefreshMode == RefreshModeIncrementalInProgress ||
-			IsPgWrappedAroundTxid(newInternalTableMetadata.LastTxid)) {
+		if writer.continuedRefresh {
 			var overwrittenManifestListFilesSortedAsc []ManifestListFile
 
 			existingManifestListItemsSortedDesc, overwrittenManifestListFilesSortedAsc, lastSequenceNumber = writer.overwriteExistingFiles(

@@ -16,7 +16,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			internalTableMetadata := InternalTableMetadata{}
 			currentTxid := int64(100)
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
@@ -32,7 +32,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			currentTxid := int64(1000)
 			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFull, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
@@ -48,7 +48,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			initialTxid := int64(4_000_000_000)
 			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
@@ -66,7 +66,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			currentTxid := int64(3_000_000_000) + (int64(1) << 32)
 			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
@@ -82,7 +82,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			currentTxid := int64(3_000_000_000)
 			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 2000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
@@ -100,7 +100,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			initialTxid := int64(3_000_000_000)
 			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 2000000000 OR xmin::text::bigint <= 1000000000 ORDER BY xmin::text::bigint <= 1000000000 ASC, xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
@@ -116,7 +116,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			previousMaxXmin := uint32(3_000_000_000)
 			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 3000000000 OR xmin::text::bigint <= 1000000000 ORDER BY xmin::text::bigint <= 1000000000 ASC, xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
@@ -132,7 +132,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 			previousMaxXmin := uint32(3_000_000_000)
 			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeFullInProgress, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
 
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, false, currentTxid)
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid)
 
 			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 3000000000 OR xmin::text::bigint <= 2000000000 ORDER BY xmin::text::bigint <= 2000000000 ASC, xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
