@@ -33,6 +33,10 @@ func (reader *IcebergReader) MetadataFilePath(icebergSchemaTable IcebergSchemaTa
 	return reader.storage.IcebergMetadataFilePath(icebergSchemaTable)
 }
 
+func (reader *IcebergReader) InternalTableMetadata(pgSchemaTable PgSchemaTable) (internalTableMetadata InternalTableMetadata, err error) {
+	return reader.storage.InternalTableMetadata(pgSchemaTable)
+}
+
 func (reader *IcebergReader) InternalStartSqlFile() io.ReadCloser {
 	return reader.storage.InternalStartSqlFile()
 }

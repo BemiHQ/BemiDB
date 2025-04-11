@@ -103,7 +103,7 @@ type QueryRemapperTable struct {
 	remapperFunction    *QueryRemapperFunction
 	icebergSchemaTables Set[IcebergSchemaTable]
 	icebergReader       *IcebergReader
-	duckdb              *Duckdb
+	duckdb              *Duckdb // nilable
 	config              *Config
 }
 
@@ -177,7 +177,11 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 		}
 	}
 	icebergPath := remapper.icebergReader.MetadataFilePath(schemaTable) // iceberg/schema/table/metadata/v1.metadata.json
-	return parser.MakeIcebergTableNode(icebergPath, qSchemaTable)
+
+	return parser.MakeIcebergTableNode(QueryToIcebergTable{
+		QuerySchemaTable: qSchemaTable,
+		IcebergTablePath: icebergPath,
+	})
 }
 
 // FROM FUNCTION()
@@ -195,7 +199,6 @@ func (remapper *QueryRemapperTable) RemapTableFunctionCall(rangeFunction *pgQuer
 
 func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 	newIcebergSchemaTables, err := remapper.icebergReader.SchemaTables()
-
 	if err != nil && strings.Contains(err.Error(), "no Iceberg directory found") {
 		PrintErrorAndExit(remapper.config, err.Error()+".\n\n"+
 			"Please make sure to run 'bemidb sync' first.\n"+
@@ -203,9 +206,17 @@ func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 	}
 	PanicIfError(remapper.config, err)
 
+	previousIcebergSchemaTables := remapper.icebergSchemaTables
+	remapper.icebergSchemaTables = newIcebergSchemaTables
+
+	if remapper.duckdb == nil {
+		return
+	}
+
 	ctx := context.Background()
+	// CREATE TABLE IF NOT EXISTS
 	for _, icebergSchemaTable := range newIcebergSchemaTables.Values() {
-		if !remapper.icebergSchemaTables.Contains(icebergSchemaTable) {
+		if !previousIcebergSchemaTables.Contains(icebergSchemaTable) {
 			icebergTableFields, err := remapper.icebergReader.TableFields(icebergSchemaTable)
 			PanicIfError(remapper.config, err)
 
@@ -220,17 +231,20 @@ func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 			PanicIfError(remapper.config, err)
 		}
 	}
-	for _, icebergSchemaTable := range remapper.icebergSchemaTables.Values() {
+	// DROP TABLE IF EXISTS
+	for _, icebergSchemaTable := range previousIcebergSchemaTables.Values() {
 		if !newIcebergSchemaTables.Contains(icebergSchemaTable) {
 			_, err = remapper.duckdb.ExecContext(ctx, "DROP TABLE IF EXISTS "+icebergSchemaTable.String(), nil)
 			PanicIfError(remapper.config, err)
 		}
 	}
-
-	remapper.icebergSchemaTables = newIcebergSchemaTables
 }
 
 func (remapper *QueryRemapperTable) upsertPgStatUserTables(icebergSchemaTables Set[IcebergSchemaTable]) {
+	if remapper.duckdb == nil {
+		return
+	}
+
 	values := make([]string, len(icebergSchemaTables))
 	for i, icebergSchemaTable := range icebergSchemaTables.Values() {
 		values[i] = "('123456', '" + icebergSchemaTable.Schema + "', '" + icebergSchemaTable.Table + "', 0, NULL, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, NULL, NULL, NULL, NULL, 0, 0, 0, 0)"

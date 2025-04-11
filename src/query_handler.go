@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	duckDb "github.com/marcboeker/go-duckdb"
-	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
 const (
@@ -259,7 +258,7 @@ func NewQueryHandler(config *Config, duckdb *Duckdb, icebergReader *IcebergReade
 }
 
 func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgproto3.Message, error) {
-	queryStatements, originalQueryStatements, err := queryHandler.parseAndRemapQuery(originalQuery)
+	queryStatements, originalQueryStatements, err := queryHandler.queryRemapper.ParseAndRemapQuery(originalQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +308,7 @@ func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgp
 func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]pgproto3.Message, *PreparedStatement, error) {
 	ctx := context.Background()
 	originalQuery := string(message.Query)
-	queryStatements, _, err := queryHandler.parseAndRemapQuery(originalQuery)
+	queryStatements, _, err := queryHandler.queryRemapper.ParseAndRemapQuery(originalQuery)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -493,42 +492,6 @@ func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQue
 
 	messages = append(messages, &pgproto3.CommandComplete{CommandTag: []byte(commandTag)})
 	return messages, nil
-}
-
-func (queryHandler *QueryHandler) parseAndRemapQuery(query string) ([]string, []string, error) {
-	queryTree, err := pgQuery.Parse(query)
-	if err != nil {
-		return nil, nil, fmt.Errorf("couldn't parse query: %s. %w", query, err)
-	}
-
-	if strings.HasSuffix(query, INSPECT_SQL_COMMENT) {
-		LogDebug(queryHandler.config, queryTree.Stmts)
-	}
-
-	var originalQueryStatements []string
-	for _, stmt := range queryTree.Stmts {
-		originalQueryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{stmt}})
-		if err != nil {
-			return nil, nil, fmt.Errorf("couldn't deparse query: %s. %w", query, err)
-		}
-		originalQueryStatements = append(originalQueryStatements, originalQueryStatement)
-	}
-
-	remappedStatements, err := queryHandler.queryRemapper.RemapStatements(queryTree.Stmts)
-	if err != nil {
-		return nil, nil, fmt.Errorf("couldn't remap query: %s. %w", query, err)
-	}
-
-	var queryStatements []string
-	for _, remappedStatement := range remappedStatements {
-		queryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{remappedStatement}})
-		if err != nil {
-			return nil, nil, fmt.Errorf("couldn't deparse remapped query: %s. %w", query, err)
-		}
-		queryStatements = append(queryStatements, queryStatement)
-	}
-
-	return queryStatements, originalQueryStatements, nil
 }
 
 func (queryHandler *QueryHandler) generateRowDescription(cols []*sql.ColumnType) *pgproto3.RowDescription {

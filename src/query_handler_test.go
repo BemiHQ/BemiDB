@@ -13,9 +13,11 @@ import (
 
 func TestHandleQuery(t *testing.T) {
 	createTestTables(t)
+	queryHandler := initQueryHandler()
+	defer queryHandler.duckdb.Close()
 
 	t.Run("PG functions", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT VERSION()": {
 				"description": {"version"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
@@ -171,13 +173,13 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("PG system tables", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT oid, typname AS typename FROM pg_type WHERE typname='geometry' OR typname='geography'": {
 				"description": {"oid", "typename"},
 				"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.TextOID)},
 				"values":      {},
 			},
-			"SELECT relname FROM pg_catalog.pg_class WHERE relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = 'public' LIMIT 1) LIMIT 1": {
+			"SELECT relname FROM pg_catalog.pg_class WHERE relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = 'public' LIMIT 1) ORDER BY relname DESC LIMIT 1": {
 				"description": {"relname"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
 				"values":      {"test_table"},
@@ -235,7 +237,7 @@ func TestHandleQuery(t *testing.T) {
 				"description": {"oid", "opcmethod", "opcname", "opcnamespace", "opcowner", "opcfamily", "opcintype", "opcdefault", "opckeytype"},
 				"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.Int8OID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.Int8OID)},
 			},
-			"SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public'": {
+			"SELECT schemaname, relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public' ORDER BY relname DESC LIMIT 1": {
 				"description": {"schemaname", "relname", "n_live_tup"},
 				"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.Int8OID)},
 				"values":      {"public", "test_table", "1"},
@@ -243,7 +245,7 @@ func TestHandleQuery(t *testing.T) {
 			"SELECT DISTINCT(nspname) FROM pg_catalog.pg_namespace WHERE nspname != 'information_schema' AND nspname != 'pg_catalog' ORDER BY nspname DESC LIMIT 1": {
 				"description": {"nspname"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
-				"values":      {"test_schema"},
+				"values":      {"test"},
 			},
 			"SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname == 'main'": {
 				"description": {"nspname"},
@@ -253,7 +255,7 @@ func TestHandleQuery(t *testing.T) {
 			"SELECT n.nspname FROM pg_catalog.pg_namespace n LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid = n.oid ORDER BY n.nspname DESC LIMIT 1": {
 				"description": {"nspname"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
-				"values":      {"test_schema"},
+				"values":      {"test"},
 			},
 			"SELECT rel.oid FROM pg_class rel LEFT JOIN pg_extension ON rel.oid = pg_extension.oid ORDER BY rel.oid LIMIT 1;": {
 				"description": {"oid"},
@@ -344,18 +346,13 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Information schema", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
-			"SELECT * FROM information_schema.tables WHERE table_schema = 'public'": {
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
+			"SELECT * FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name DESC LIMIT 1": {
 				"description": {"table_catalog", "table_schema", "table_name", "table_type", "self_referencing_column_name", "reference_generation", "user_defined_type_catalog", "user_defined_type_schema", "user_defined_type_name", "is_insertable_into", "is_typed", "commit_action", "TABLE_COMMENT"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
 				"values":      {"memory", "public", "test_table", "BASE TABLE", "", "", "", "", "", "YES", "NO", "", ""},
 			},
-			"SELECT table_catalog, table_schema, table_name AS table FROM information_schema.tables WHERE table_schema = 'public'": {
-				"description": {"table_catalog", "table_schema", "table"},
-				"types":       {Uint32ToString(pgtype.TextOID)},
-				"values":      {"memory", "public", "test_table"},
-			},
-			"SELECT column_name, udt_schema, udt_name FROM information_schema.columns WHERE table_schema = 'public' ORDER BY ordinal_position LIMIT 1": {
+			"SELECT column_name, udt_schema, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'test_table' ORDER BY ordinal_position LIMIT 1": {
 				"description": {"column_name", "udt_schema", "udt_name"},
 				"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
 				"values":      {"id", "pg_catalog", "int4"},
@@ -364,7 +361,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("SHOW", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SHOW search_path": {
 				"description": {"search_path"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
@@ -379,7 +376,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Iceberg tables", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT COUNT(*) AS count FROM public.test_table": {
 				"description": {"count"},
 				"types":       {Uint32ToString(pgtype.Int8OID)},
@@ -405,7 +402,7 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {Uint32ToString(pgtype.Int4OID)},
 				"values":      {"1"},
 			},
-			"SELECT test_schema.simple_table.id FROM test_schema.simple_table": {
+			"SELECT test.empty_table.id FROM test.empty_table": {
 				"description": {"id"},
 				"types":       {Uint32ToString(pgtype.Int4OID)},
 			},
@@ -414,11 +411,16 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {Uint32ToString(pgtype.Int4OID)},
 				"values":      {"1"},
 			},
+			"SELECT COUNT(*) FROM partitioned_table": {
+				"description": {"count"},
+				"types":       {Uint32ToString(pgtype.Int8OID)},
+				"values":      {"3"},
+			},
 		})
 	})
 
 	t.Run("Column types", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
 				"description": {"bit_column"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
@@ -813,7 +815,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Type casts", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT '\"public\".\"test_table\"'::regclass::oid > 0 AS oid": {
 				"description": {"oid"},
 				"types":       {Uint32ToString(pgtype.BoolOID)},
@@ -923,7 +925,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("FROM function()", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT * FROM pg_catalog.pg_get_keywords() LIMIT 1": {
 				"description": {"word", "catcode", "barelabel", "catdesc", "baredesc"},
 				"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
@@ -958,7 +960,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("JOIN", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT s.usename, r.rolconfig FROM pg_catalog.pg_shadow s LEFT JOIN pg_catalog.pg_roles r ON s.usename = r.rolname": {
 				"description": {"usename", "rolconfig"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
@@ -977,7 +979,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("CASE", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT CASE WHEN true THEN 'yes' ELSE 'no' END AS case": {
 				"description": {"case"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
@@ -1032,7 +1034,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("WHERE pg_function()", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT gss_authenticated, encrypted FROM (SELECT false, false, false, false, false WHERE false) t(pid, gss_authenticated, principal, encrypted, credentials_delegated) WHERE pid = pg_backend_pid()": {
 				"description": {"gss_authenticated", "encrypted"},
 				"types":       {Uint32ToString(pgtype.BoolOID), Uint32ToString(pgtype.BoolOID)},
@@ -1042,7 +1044,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("WHERE with nested SELECT", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT int2_column FROM test_table WHERE int2_column > 0 AND int2_column = (SELECT int2_column FROM test_table WHERE int2_column = 32767)": {
 				"description": {"int2_column"},
 				"types":       {Uint32ToString(pgtype.Int4OID)},
@@ -1052,7 +1054,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("WHERE ANY(column reference)", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT id FROM test_table WHERE id = ANY(id)": { // NOTE: ... = ANY() on non-constants is not fully supported yet
 				"description": {"id"},
 				"types":       {Uint32ToString(pgtype.Int4OID)},
@@ -1061,7 +1063,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("WITH", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"WITH RECURSIVE simple_cte AS (SELECT oid, rolname FROM pg_roles WHERE rolname = 'postgres' UNION ALL SELECT oid, rolname FROM pg_roles) SELECT * FROM simple_cte": {
 				"description": {"oid", "rolname"},
 				"types":       {Uint32ToString(pgtype.OIDOID), Uint32ToString(pgtype.TextOID)},
@@ -1071,7 +1073,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("ORDER BY", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT ARRAY(SELECT 1 FROM pg_enum ORDER BY enumsortorder) AS array": {
 				"description": {"array"},
 				"types":       {Uint32ToString(pgtype.Int4ArrayOID)},
@@ -1086,7 +1088,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("GROUP BY", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT MAX(id) AS max FROM public.test_table GROUP BY public.test_table.id LIMIT 1": {
 				"description": {"max"},
 				"types":       {Uint32ToString(pgtype.Int4OID)},
@@ -1096,7 +1098,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("FROM table alias", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT pg_shadow.usename FROM pg_shadow": {
 				"description": {"usename"},
 				"types":       {Uint32ToString(pgtype.TextOID)},
@@ -1147,16 +1149,11 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {Uint32ToString(pgtype.TextOID)},
 				"values":      {},
 			},
-			"SELECT tables.table_name FROM information_schema.tables WHERE table_schema = 'public'": {
-				"description": {"table_name"},
-				"types":       {Uint32ToString(pgtype.TextOID)},
-				"values":      {"test_table"},
-			},
 		})
 	})
 
 	t.Run("Sublink", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT x.usename, (SELECT passwd FROM pg_shadow WHERE usename = x.usename) as password FROM pg_shadow x WHERE x.usename = 'bemidb'": {
 				"description": {"usename", "password"},
 				"types":       {Uint32ToString(pgtype.TextOID), Uint32ToString(pgtype.TextOID)},
@@ -1166,7 +1163,7 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Type comparisons", func(t *testing.T) {
-		testResponseByQuery(t, map[string]map[string][]string{
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT db.oid AS did, db.datname AS name, ta.spcname AS spcname, db.datallowconn, db.datistemplate AS is_template, pg_catalog.has_database_privilege(db.oid, 'CREATE') AS cancreate, datdba AS owner, descr.description FROM pg_catalog.pg_database db LEFT OUTER JOIN pg_catalog.pg_tablespace ta ON db.dattablespace = ta.oid LEFT OUTER JOIN pg_catalog.pg_shdescription descr ON (db.oid = descr.objoid AND descr.classoid = 'pg_database'::regclass) WHERE db.oid > 1145::OID OR db.datname IN ('postgres', 'edb') ORDER BY datname": {
 				"description": {"did", "name", "spcname", "datallowconn", "is_template", "cancreate", "owner", "description"},
 				"types": {
@@ -1185,8 +1182,6 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Returns an error if a table does not exist", func(t *testing.T) {
-		queryHandler := initQueryHandler()
-
 		_, err := queryHandler.HandleSimpleQuery("SELECT * FROM non_existent_table")
 
 		if err == nil {
@@ -1205,8 +1200,6 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Returns a result without a row description for SET queries", func(t *testing.T) {
-		queryHandler := initQueryHandler()
-
 		messages, err := queryHandler.HandleSimpleQuery("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
 
 		testNoError(t, err)
@@ -1217,7 +1210,6 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Allows setting and querying timezone", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		queryHandler.HandleSimpleQuery("SET timezone = 'UTC'")
 
 		messages, err := queryHandler.HandleSimpleQuery("show timezone")
@@ -1234,8 +1226,6 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Handles an empty query", func(t *testing.T) {
-		queryHandler := initQueryHandler()
-
 		messages, err := queryHandler.HandleSimpleQuery("-- ping")
 
 		testNoError(t, err)
@@ -1245,8 +1235,6 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Handles a DISCARD ALL query", func(t *testing.T) {
-		queryHandler := initQueryHandler()
-
 		messages, err := queryHandler.HandleSimpleQuery("DISCARD ALL")
 
 		testNoError(t, err)
@@ -1257,8 +1245,6 @@ func TestHandleQuery(t *testing.T) {
 	})
 
 	t.Run("Handles a BEGIN query", func(t *testing.T) {
-		queryHandler := initQueryHandler()
-
 		messages, err := queryHandler.HandleSimpleQuery("BEGIN")
 
 		testNoError(t, err)
@@ -1270,9 +1256,11 @@ func TestHandleQuery(t *testing.T) {
 }
 
 func TestHandleParseQuery(t *testing.T) {
+	queryHandler := initQueryHandler()
+	defer queryHandler.duckdb.Close()
+
 	t.Run("Handles PARSE extended query step", func(t *testing.T) {
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
-		queryHandler := initQueryHandler()
 		message := &pgproto3.Parse{Query: query}
 
 		messages, preparedStatement, err := queryHandler.HandleParseQuery(message)
@@ -1292,7 +1280,6 @@ func TestHandleParseQuery(t *testing.T) {
 	})
 
 	t.Run("Handles PARSE extended query step if query is empty", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		message := &pgproto3.Parse{Query: ""}
 
 		messages, preparedStatement, err := queryHandler.HandleParseQuery(message)
@@ -1313,9 +1300,10 @@ func TestHandleParseQuery(t *testing.T) {
 
 func TestHandleBindQuery(t *testing.T) {
 	createTestTables(t)
+	queryHandler := initQueryHandler()
+	defer queryHandler.duckdb.Close()
 
 	t.Run("Handles BIND extended query step with text format parameter", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		parseMessage := &pgproto3.Parse{Query: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
@@ -1339,7 +1327,6 @@ func TestHandleBindQuery(t *testing.T) {
 	})
 
 	t.Run("Handles BIND extended query step with binary format 4-byte parameter", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		parseMessage := &pgproto3.Parse{Query: "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
@@ -1367,7 +1354,6 @@ func TestHandleBindQuery(t *testing.T) {
 	})
 
 	t.Run("Handles BIND extended query step with binary format 8-byte parameter", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		parseMessage := &pgproto3.Parse{Query: "SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = $1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
@@ -1395,7 +1381,6 @@ func TestHandleBindQuery(t *testing.T) {
 	})
 
 	t.Run("Handles BIND extended query step with binary format 16-byte (uuid) parameter", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		parseMessage := &pgproto3.Parse{Query: "SELECT uuid_column FROM public.test_table WHERE uuid_column = $1"}
 		_, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 		testNoError(t, err)
@@ -1423,8 +1408,10 @@ func TestHandleBindQuery(t *testing.T) {
 }
 
 func TestHandleDescribeQuery(t *testing.T) {
+	queryHandler := initQueryHandler()
+	defer queryHandler.duckdb.Close()
+
 	t.Run("Handles DESCRIBE extended query step", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
 		parseMessage := &pgproto3.Parse{Query: query}
 		_, preparedStatement, _ := queryHandler.HandleParseQuery(parseMessage)
@@ -1445,7 +1432,6 @@ func TestHandleDescribeQuery(t *testing.T) {
 	})
 
 	t.Run("Handles DESCRIBE extended query step if query is empty", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		parseMessage := &pgproto3.Parse{Query: ""}
 		_, preparedStatement, _ := queryHandler.HandleParseQuery(parseMessage)
 		bindMessage := &pgproto3.Bind{}
@@ -1461,7 +1447,6 @@ func TestHandleDescribeQuery(t *testing.T) {
 	})
 
 	t.Run("Handles DESCRIBE (Statement) extended query step if there was no BIND step", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
 		parseMessage := &pgproto3.Parse{Query: query, ParameterOIDs: []uint32{pgtype.TextOID}}
 		_, preparedStatement, _ := queryHandler.HandleParseQuery(parseMessage)
@@ -1477,8 +1462,10 @@ func TestHandleDescribeQuery(t *testing.T) {
 }
 
 func TestHandleExecuteQuery(t *testing.T) {
+	queryHandler := initQueryHandler()
+	defer queryHandler.duckdb.Close()
+
 	t.Run("Handles EXECUTE extended query step", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
 		parseMessage := &pgproto3.Parse{Query: query}
 		_, preparedStatement, _ := queryHandler.HandleParseQuery(parseMessage)
@@ -1499,7 +1486,6 @@ func TestHandleExecuteQuery(t *testing.T) {
 	})
 
 	t.Run("Handles EXECUTE extended query step if query is empty", func(t *testing.T) {
-		queryHandler := initQueryHandler()
 		parseMessage := &pgproto3.Parse{Query: ""}
 		_, preparedStatement, _ := queryHandler.HandleParseQuery(parseMessage)
 		bindMessage := &pgproto3.Bind{}
@@ -1518,11 +1504,13 @@ func TestHandleExecuteQuery(t *testing.T) {
 }
 
 func TestHandleMultipleQueries(t *testing.T) {
+	queryHandler := initQueryHandler()
+	defer queryHandler.duckdb.Close()
+
 	t.Run("Handles multiple SET statements", func(t *testing.T) {
 		query := `SET client_encoding TO 'UTF8';
 SET client_min_messages TO 'warning';
 SET standard_conforming_strings = on;`
-		queryHandler := initQueryHandler()
 
 		messages, err := queryHandler.HandleSimpleQuery(query)
 
@@ -1540,7 +1528,6 @@ SET standard_conforming_strings = on;`
 	t.Run("Handles mixed SET and SELECT statements", func(t *testing.T) {
 		query := `SET client_encoding TO 'UTF8';
 SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
-		queryHandler := initQueryHandler()
 
 		messages, err := queryHandler.HandleSimpleQuery(query)
 
@@ -1559,7 +1546,6 @@ SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 	t.Run("Handles multiple SELECT statements", func(t *testing.T) {
 		query := `SELECT 1;
 SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
-		queryHandler := initQueryHandler()
 
 		messages, err := queryHandler.HandleSimpleQuery(query)
 
@@ -1582,7 +1568,6 @@ SELECT passwd FROM pg_shadow WHERE usename='bemidb';`
 		query := `SET client_encoding TO 'UTF8';
 SELECT * FROM non_existent_table;
 SET standard_conforming_strings = on;`
-		queryHandler := initQueryHandler()
 
 		_, err := queryHandler.HandleSimpleQuery(query)
 
@@ -1601,58 +1586,52 @@ func initQueryHandler() *QueryHandler {
 	config := loadTestConfig()
 	duckdb := NewDuckdb(config, true)
 	icebergReader := NewIcebergReader(config)
+	duckdb.ExecFile(icebergReader.InternalStartSqlFile())
 	return NewQueryHandler(config, duckdb, icebergReader)
 }
 
 func createTestTables(t *testing.T) {
 	config := loadTestConfig()
-	xmin := uint32(0)
-	internalTableMetadata := InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeFull, MaxXmin: &xmin}
 
-	icebergWriter := NewIcebergWriterTable(
-		config,
-		IcebergSchemaTable{Schema: "public", Table: "test_table"},
-		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS,
-		777,
-		MAX_PARQUET_PAYLOAD_THRESHOLD,
-		false,
-	)
-	i := 0
-	icebergWriter.Write(
-		func() ([][]string, InternalTableMetadata) {
-			if i > 0 {
-				return [][]string{}, internalTableMetadata
-			}
+	createTestTable(config, IcebergSchemaTable{Schema: "public", Table: "test_table"}, PUBLIC_SCHEMA_TEST_TABLE_PG_SCHEMA_COLUMNS, PUBLIC_SCHEMA_TEST_TABLE_LOADED_ROWS)
+	createTestTable(config, IcebergSchemaTable{Schema: "public", Table: "partitioned_table1"}, PUBLIC_SCHEMA_PARTITIONED_TABLE_PG_SCHEMA_COLUMNS, PUBLIC_SCHEMA_PARTITIONED_TABLE1_LOADED_ROWS)
+	createTestTable(config, IcebergSchemaTable{Schema: "public", Table: "partitioned_table2"}, PUBLIC_SCHEMA_PARTITIONED_TABLE_PG_SCHEMA_COLUMNS, PUBLIC_SCHEMA_PARTITIONED_TABLE2_LOADED_ROWS)
+	createTestTable(config, IcebergSchemaTable{Schema: "public", Table: "partitioned_table3"}, PUBLIC_SCHEMA_PARTITIONED_TABLE_PG_SCHEMA_COLUMNS, PUBLIC_SCHEMA_PARTITIONED_TABLE3_LOADED_ROWS)
+	createTestTable(config, IcebergSchemaTable{Schema: "test", Table: "empty_table"}, TEST_SCHEMA_EMPTY_TABLE_PG_SCHEMA_COLUMNS, TEST_SCHEMA_EMPTY_TABLE_LOADED_ROWS)
 
-			i++
-			return PUBLIC_TEST_TABLE_LOADED_ROWS, internalTableMetadata
-		},
-	)
-
-	icebergWriter = NewIcebergWriterTable(
-		config,
-		IcebergSchemaTable{Schema: "test_schema", Table: "simple_table"},
-		TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS,
-		777,
-		MAX_PARQUET_PAYLOAD_THRESHOLD,
-		false,
-	)
-	i = 0
-	icebergWriter.Write(
-		func() ([][]string, InternalTableMetadata) {
-			if i > 0 {
-				return [][]string{}, internalTableMetadata
-			}
-
-			i++
-			return TEST_SCHEMA_SIMPLE_TABLE_LOADED_ROWS, internalTableMetadata
-		},
-	)
+	syncer := NewSyncer(config)
+	syncer.WriteInternalStartSqlFile([]PgSchemaTable{
+		{Schema: "public", Table: "test_table"},
+		{Schema: "public", Table: "partitioned_table1", ParentPartitionedTable: "partitioned_table"},
+		{Schema: "public", Table: "partitioned_table2", ParentPartitionedTable: "partitioned_table"},
+		{Schema: "public", Table: "partitioned_table3", ParentPartitionedTable: "partitioned_table"},
+		{Schema: "test", Table: "empty_table"},
+	})
 
 	t.Cleanup(func() {
-		icebergWriter.storage.DeleteSchema("public")
-		icebergWriter.storage.DeleteSchema("test_schema")
+		syncer.icebergWriter.DeleteSchema("public")
+		syncer.icebergWriter.DeleteSchema("test")
+		syncer.icebergWriter.WriteInternalStartSqlFile([]string{})
 	})
+}
+
+func createTestTable(config *Config, icebergSchemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) StorageInterface {
+	xmin := uint32(0)
+	internalTableMetadata := InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeFull, MaxXmin: &xmin}
+	icebergTableWriter := NewIcebergWriterTable(config, icebergSchemaTable, pgSchemaColumns, 777, MAX_PARQUET_PAYLOAD_THRESHOLD, false)
+	i := 0
+	icebergTableWriter.Write(
+		func() ([][]string, InternalTableMetadata) {
+			if i > 0 {
+				return [][]string{}, internalTableMetadata
+			}
+
+			i++
+			return rows, internalTableMetadata
+		},
+	)
+
+	return icebergTableWriter.storage
 }
 
 func testNoError(t *testing.T, err error) {
@@ -1714,11 +1693,9 @@ func testCommandCompleteTag(t *testing.T, message pgproto3.Message, expectedTag 
 	}
 }
 
-func testResponseByQuery(t *testing.T, responseByQuery map[string]map[string][]string) {
+func testResponseByQuery(t *testing.T, queryHandler *QueryHandler, responseByQuery map[string]map[string][]string) {
 	for query, responses := range responseByQuery {
 		t.Run(query, func(t *testing.T) {
-			queryHandler := initQueryHandler()
-
 			messages, err := queryHandler.HandleSimpleQuery(query)
 
 			testNoError(t, err)
@@ -1737,7 +1714,6 @@ func testResponseByQuery(t *testing.T, responseByQuery map[string]map[string][]s
 					&pgproto3.CommandComplete{},
 				})
 			}
-
 		})
 	}
 }

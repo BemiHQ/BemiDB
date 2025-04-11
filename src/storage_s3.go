@@ -141,34 +141,6 @@ func (storage *StorageS3) ExistingParquetFilePath(manifestFile ManifestFile) (st
 	return storage.storageUtils.ParseParquetFilePath(storage.fullBucketPath(), manifestListContent)
 }
 
-func (storage *StorageS3) InternalStartSqlFile() io.ReadCloser {
-	ctx := context.Background()
-	startSqlFileKey := storage.config.StoragePath + "/" + INTERNAL_START_SQL_FILE_NAME
-
-	_, err := storage.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(storage.config.Aws.S3Bucket),
-		Key:    aws.String(startSqlFileKey),
-	})
-
-	if err != nil {
-		var noSuchKeyType *types.NoSuchKey
-		if errors.As(err, &noSuchKeyType) {
-			LogDebug(storage.config, "DuckDB: No start SQL file found at s3://"+storage.config.Aws.S3Bucket+"/"+startSqlFileKey)
-			return io.NopCloser(strings.NewReader(""))
-		}
-		PanicIfError(storage.config, fmt.Errorf("failed to check for start SQL file: %w", err))
-	}
-
-	LogInfo(storage.config, "DuckDB: Reading start SQL file s3://"+storage.config.Aws.S3Bucket+"/"+startSqlFileKey)
-	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(storage.config.Aws.S3Bucket),
-		Key:    aws.String(startSqlFileKey),
-	})
-	PanicIfError(storage.config, fmt.Errorf("failed to get start SQL file: %w", err))
-
-	return getObjectResponse.Body
-}
-
 // Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageS3) DeleteSchema(schema string) (err error) {
@@ -303,20 +275,12 @@ func (storage *StorageS3) CreateManifest(metadataDirPath string, parquetFile Par
 	fileName := fmt.Sprintf("%s-m0.avro", parquetFile.Uuid)
 	filePath := metadataDirPath + "/" + fileName
 
-	tempFile, err := storage.createTemporaryFile("manifest")
+	err = storage.uploadTemporaryFile("manifest", filePath, func(tempFile *os.File) error {
+		manifestFile, err = storage.storageUtils.WriteManifestFile(storage.fullBucketPath(), tempFile.Name(), parquetFile)
+		return err
+	})
 	if err != nil {
-		return ManifestFile{}, err
-	}
-	defer storage.deleteTemporaryFile(tempFile)
-
-	manifestFile, err = storage.storageUtils.WriteManifestFile(storage.fullBucketPath(), tempFile.Name(), parquetFile)
-	if err != nil {
-		return ManifestFile{}, err
-	}
-
-	err = storage.uploadFile(filePath, tempFile)
-	if err != nil {
-		return ManifestFile{}, err
+		return manifestFile, err
 	}
 	LogDebug(storage.config, "Manifest file created at:", filePath)
 
@@ -333,20 +297,12 @@ func (storage *StorageS3) CreateDeletedRecordsManifest(metadataDirPath string, u
 		return ManifestFile{}, err
 	}
 
-	tempFile, err := storage.createTemporaryFile("manifest")
+	err = storage.uploadTemporaryFile("deleted-records-manifest", filePath, func(tempFile *os.File) error {
+		deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fullBucketPath(), tempFile.Name(), existingManifestContent)
+		return err
+	})
 	if err != nil {
-		return ManifestFile{}, err
-	}
-	defer storage.deleteTemporaryFile(tempFile)
-
-	deletedRecsManifestFile, err = storage.storageUtils.WriteDeletedRecordsManifestFile(storage.fullBucketPath(), tempFile.Name(), existingManifestContent)
-	if err != nil {
-		return ManifestFile{}, err
-	}
-
-	err = storage.uploadFile(filePath, tempFile)
-	if err != nil {
-		return ManifestFile{}, err
+		return deletedRecsManifestFile, err
 	}
 	LogDebug(storage.config, "Manifest file created at:", filePath)
 
@@ -357,20 +313,12 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestListItemsSortedDesc[0].ManifestFile.SnapshotId, parquetFileUuid)
 	filePath := metadataDirPath + "/" + fileName
 
-	tempFile, err := storage.createTemporaryFile("manifest")
+	err = storage.uploadTemporaryFile("manifest-list", filePath, func(tempFile *os.File) error {
+		manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestListItemsSortedDesc)
+		return err
+	})
 	if err != nil {
-		return ManifestListFile{}, err
-	}
-	defer storage.deleteTemporaryFile(tempFile)
-
-	manifestListFile, err = storage.storageUtils.WriteManifestListFile(storage.fullBucketPath(), tempFile.Name(), manifestListItemsSortedDesc)
-	if err != nil {
-		return ManifestListFile{}, err
-	}
-
-	err = storage.uploadFile(filePath, tempFile)
-	if err != nil {
-		return ManifestListFile{}, err
+		return manifestListFile, err
 	}
 	LogDebug(storage.config, "Manifest list file created at:", filePath)
 
@@ -381,20 +329,11 @@ func (storage *StorageS3) CreateManifestList(metadataDirPath string, parquetFile
 func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
 	filePath := metadataDirPath + "/" + ICEBERG_METADATA_FILE_NAME
 
-	tempFile, err := storage.createTemporaryFile("manifest")
+	err = storage.uploadTemporaryFile("metadata", filePath, func(tempFile *os.File) error {
+		return storage.storageUtils.WriteMetadataFile(storage.fullBucketPath(), tempFile.Name(), pgSchemaColumns, manifestListFilesSortedAsc)
+	})
 	if err != nil {
-		return MetadataFile{}, err
-	}
-	defer storage.deleteTemporaryFile(tempFile)
-
-	err = storage.storageUtils.WriteMetadataFile(storage.fullBucketPath(), tempFile.Name(), pgSchemaColumns, manifestListFilesSortedAsc)
-	if err != nil {
-		return MetadataFile{}, err
-	}
-
-	err = storage.uploadFile(filePath, tempFile)
-	if err != nil {
-		return MetadataFile{}, err
+		return metadataFile, err
 	}
 	LogDebug(storage.config, "Metadata file created at:", filePath)
 
@@ -403,33 +342,49 @@ func (storage *StorageS3) CreateMetadata(metadataDirPath string, pgSchemaColumns
 
 // Read (internal) -----------------------------------------------------------------------------------------------------
 
-func (storage *StorageS3) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
-	internalMetadataPath := storage.internalTableMetadataFilePath(pgSchemaTable)
-	internalMetadataContent, err := storage.readFileContent(internalMetadataPath)
-	if err != nil {
-		return InternalTableMetadata{}, err
+func (storage *StorageS3) InternalStartSqlFile() io.ReadCloser {
+	filePath := storage.config.StoragePath + "/" + INTERNAL_START_SQL_FILE_NAME
+
+	if !storage.fileExists(filePath) {
+		return io.NopCloser(strings.NewReader(""))
 	}
 
+	ctx := context.Background()
+	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(filePath),
+	})
+	PanicIfError(storage.config, err)
+
+	return getObjectResponse.Body
+}
+
+func (storage *StorageS3) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
+	internalMetadataPath := storage.internalTableMetadataFilePath(pgSchemaTable)
+	if !storage.fileExists(internalMetadataPath) {
+		return InternalTableMetadata{}, nil
+	}
+
+	internalMetadataContent, err := storage.readFileContent(internalMetadataPath)
+	PanicIfError(storage.config, err)
 	return storage.storageUtils.ParseInternalTableMetadata(internalMetadataContent)
 }
 
 // Write (internal) ----------------------------------------------------------------------------------------------------
 
+func (storage *StorageS3) WriteInternalStartSqlFile(queries []string) error {
+	filePath := storage.config.StoragePath + "/" + INTERNAL_START_SQL_FILE_NAME
+	return storage.uploadTemporaryFile("internal-start-sql", filePath, func(tempFile *os.File) error {
+		return storage.storageUtils.WriteInternalStartSqlFile(tempFile.Name(), queries)
+	})
+}
+
 func (storage *StorageS3) WriteInternalTableMetadata(metadataDirPath string, internalTableMetadata InternalTableMetadata) error {
 	filePath := metadataDirPath + "/" + INTERNAL_METADATA_FILE_NAME
 
-	tempFile, err := storage.createTemporaryFile("internal-metadata")
-	if err != nil {
-		return err
-	}
-	defer storage.deleteTemporaryFile(tempFile)
-
-	err = storage.storageUtils.WriteInternalTableMetadataFile(tempFile.Name(), internalTableMetadata)
-	if err != nil {
-		return err
-	}
-
-	err = storage.uploadFile(filePath, tempFile)
+	err := storage.uploadTemporaryFile("internal-metadata", filePath, func(tempFile *os.File) error {
+		return storage.storageUtils.WriteInternalTableMetadataFile(tempFile.Name(), internalTableMetadata)
+	})
 	if err != nil {
 		return err
 	}
@@ -439,6 +394,22 @@ func (storage *StorageS3) WriteInternalTableMetadata(metadataDirPath string, int
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageS3) fileExists(filePath string) bool {
+	ctx := context.Background()
+	_, err := storage.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(filePath),
+	})
+	if err != nil {
+		var noSuchKeyType *types.NoSuchKey
+		if errors.As(err, &noSuchKeyType) {
+			return false
+		}
+		PanicIfError(storage.config, err)
+	}
+	return true
+}
 
 func (storage *StorageS3) readFileContent(filePath string) ([]byte, error) {
 	ctx := context.Background()
@@ -458,16 +429,33 @@ func (storage *StorageS3) readFileContent(filePath string) ([]byte, error) {
 	return fileContent, nil
 }
 
-func (storage *StorageS3) uploadFile(filePath string, file *os.File) (err error) {
-	uploader := manager.NewUploader(storage.s3Client)
+func (storage *StorageS3) uploadTemporaryFile(tempFilePattern string, uploadFilePath string, writeTempFileFunc func(*os.File) error) error {
+	tempFile, err := os.CreateTemp("", tempFilePattern)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		os.Remove(tempFile.Name())
+	}()
 
+	err = writeTempFileFunc(tempFile)
+	if err != nil {
+		return err
+	}
+
+	uploader := manager.NewUploader(storage.s3Client)
 	_, err = uploader.Upload(context.Background(), &s3.PutObjectInput{
 		Bucket: aws.String(storage.config.Aws.S3Bucket),
-		Key:    aws.String(filePath),
-		Body:   file,
+		Key:    aws.String(uploadFilePath),
+		Body:   tempFile,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload file: %v", err)
+	}
+
+	err = tempFile.Close()
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -541,15 +529,4 @@ func (storage *StorageS3) deleteNestedObjects(prefix string) (err error) {
 	}
 
 	return nil
-}
-
-func (storage *StorageS3) createTemporaryFile(prefix string) (file *os.File, err error) {
-	tempFile, err := os.CreateTemp("", prefix)
-	PanicIfError(storage.config, err)
-
-	return tempFile, nil
-}
-
-func (storage *StorageS3) deleteTemporaryFile(file *os.File) {
-	os.Remove(file.Name())
 }

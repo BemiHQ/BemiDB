@@ -4,6 +4,11 @@ import (
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
 )
 
+type QueryToIcebergTable struct {
+	QuerySchemaTable QuerySchemaTable
+	IcebergTablePath string
+}
+
 type ParserTable struct {
 	config *Config
 	utils  *ParserUtils
@@ -39,7 +44,7 @@ func (parser *ParserTable) IsTableFromInformationSchema(qSchemaTable QuerySchema
 
 // public.table -> FROM iceberg_scan('path', skip_schema_inference = true) table
 // schema.table -> FROM iceberg_scan('path', skip_schema_inference = true) schema_table
-func (parser *ParserTable) MakeIcebergTableNode(tablePath string, qSchemaTable QuerySchemaTable) *pgQuery.Node {
+func (parser *ParserTable) MakeIcebergTableNode(queryToIcebergTable QueryToIcebergTable) *pgQuery.Node {
 	node := pgQuery.MakeSimpleRangeFunctionNode([]*pgQuery.Node{
 		pgQuery.MakeListNode([]*pgQuery.Node{
 			pgQuery.MakeFuncCallNode(
@@ -48,7 +53,7 @@ func (parser *ParserTable) MakeIcebergTableNode(tablePath string, qSchemaTable Q
 				},
 				[]*pgQuery.Node{
 					pgQuery.MakeAConstStrNode(
-						tablePath,
+						queryToIcebergTable.IcebergTablePath,
 						0,
 					),
 					pgQuery.MakeAExprNode(
@@ -72,7 +77,7 @@ func (parser *ParserTable) MakeIcebergTableNode(tablePath string, qSchemaTable Q
 		),
 		0,
 	)
-	return parser.utils.MakeSubselectFromNode(qSchemaTable, []*pgQuery.Node{selectStarNode}, node)
+	return parser.utils.MakeSubselectFromNode(queryToIcebergTable.QuerySchemaTable, []*pgQuery.Node{selectStarNode}, node)
 }
 
 func (parser *ParserTable) TopLevelSchemaFunction(rangeFunction *pgQuery.RangeFunction) *QuerySchemaFunction {

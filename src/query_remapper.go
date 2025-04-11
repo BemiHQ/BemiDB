@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
@@ -32,7 +33,6 @@ type QueryRemapper struct {
 	remapperSelect     *QueryRemapperSelect
 	remapperShow       *QueryRemapperShow
 	icebergReader      *IcebergReader
-	duckdb             *Duckdb
 	config             *Config
 }
 
@@ -45,12 +45,49 @@ func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdb *Duck
 		remapperSelect:     NewQueryRemapperSelect(config),
 		remapperShow:       NewQueryRemapperShow(config),
 		icebergReader:      icebergReader,
-		duckdb:             duckdb,
 		config:             config,
 	}
 }
 
-func (remapper *QueryRemapper) RemapStatements(statements []*pgQuery.RawStmt) ([]*pgQuery.RawStmt, error) {
+func (remapper *QueryRemapper) ParseAndRemapQuery(query string) ([]string, []string, error) {
+	queryTree, err := pgQuery.Parse(query)
+	if err != nil {
+		return nil, nil, fmt.Errorf("couldn't parse query: %s. %w", query, err)
+	}
+
+	if strings.HasSuffix(query, INSPECT_SQL_COMMENT) {
+		LogDebug(remapper.config, queryTree.Stmts)
+	}
+
+	var originalQueryStatements []string
+	for _, stmt := range queryTree.Stmts {
+		originalQueryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{stmt}})
+		if err != nil {
+			return nil, nil, fmt.Errorf("couldn't deparse query: %s. %w", query, err)
+		}
+		originalQueryStatements = append(originalQueryStatements, originalQueryStatement)
+	}
+
+	remappedStatements, err := remapper.remapStatements(queryTree.Stmts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("couldn't remap query: %s. %w", query, err)
+	}
+
+	var queryStatements []string
+	for _, remappedStatement := range remappedStatements {
+		queryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{remappedStatement}})
+		if err != nil {
+			return nil, nil, fmt.Errorf("couldn't deparse remapped query: %s. %w", query, err)
+		}
+		queryStatements = append(queryStatements, queryStatement)
+	}
+
+	return queryStatements, originalQueryStatements, nil
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([]*pgQuery.RawStmt, error) {
 	// Empty query
 	if len(statements) == 0 {
 		return statements, nil
@@ -98,8 +135,6 @@ func (remapper *QueryRemapper) RemapStatements(statements []*pgQuery.RawStmt) ([
 
 	return statements, nil
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // SET ... (no-op)
 func (remapper *QueryRemapper) remapSetStatement(stmt *pgQuery.RawStmt) *pgQuery.RawStmt {

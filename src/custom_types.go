@@ -132,6 +132,14 @@ func (pgSchemaTable PgSchemaTable) String() string {
 	return fmt.Sprintf(`"%s"."%s"`, pgSchemaTable.Schema, pgSchemaTable.Table)
 }
 
+func (pgSchemaTable PgSchemaTable) ParentPartitionedTableString() string {
+	if pgSchemaTable.ParentPartitionedTable == "" {
+		return ""
+	}
+
+	return fmt.Sprintf(`"%s"."%s"`, pgSchemaTable.Schema, pgSchemaTable.ParentPartitionedTable)
+}
+
 func (pgSchemaTable PgSchemaTable) ToConfigArg() string {
 	return fmt.Sprintf(`%s.%s`, pgSchemaTable.Schema, pgSchemaTable.Table)
 }

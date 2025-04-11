@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -23,6 +24,7 @@ const (
 
 type Syncer struct {
 	config        *Config
+	icebergWriter *IcebergWriter
 	icebergReader *IcebergReader
 	syncerTable   *SyncerTable
 }
@@ -34,9 +36,11 @@ func NewSyncer(config *Config) *Syncer {
 		)
 	}
 
+	icebergWriter := NewIcebergWriter(config)
 	icebergReader := NewIcebergReader(config)
 	return &Syncer{
 		config:        config,
+		icebergWriter: icebergWriter,
 		icebergReader: icebergReader,
 		syncerTable:   NewSyncerTable(config),
 	}
@@ -78,11 +82,44 @@ func (syncer *Syncer) SyncFromPostgres() {
 		}
 	}
 
+	syncer.WriteInternalStartSqlFile(syncedPgSchemaTables)
+
 	if !syncer.config.Pg.PreserveUnsynced {
 		syncer.deleteOldIcebergSchemaTables(syncedPgSchemaTables)
 	}
 
 	syncer.sendAnonymousAnalytics("sync-finish")
+}
+
+func (syncer *Syncer) WriteInternalStartSqlFile(pgSchemaTables []PgSchemaTable) {
+	childTablesByParentTable := make(map[string][]string)
+	for _, pgSchemaTable := range pgSchemaTables {
+		if pgSchemaTable.ParentPartitionedTable != "" {
+			parent := pgSchemaTable.ParentPartitionedTableString()
+			childTablesByParentTable[parent] = append(childTablesByParentTable[parent], pgSchemaTable.String())
+		}
+	}
+
+	queryRemapper := NewQueryRemapper(syncer.config, syncer.icebergReader, nil)
+	queries := []string{}
+
+	for parent, children := range childTablesByParentTable {
+		// CREATE OR REPLACE TABLE test_table AS
+		//   SELECT * FROM iceberg_scan('/iceberg/public/test_table_q1/metadata/v1.metadata.json', skip_schema_inference = true)
+		//   UNION ALL
+		//   SELECT * FROM iceberg_scan('/iceberg/public/test_table_q2/metadata/v1.metadata.json', skip_schema_inference = true)
+
+		subqueries := []string{}
+		for _, child := range children {
+			originalSubquery := fmt.Sprintf("SELECT * FROM %s", child)
+			queryStatements, _, err := queryRemapper.ParseAndRemapQuery(originalSubquery)
+			PanicIfError(syncer.config, err)
+			subqueries = append(subqueries, queryStatements[0])
+		}
+		queries = append(queries, fmt.Sprintf("CREATE OR REPLACE TABLE %s AS %s", parent, strings.Join(subqueries, " UNION ALL ")))
+	}
+
+	syncer.icebergWriter.WriteInternalStartSqlFile(queries)
 }
 
 // Example:
@@ -189,7 +226,7 @@ func (syncer *Syncer) newConnection(ctx context.Context, databaseUrl string) *pg
 }
 
 func (syncer *Syncer) readInternalTableMetadata(pgSchemaTable PgSchemaTable) InternalTableMetadata {
-	internalTableMetadata, err := syncer.icebergReader.storage.InternalTableMetadata(pgSchemaTable)
+	internalTableMetadata, err := syncer.icebergReader.InternalTableMetadata(pgSchemaTable)
 	PanicIfError(syncer.config, err)
 	return internalTableMetadata
 }
@@ -217,8 +254,8 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 
 		if !found {
 			LogInfo(syncer.config, "Deleting", icebergSchema, "...")
-			err := syncer.icebergReader.storage.DeleteSchema(icebergSchema)
-			PanicIfError(syncer.icebergReader.config, err)
+			err := syncer.icebergWriter.DeleteSchema(icebergSchema)
+			PanicIfError(syncer.config, err)
 		}
 	}
 
@@ -236,8 +273,8 @@ func (syncer *Syncer) deleteOldIcebergSchemaTables(pgSchemaTables []PgSchemaTabl
 
 		if !found {
 			LogInfo(syncer.config, "Deleting", icebergSchemaTable.String(), "...")
-			err := syncer.icebergReader.storage.DeleteSchemaTable(icebergSchemaTable)
-			PanicIfError(syncer.icebergReader.config, err)
+			err := syncer.icebergWriter.DeleteSchemaTable(icebergSchemaTable)
+			PanicIfError(syncer.config, err)
 		}
 	}
 }

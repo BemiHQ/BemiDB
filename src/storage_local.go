@@ -98,22 +98,6 @@ func (storage *StorageLocal) ExistingParquetFilePath(manifestFile ManifestFile) 
 	return storage.storageUtils.ParseParquetFilePath(storage.fileSystemPrefix(), manifestContent)
 }
 
-func (storage *StorageLocal) InternalStartSqlFile() io.ReadCloser {
-	_, err := os.Stat(INTERNAL_START_SQL_FILE_NAME)
-	if err != nil {
-		if os.IsNotExist(err) {
-			LogDebug(storage.config, "DuckDB: No start SQL file found at", INTERNAL_START_SQL_FILE_NAME)
-			return io.NopCloser(strings.NewReader(""))
-		}
-		PanicIfError(storage.config, err)
-	}
-
-	LogInfo(storage.config, "DuckDB: Reading start SQL file", INTERNAL_START_SQL_FILE_NAME)
-	file, err := os.Open(INTERNAL_START_SQL_FILE_NAME)
-	PanicIfError(storage.config, err)
-	return file
-}
-
 // Write ---------------------------------------------------------------------------------------------------------------
 
 func (storage *StorageLocal) DeleteSchema(schema string) error {
@@ -311,17 +295,45 @@ func (storage *StorageLocal) CreateMetadata(metadataDirPath string, pgSchemaColu
 
 // Read (internal) -----------------------------------------------------------------------------------------------------
 
-func (storage *StorageLocal) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
-	internalMetadataPath := storage.internalTableMetadataFilePath(pgSchemaTable)
-	internalMetadataContent, err := storage.readFileContent(internalMetadataPath)
-	if err != nil {
-		return InternalTableMetadata{}, err
+func (storage *StorageLocal) InternalStartSqlFile() io.ReadCloser {
+	filePath := storage.absoluteIcebergPath(INTERNAL_START_SQL_FILE_NAME)
+	if !storage.fileExists(filePath) {
+		return io.NopCloser(strings.NewReader(""))
 	}
 
+	file, err := os.Open(filePath)
+	PanicIfError(storage.config, err)
+	return file
+}
+
+func (storage *StorageLocal) InternalTableMetadata(pgSchemaTable PgSchemaTable) (InternalTableMetadata, error) {
+	internalMetadataPath := storage.internalTableMetadataFilePath(pgSchemaTable)
+	if !storage.fileExists(internalMetadataPath) {
+		return InternalTableMetadata{}, nil
+	}
+
+	internalMetadataContent, err := storage.readFileContent(internalMetadataPath)
+	PanicIfError(storage.config, err)
 	return storage.storageUtils.ParseInternalTableMetadata(internalMetadataContent)
 }
 
+func (storage *StorageLocal) fileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+		PanicIfError(storage.config, err)
+	}
+	return true
+}
+
 // Write (internal) ----------------------------------------------------------------------------------------------------
+
+func (storage *StorageLocal) WriteInternalStartSqlFile(queries []string) error {
+	filePath := storage.absoluteIcebergPath(INTERNAL_START_SQL_FILE_NAME)
+	return storage.storageUtils.WriteInternalStartSqlFile(filePath, queries)
+}
 
 func (storage *StorageLocal) WriteInternalTableMetadata(metadataDirPath string, internalTableMetadata InternalTableMetadata) error {
 	filePath := filepath.Join(metadataDirPath, INTERNAL_METADATA_FILE_NAME)

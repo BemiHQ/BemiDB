@@ -65,7 +65,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 	csvHeaders = csvHeaders[:len(csvHeaders)-1] // Ignore the last column (xmin)
 	pgSchemaColumns := syncer.pgTableSchemaColumns(structureConn, pgSchemaTable, csvHeaders)
 
-	icebergWriter := NewIcebergWriterTable(
+	icebergTableWriter := NewIcebergWriterTable(
 		syncer.config,
 		pgSchemaTable.ToIcebergSchemaTable(),
 		pgSchemaColumns,
@@ -83,7 +83,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 
 	// Write to Iceberg in a separate goroutine in parallel
 	LogInfo(syncer.config, "Writing incrementally to Iceberg...")
-	icebergWriter.Write(func() ([][]string, InternalTableMetadata) {
+	icebergTableWriter.Write(func() ([][]string, InternalTableMetadata) {
 		var newInternalTableMetadata InternalTableMetadata
 		var rows [][]string
 

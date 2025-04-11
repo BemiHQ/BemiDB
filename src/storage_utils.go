@@ -1153,6 +1153,21 @@ func (storage *StorageUtils) WriteVersionHintFile(filePath string, metadataFile 
 	return nil
 }
 
+func (storage *StorageUtils) WriteInternalStartSqlFile(filePath string, queries []string) (err error) {
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create internal start SQL file: %v", err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(strings.Join(queries, "\n"))
+	if err != nil {
+		return fmt.Errorf("failed to write to internal start SQL file: %v", err)
+	}
+
+	return nil
+}
+
 func (storage *StorageUtils) WriteInternalTableMetadataFile(filePath string, internalTableMetadata InternalTableMetadata) error {
 	file, err := os.Create(filePath)
 	if err != nil {

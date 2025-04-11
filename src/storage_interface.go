@@ -111,7 +111,6 @@ type StorageInterface interface {
 	ExistingManifestListFiles(metadataDirPath string) (manifestListFilesSortedAsc []ManifestListFile, err error)
 	ExistingManifestListItems(manifestListFile ManifestListFile) (manifestListItemsSortedDesc []ManifestListItem, err error)
 	ExistingParquetFilePath(manifestFile ManifestFile) (parquetFilePath string, err error)
-	InternalStartSqlFile() (sqlFile io.ReadCloser)
 
 	// Write
 	DeleteSchema(schema string) (err error)
@@ -127,8 +126,10 @@ type StorageInterface interface {
 	CreateMetadata(metadataDirPath string, pgSchemaColumns []PgSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error)
 
 	// Read (internal)
+	InternalStartSqlFile() (sqlFile io.ReadCloser)
 	InternalTableMetadata(pgSchemaTable PgSchemaTable) (internalTableMetadata InternalTableMetadata, err error)
 	// Write (internal)
+	WriteInternalStartSqlFile(queries []string) (err error)
 	WriteInternalTableMetadata(metadataDirPath string, internalTableMetadata InternalTableMetadata) (err error)
 }
 

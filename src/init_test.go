@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+var PUBLIC_SCHEMA_TEST_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 	{
 		ColumnName:       "id",
 		DataType:         "integer",
@@ -283,8 +283,7 @@ var PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 		Namespace:  "public",
 	},
 }
-
-var PUBLIC_TEST_TABLE_LOADED_ROWS = [][]string{
+var PUBLIC_SCHEMA_TEST_TABLE_LOADED_ROWS = [][]string{
 	{
 		"1",                                    // id
 		"1",                                    // bit_column
@@ -373,7 +372,7 @@ var PUBLIC_TEST_TABLE_LOADED_ROWS = [][]string{
 	},
 }
 
-var TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+var TEST_SCHEMA_EMPTY_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 	{
 		ColumnName:             "id",
 		DataType:               "integer",
@@ -387,16 +386,33 @@ var TEST_SCHEMA_SIMPLE_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
 		Namespace:              "pg_catalog",
 	},
 }
+var TEST_SCHEMA_EMPTY_TABLE_LOADED_ROWS = [][]string{}
 
-var TEST_SCHEMA_SIMPLE_TABLE_LOADED_ROWS = [][]string{}
+var PUBLIC_SCHEMA_PARTITIONED_TABLE_PG_SCHEMA_COLUMNS = []PgSchemaColumn{
+	{
+		ColumnName:             "timestamp_column",
+		DataType:               "timestamp without time zone",
+		UdtName:                "timestamp",
+		IsNullable:             "NO",
+		OrdinalPosition:        "1",
+		CharacterMaximumLength: "0",
+		NumericPrecision:       "0",
+		NumericScale:           "0",
+		DatetimePrecision:      "6",
+		Namespace:              "pg_catalog",
+	},
+}
+var PUBLIC_SCHEMA_PARTITIONED_TABLE1_LOADED_ROWS = [][]string{{"2024-01-01 01:02:03.123456"}}
+var PUBLIC_SCHEMA_PARTITIONED_TABLE2_LOADED_ROWS = [][]string{{"2024-02-12 11:12:13"}}
+var PUBLIC_SCHEMA_PARTITIONED_TABLE3_LOADED_ROWS = [][]string{{"2024-03-30 23:59:59"}}
 
 func init() {
 	loadTestConfig()
 
-	for i := range PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS {
-		PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].OrdinalPosition = IntToString(i + 1)
-		if PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].IsNullable == "" {
-			PUBLIC_TEST_TABLE_PG_SCHEMA_COLUMNS[i].IsNullable = "YES"
+	for i := range PUBLIC_SCHEMA_TEST_TABLE_PG_SCHEMA_COLUMNS {
+		PUBLIC_SCHEMA_TEST_TABLE_PG_SCHEMA_COLUMNS[i].OrdinalPosition = IntToString(i + 1)
+		if PUBLIC_SCHEMA_TEST_TABLE_PG_SCHEMA_COLUMNS[i].IsNullable == "" {
+			PUBLIC_SCHEMA_TEST_TABLE_PG_SCHEMA_COLUMNS[i].IsNullable = "YES"
 		}
 	}
 }
@@ -411,6 +427,7 @@ func loadTestConfig() *Config {
 	config.StoragePath = "../iceberg-test"
 	config.LogLevel = "ERROR"
 	config.DisableAnonymousAnalytics = true
+	config.Pg.DatabaseUrl = "postgresql://postgres:postgres@localhost:5432/dbname"
 
 	return config
 }
