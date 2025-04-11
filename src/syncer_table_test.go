@@ -42,7 +42,8 @@ func TestCopyFromPgTableSql(t *testing.T) {
 	})
 
 	t.Run("Continued in-progress refresh without a wraparound", func(t *testing.T) {
-		// [-----------------------|************************|************************|************************]
+		// Full refresh in progress
+		// [-----------------------|************************|************************|------------------------]
 		// 0                 prev max xmin        init (wraparound) txid    curr (wraparound) txid          32^2
 		t.Run("Continues a full refresh before reaching the initial txid", func(t *testing.T) {
 			previousMaxXmin := uint32(1_000_000_000)
@@ -52,13 +53,30 @@ func TestCopyFromPgTableSql(t *testing.T) {
 
 			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
 
-			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
+			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 AND xmin::text::bigint <= 3000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
 				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
 			}
 		})
 
-		// [-----------------------|************************|*************************************************]
+		// Incremental refresh
+		// [-----------------------|************************|************************|------------------------]
+		// 0                 prev max xmin       init (wraparound) txid     curr (wraparound) txid          32^2
+		t.Run("Starts an incremental refresh before reaching the initial txid equal to the current txid", func(t *testing.T) {
+			previousMaxXmin := uint32(1_000_000_000)
+			initialTxid := int64(2_000_000_000) + (int64(1) << 32)
+			currentTxid := int64(3_000_000_000) + (int64(1) << 32)
+			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeIncremental, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
+
+			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
+
+			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint > 1000000000 AND xmin::text::bigint <= 3000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
+			if sql != expected {
+				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
+			}
+		})
+
+		// [-----------------------|************************|-------------------------------------------------]
 		// 0                 prev max xmin        init (wraparound) txid                                    32^2
 		//                                        curr (wraparound) txid
 		t.Run("Continues a full refresh before reaching the initial txid equal to the current txid", func(t *testing.T) {
@@ -69,29 +87,13 @@ func TestCopyFromPgTableSql(t *testing.T) {
 
 			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
 
-			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
+			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 AND xmin::text::bigint <= 2000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
 				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
 			}
 		})
 
-		// [-----------------------|************************|************************|************************]
-		// 0                 prev max xmin       init (wraparound) txid     curr (wraparound) txid          32^2
-		t.Run("Starts an incremental refresh before reaching the initial txid equal to the current txid", func(t *testing.T) {
-			previousMaxXmin := uint32(1_000_000_000)
-			initialTxid := int64(2_000_000_000) + (int64(1) << 32)
-			currentTxid := int64(3_000_000_000) + (int64(1) << 32)
-			internalTableMetadata := InternalTableMetadata{LastRefreshMode: RefreshModeIncremental, LastTxid: initialTxid, MaxXmin: &previousMaxXmin}
-
-			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
-
-			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint > 1000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
-			if sql != expected {
-				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
-			}
-		})
-
-		// [-----------------------|------------------------|************************|************************]
+		// [-----------------------|------------------------|************************|------------------------]
 		// 0            init (wraparound) txid       prev max xmin        curr (wraparound) txid            32^2
 		t.Run("Continues a full refresh after reaching the initial txid", func(t *testing.T) {
 			initialTxid := int64(1_000_000_000)
@@ -101,7 +103,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 
 			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
 
-			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 2000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
+			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 2000000000 AND xmin::text::bigint <= 3000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
 				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
 			}
@@ -151,7 +153,7 @@ func TestCopyFromPgTableSql(t *testing.T) {
 
 			sql := syncer.CopyFromPgTableSql(pgSchemaTable, internalTableMetadata, currentTxid, true)
 
-			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 OR xmin::text::bigint <= 2000000000 ORDER BY xmin::text::bigint <= 2000000000 ASC, xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
+			expected := "COPY (SELECT *, xmin::text::bigint AS xmin FROM \"public\".\"users\" WHERE xmin::text::bigint >= 1000000000 AND xmin::text::bigint <= 2000000000 ORDER BY xmin::text::bigint ASC) TO STDOUT WITH CSV HEADER NULL 'BEMIDB_NULL'"
 			if sql != expected {
 				t.Errorf("Expected SQL:\n%s\nGot:\n%s", expected, sql)
 			}

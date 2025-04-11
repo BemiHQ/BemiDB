@@ -152,20 +152,24 @@ func (syncer *SyncerTable) CopyFromPgTableSql(
 	}
 
 	if continuedRefresh {
-		if currentWraparoundTxid >= initialWraparoundTxid && currentWraparoundTxid >= previousMaxXmin {
+		if previousMaxXmin <= currentWraparoundTxid {
 			// When no wraparound occurred after an incremental or interrupted full sync
 			//
-			// [-----------------------|************************|************************|************************]
+			// [-----------------------|************************|************************|------------------------]
 			// 0                 prev max xmin       init (wraparound) txid    curr (wraparound) txid           32^2
 			//
-			// [-----------------------|------------------------|************************|************************]
+			// [-----------------------|------------------------|************************|------------------------]
 			// 0            init (wraparound) txid        prev max xmin        curr (wraparound) txid           32^2
+			//
+			// [-----------------------|************************|------------------------|------------------------]
+			// 0                 prev max xmin        curr wraparound txid     init (wraparound) txid           32^2
 			operator := ">"
 			if existingInternalTableMetadata.IsInProgress() {
 				operator = ">="
 			}
 			return "COPY (SELECT *, xmin::text::bigint AS xmin FROM " + pgSchemaTable.String() +
 				" WHERE xmin::text::bigint " + operator + " " + existingInternalTableMetadata.MaxXminString() +
+				" AND xmin::text::bigint <= " + Int64ToString(currentWraparoundTxid) +
 				" ORDER BY xmin::text::bigint ASC)" +
 				" TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
 		} else if IsPgWraparoundTxid(currentTxid) {
@@ -176,9 +180,6 @@ func (syncer *SyncerTable) CopyFromPgTableSql(
 			//
 			// [***********************|------------------------|------------------------|************************]
 			// 0             curr wraparound txid     init (wraparound) txid      prev max xmin                 32^2
-			//
-			// [-----------------------|************************|------------------------|------------------------]
-			// 0                 prev max xmin        curr wraparound txid     init (wraparound) txid           32^2
 			//
 			// [***********************|************************|------------------------|************************]
 			// 0            init (wraparound) txid     curr wraparound txid       prev max xmin                 32^2
