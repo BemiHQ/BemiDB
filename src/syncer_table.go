@@ -56,7 +56,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 
 	// Identify the batch size dynamically based on the table stats
 	dynamicRowCountPerBatch := syncer.calculatedynamicRowCountPerBatch(pgSchemaTable, structureConn)
-	LogDebug(syncer.config, "Row count per batch: ", dynamicRowCountPerBatch, "Continued refresh:", continuedRefresh, "Incremental refresh:", incrementalRefresh)
+	LogDebug(syncer.config, "Calculated row count per batch:", dynamicRowCountPerBatch, "Continued refresh:", continuedRefresh, "Incremental refresh:", incrementalRefresh)
 
 	// Read the header to get the column information
 	csvReader := csv.NewReader(cappedBuffer)
@@ -317,7 +317,7 @@ func (syncer *SyncerTable) calculatedynamicRowCountPerBatch(pgSchemaTable PgSche
 		pgSchemaTable.Table,
 	).Scan(&tableSize, &rowCount)
 	PanicIfError(syncer.config, err)
-	LogDebug(syncer.config, "Table size:", tableSize, "Row count:", rowCount)
+	LogDebug(syncer.config, "Read table size:", tableSize, "Approximate row count:", rowCount)
 
 	if tableSize == 0 || rowCount == 0 {
 		return 1

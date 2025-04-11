@@ -86,11 +86,16 @@ func (internalTableMetadata InternalTableMetadata) LastWrappedAroundTxidString()
 }
 
 func (internalTableMetadata InternalTableMetadata) String() string {
+	maxXmin := "null"
+	if internalTableMetadata.MaxXmin != nil {
+		maxXmin = Uint32ToString(*internalTableMetadata.MaxXmin)
+	}
+
 	return fmt.Sprintf(
-		"LastRefreshMode: %s, LastSyncedAt: %d, MaxXmin: %d",
+		"LastRefreshMode: %s, LastSyncedAt: %d, MaxXmin: %s",
 		internalTableMetadata.LastRefreshMode,
 		internalTableMetadata.LastSyncedAt,
-		*internalTableMetadata.MaxXmin,
+		maxXmin,
 	)
 }
 

@@ -30,8 +30,10 @@ func main() {
 
 	switch command {
 	case COMMAND_START:
+		LogDebug(config, "Starting BemiDB v"+VERSION)
 		start(config)
 	case COMMAND_SYNC:
+		LogDebug(config, "Syncing with BemiDB v"+VERSION)
 		if config.Pg.SyncInterval != "" {
 			duration, err := time.ParseDuration(config.Pg.SyncInterval)
 			if err != nil {
