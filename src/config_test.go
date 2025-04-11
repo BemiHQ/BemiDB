@@ -14,9 +14,6 @@ func TestLoadConfig(t *testing.T) {
 		if config.Database != "bemidb" {
 			t.Errorf("Expected database to be bemidb, got %s", config.Database)
 		}
-		if config.InitSqlFilepath != "./init.sql" {
-			t.Errorf("Expected duckdbInitFilepath to be ./init.sql, got %s", config.InitSqlFilepath)
-		}
 		if config.StoragePath != "iceberg" {
 			t.Errorf("Expected StoragePath to be iceberg, got %s", config.StoragePath)
 		}
@@ -59,9 +56,6 @@ func TestLoadConfig(t *testing.T) {
 		if config.Database != "mydb" {
 			t.Errorf("Expected database to be mydb, got %s", config.Database)
 		}
-		if config.InitSqlFilepath != "./init/duckdb.sql" {
-			t.Errorf("Expected duckdbInitFilepath to be ./init/duckdb.sql, got %s", config.InitSqlFilepath)
-		}
 		if config.StoragePath != "storage-path" {
 			t.Errorf("Expected StoragePath to be storage-path, got %s", config.StoragePath)
 		}
@@ -93,9 +87,6 @@ func TestLoadConfig(t *testing.T) {
 		}
 		if config.Database != "mydb" {
 			t.Errorf("Expected database to be mydb, got %s", config.Database)
-		}
-		if config.InitSqlFilepath != "./init/duckdb.sql" {
-			t.Errorf("Expected duckdbInitFilepath to be ./init/duckdb.sql, got %s", config.InitSqlFilepath)
 		}
 		if config.StoragePath != "storage-path" {
 			t.Errorf("Expected StoragePath to be storage-path, got %s", config.StoragePath)
@@ -178,7 +169,6 @@ func TestLoadConfig(t *testing.T) {
 		setTestArgs([]string{
 			"--port", "12345",
 			"--database", "mydb",
-			"--init-sql", "./init/duckdb.sql",
 			"--storage-path", "storage-path",
 			"--log-level", "ERROR",
 			"--storage-type", "LOCAL",
@@ -195,9 +185,6 @@ func TestLoadConfig(t *testing.T) {
 		}
 		if config.Database != "mydb" {
 			t.Errorf("Expected database to be mydb, got %s", config.Database)
-		}
-		if config.InitSqlFilepath != "./init/duckdb.sql" {
-			t.Errorf("Expected duckdbInitFilepath to be ./init/duckdb.sql, got %s", config.InitSqlFilepath)
 		}
 		if config.StoragePath != "storage-path" {
 			t.Errorf("Expected StoragePath to be storage-path, got %s", config.StoragePath)

@@ -370,7 +370,6 @@ psql postgres://localhost:54321/bemidb -c \
 | `--host`      | `BEMIDB_HOST`        | `127.0.0.1`   | Host for BemiDB to listen on           |
 | `--port`      | `BEMIDB_PORT`        | `54321`       | Port for BemiDB to listen on           |
 | `--database`  | `BEMIDB_DATABASE`    | `bemidb`      | Database name                          |
-| `--init-sql ` | `BEMIDB_INIT_SQL`    | `./init.sql`  | Path to the initialization SQL file    |
 | `--user`      | `BEMIDB_USER`        |               | Database user. Allows any if empty     |
 | `--password`  | `BEMIDB_PASSWORD`    |               | Database password. Allows any if empty |
 

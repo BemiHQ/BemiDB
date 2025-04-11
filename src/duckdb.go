@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
-	"os"
+	"io"
 	"regexp"
 	"slices"
 	"strings"
@@ -142,15 +142,19 @@ func (duckdb *Duckdb) ExecTransactionContext(ctx context.Context, queries []stri
 	return tx.Commit()
 }
 
-func (duckdb *Duckdb) ExecInitFile() {
-	initFileQueries := readInitFile(duckdb.config)
-	if initFileQueries == nil {
-		return
+func (duckdb *Duckdb) ExecFile(reader io.ReadCloser) {
+	defer reader.Close()
+
+	lines := []string{}
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
 	}
+	PanicIfError(duckdb.config, scanner.Err())
 
 	ctx := context.Background()
-	for _, query := range initFileQueries {
-		_, err := duckdb.ExecContext(ctx, query, nil)
+	for _, sql := range lines {
+		_, err := duckdb.ExecContext(ctx, sql, nil)
 		PanicIfError(duckdb.config, err)
 	}
 }
@@ -201,28 +205,4 @@ func replaceNamedStringArgs(query string, args map[string]string) string {
 		query = strings.ReplaceAll(query, "$"+key, re.ReplaceAllString(value, ""))
 	}
 	return query
-}
-
-func readInitFile(config *Config) []string {
-	_, err := os.Stat(config.InitSqlFilepath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			LogDebug(config, "DuckDB: No init file found at", config.InitSqlFilepath)
-			return nil
-		}
-		PanicIfError(config, err)
-	}
-
-	LogInfo(config, "DuckDB: Reading init file", config.InitSqlFilepath)
-	file, err := os.Open(config.InitSqlFilepath)
-	PanicIfError(config, err)
-	defer file.Close()
-
-	lines := []string{}
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	PanicIfError(config, scanner.Err())
-	return lines
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 )
 
 type RefreshMode string
@@ -11,6 +12,8 @@ const (
 	RefreshModeFullInProgress        RefreshMode = "FULL_IN_PROGRESS"
 	RefreshModeIncremental           RefreshMode = "INCREMENTAL"
 	RefreshModeIncrementalInProgress RefreshMode = "INCREMENTAL_IN_PROGRESS"
+
+	INTERNAL_START_SQL_FILE_NAME = "bemidb-start.sql"
 )
 
 type ParquetFileStats struct {
@@ -108,6 +111,7 @@ type StorageInterface interface {
 	ExistingManifestListFiles(metadataDirPath string) (manifestListFilesSortedAsc []ManifestListFile, err error)
 	ExistingManifestListItems(manifestListFile ManifestListFile) (manifestListItemsSortedDesc []ManifestListItem, err error)
 	ExistingParquetFilePath(manifestFile ManifestFile) (parquetFilePath string, err error)
+	InternalStartSqlFile() (sqlFile io.ReadCloser)
 
 	// Write
 	DeleteSchema(schema string) (err error)

@@ -1,5 +1,9 @@
 package main
 
+import (
+	"io"
+)
+
 type IcebergReader struct {
 	config  *Config
 	storage StorageInterface
@@ -27,4 +31,8 @@ func (reader *IcebergReader) TableFields(icebergSchemaTable IcebergSchemaTable) 
 
 func (reader *IcebergReader) MetadataFilePath(icebergSchemaTable IcebergSchemaTable) string {
 	return reader.storage.IcebergMetadataFilePath(icebergSchemaTable)
+}
+
+func (reader *IcebergReader) InternalStartSqlFile() io.ReadCloser {
+	return reader.storage.InternalStartSqlFile()
 }

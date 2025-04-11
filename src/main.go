@@ -71,6 +71,8 @@ func start(config *Config) {
 	defer duckdb.Close()
 
 	icebergReader := NewIcebergReader(config)
+	duckdb.ExecFile(icebergReader.InternalStartSqlFile())
+
 	queryHandler := NewQueryHandler(config, duckdb, icebergReader)
 
 	for {

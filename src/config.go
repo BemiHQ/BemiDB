@@ -36,15 +36,14 @@ const (
 	ENV_LOG_LEVEL                   = "BEMIDB_LOG_LEVEL"
 	ENV_DISABLE_ANONYMOUS_ANALYTICS = "BEMIDB_DISABLE_ANONYMOUS_ANALYTICS"
 
-	DEFAULT_PORT              = "54321"
-	DEFAULT_DATABASE          = "bemidb"
-	DEFAULT_USER              = ""
-	DEFAULT_PASSWORD          = ""
-	DEFAULT_HOST              = "127.0.0.1"
-	DEFAULT_INIT_SQL_FILEPATH = "./init.sql"
-	DEFAULT_STORAGE_PATH      = "iceberg"
-	DEFAULT_LOG_LEVEL         = "INFO"
-	DEFAULT_DB_STORAGE_TYPE   = "LOCAL"
+	DEFAULT_PORT            = "54321"
+	DEFAULT_DATABASE        = "bemidb"
+	DEFAULT_USER            = ""
+	DEFAULT_PASSWORD        = ""
+	DEFAULT_HOST            = "127.0.0.1"
+	DEFAULT_STORAGE_PATH    = "iceberg"
+	DEFAULT_LOG_LEVEL       = "INFO"
+	DEFAULT_DB_STORAGE_TYPE = "LOCAL"
 
 	DEFAULT_AWS_S3_ENDPOINT = "s3.amazonaws.com"
 
@@ -78,7 +77,6 @@ type Config struct {
 	Database                  string
 	User                      string
 	EncryptedPassword         string
-	InitSqlFilepath           string
 	LogLevel                  string
 	StorageType               string
 	StoragePath               string
@@ -108,7 +106,6 @@ func registerFlags() {
 	flag.StringVar(&_config.User, "user", os.Getenv(ENV_USER), "Database user. Default: \""+DEFAULT_USER+"\"")
 	flag.StringVar(&_configParseValues.password, "password", os.Getenv(ENV_PASSWORD), "Database password. Default: \""+DEFAULT_PASSWORD+"\"")
 	flag.StringVar(&_config.StoragePath, "storage-path", os.Getenv(ENV_STORAGE_PATH), "Path to the storage folder. Default: \""+DEFAULT_STORAGE_PATH+"\"")
-	flag.StringVar(&_config.InitSqlFilepath, "init-sql", os.Getenv(ENV_INIT_SQL_FILEPATH), "Path to the initialization SQL file. Default: \""+DEFAULT_INIT_SQL_FILEPATH+"\"")
 	flag.StringVar(&_config.LogLevel, "log-level", os.Getenv(ENV_LOG_LEVEL), "Log level: \"ERROR\", \"WARN\", \"INFO\", \"DEBUG\", \"TRACE\". Default: \""+DEFAULT_LOG_LEVEL+"\"")
 	flag.StringVar(&_config.StorageType, "storage-type", os.Getenv(ENV_STORAGE_TYPE), "Storage type: \"LOCAL\", \"S3\". Default: \""+DEFAULT_DB_STORAGE_TYPE+"\"")
 	flag.StringVar(&_config.Pg.SchemaPrefix, "pg-schema-prefix", os.Getenv(ENV_PG_SCHEMA_PREFIX), "(Optional) Prefix for PostgreSQL schema names")
@@ -152,9 +149,6 @@ func parseFlags() {
 	}
 	if _config.StoragePath == "" {
 		_config.StoragePath = DEFAULT_STORAGE_PATH
-	}
-	if _config.InitSqlFilepath == "" {
-		_config.InitSqlFilepath = DEFAULT_INIT_SQL_FILEPATH
 	}
 	if _config.LogLevel == "" {
 		_config.LogLevel = DEFAULT_LOG_LEVEL

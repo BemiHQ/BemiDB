@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -138,6 +139,34 @@ func (storage *StorageS3) ExistingParquetFilePath(manifestFile ManifestFile) (st
 	}
 
 	return storage.storageUtils.ParseParquetFilePath(storage.fullBucketPath(), manifestListContent)
+}
+
+func (storage *StorageS3) InternalStartSqlFile() io.ReadCloser {
+	ctx := context.Background()
+	startSqlFileKey := storage.config.StoragePath + "/" + INTERNAL_START_SQL_FILE_NAME
+
+	_, err := storage.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(startSqlFileKey),
+	})
+
+	if err != nil {
+		var noSuchKeyType *types.NoSuchKey
+		if errors.As(err, &noSuchKeyType) {
+			LogDebug(storage.config, "DuckDB: No start SQL file found at s3://"+storage.config.Aws.S3Bucket+"/"+startSqlFileKey)
+			return io.NopCloser(strings.NewReader(""))
+		}
+		PanicIfError(storage.config, fmt.Errorf("failed to check for start SQL file: %w", err))
+	}
+
+	LogInfo(storage.config, "DuckDB: Reading start SQL file s3://"+storage.config.Aws.S3Bucket+"/"+startSqlFileKey)
+	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(storage.config.Aws.S3Bucket),
+		Key:    aws.String(startSqlFileKey),
+	})
+	PanicIfError(storage.config, fmt.Errorf("failed to get start SQL file: %w", err))
+
+	return getObjectResponse.Body
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------

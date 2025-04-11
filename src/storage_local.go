@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/xitongsys/parquet-go-source/local"
@@ -95,6 +96,22 @@ func (storage *StorageLocal) ExistingParquetFilePath(manifestFile ManifestFile) 
 	}
 
 	return storage.storageUtils.ParseParquetFilePath(storage.fileSystemPrefix(), manifestContent)
+}
+
+func (storage *StorageLocal) InternalStartSqlFile() io.ReadCloser {
+	_, err := os.Stat(INTERNAL_START_SQL_FILE_NAME)
+	if err != nil {
+		if os.IsNotExist(err) {
+			LogDebug(storage.config, "DuckDB: No start SQL file found at", INTERNAL_START_SQL_FILE_NAME)
+			return io.NopCloser(strings.NewReader(""))
+		}
+		PanicIfError(storage.config, err)
+	}
+
+	LogInfo(storage.config, "DuckDB: Reading start SQL file", INTERNAL_START_SQL_FILE_NAME)
+	file, err := os.Open(INTERNAL_START_SQL_FILE_NAME)
+	PanicIfError(storage.config, err)
+	return file
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------

@@ -71,8 +71,8 @@ func (syncer *Syncer) SyncFromPostgres() {
 				incrementalRefresh := syncer.config.Pg.IncrementallyRefreshedTables != nil && HasExactOrWildcardMatch(syncer.config.Pg.IncrementallyRefreshedTables, pgSchemaTable.ToConfigArg())
 
 				syncer.syncerTable.SyncPgTable(pgSchemaTable, structureConn, copyConn, internalTableMetadata, incrementalRefresh)
-
 				LogInfo(syncer.config, "Finished writing to Iceberg\n")
+
 				syncedPgSchemaTables = append(syncedPgSchemaTables, pgSchemaTable)
 			}
 		}
