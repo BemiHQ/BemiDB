@@ -80,7 +80,12 @@ func (parser *ParserTable) TopLevelSchemaFunction(rangeFunction *pgQuery.RangeFu
 		return nil
 	}
 
-	return parser.utils.SchemaFunction(rangeFunction.Functions[0].GetList().Items[0].GetFuncCall())
+	functionNode := rangeFunction.Functions[0].GetList().Items[0]
+	if functionNode.GetFuncCall() == nil {
+		return nil // E.g., system PG calls like "... FROM user" => sqlvalue_function:{op:SVFOP_USER}
+	}
+
+	return parser.utils.SchemaFunction(functionNode.GetFuncCall())
 }
 
 func (parser *ParserTable) TableFunctionCalls(rangeFunction *pgQuery.RangeFunction) []*pgQuery.FuncCall {

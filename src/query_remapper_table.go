@@ -41,6 +41,7 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		"CREATE VIEW pg_database AS SELECT '16388'::oid AS oid, '" + config.Database + "' AS datname, '10'::oid AS datdba, '6'::int4 AS encoding, 'c' AS datlocprovider, FALSE AS datistemplate, TRUE AS datallowconn, '-1'::int4 AS datconnlimit, '722'::int8 AS datfrozenxid, '1'::int4 AS datminmxid, '1663'::oid AS dattablespace, 'en_US.UTF-8' AS datcollate, 'en_US.UTF-8' AS datctype, 'en_US.UTF-8' AS datlocale, NULL::text AS daticurules, NULL::text AS datcollversion, NULL::text[] AS datacl",
 		"CREATE VIEW pg_user AS SELECT '" + config.User + "' AS usename, '10'::oid AS usesysid, TRUE AS usecreatedb, TRUE AS usesuper, TRUE AS userepl, TRUE AS usebypassrls, '' AS passwd, NULL::timestamp AS valuntil, NULL::text[] AS useconfig",
 		"CREATE VIEW pg_collation AS SELECT '100'::oid AS oid, 'default' AS collname, '11'::oid AS collnamespace, '10'::oid AS collowner, 'd' AS collprovider, TRUE AS collisdeterministic, '-1'::int4 AS collencoding, NULL::text AS collcollate, NULL::text AS collctype, NULL::text AS colliculocale, NULL::text AS collicurules, NULL::text AS collversion",
+		"CREATE VIEW user AS SELECT '" + config.User + "' AS user",
 
 		// Dynamic views
 		// DuckDB does not support indnullsnotdistinct column
@@ -183,7 +184,9 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 // FROM FUNCTION()
 func (remapper *QueryRemapperTable) RemapTableFunctionCall(rangeFunction *pgQuery.RangeFunction) {
 	schemaFunction := remapper.parserTable.TopLevelSchemaFunction(rangeFunction)
-	remapper.parserTable.SetAliasIfNotExists(rangeFunction, schemaFunction.Function)
+	if schemaFunction != nil {
+		remapper.parserTable.SetAliasIfNotExists(rangeFunction, schemaFunction.Function)
+	}
 
 	for _, functionCall := range remapper.parserTable.TableFunctionCalls(rangeFunction) {
 		remapper.remapperFunction.RemapFunctionCall(functionCall)
