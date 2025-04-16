@@ -635,9 +635,13 @@ func (storage *StorageUtils) WriteOverwrittenParquetFile(duckdb *Duckdb, fileWri
 	parquetWriter.RowGroupSize = PARQUET_ROW_GROUP_SIZE
 	parquetWriter.CompressionType = PARQUET_COMPRESSION_TYPE
 
+	existingColumnNames := storage.existingColumnNames(duckdb)
 	var pkColumnNames []string
 	var columnNames []string
 	for _, pgSchemaColumn := range pgSchemaColumns {
+		if !existingColumnNames.Contains(pgSchemaColumn.ColumnName) {
+			continue
+		}
 		if pgSchemaColumn.PartOfPrimaryKey {
 			pkColumnNames = append(pkColumnNames, pgSchemaColumn.ColumnName)
 		}
@@ -1190,6 +1194,17 @@ func (storage *StorageUtils) WriteInternalTableMetadataFile(filePath string, int
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageUtils) existingColumnNames(duckdb *Duckdb) Set[string] {
+	rows, err := duckdb.QueryContext(context.Background(), "SELECT * FROM existing_parquet LIMIT 0")
+	PanicIfError(storage.config, err)
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	PanicIfError(storage.config, err)
+
+	return NewSet(columns)
+}
 
 func (storage *StorageUtils) hasOverlappingRows(pkColumnNames []string, duckdb *Duckdb) (bool, error) {
 	sql := "SELECT 1 FROM existing_parquet JOIN new_parquet USING (" + strings.Join(pkColumnNames, ", ") + ") LIMIT 1"

@@ -81,8 +81,7 @@ func (syncer *SyncerTable) SyncPgTable(pgSchemaTable PgSchemaTable, structureCon
 		maxXmin = *existingInternalTableMetadata.MaxXmin
 	}
 
-	// Write to Iceberg in a separate goroutine in parallel
-	LogInfo(syncer.config, "Writing incrementally to Iceberg...")
+	LogInfo(syncer.config, "Writing to Iceberg...")
 	icebergTableWriter.Write(func() ([][]string, InternalTableMetadata) {
 		var newInternalTableMetadata InternalTableMetadata
 		var rows [][]string
