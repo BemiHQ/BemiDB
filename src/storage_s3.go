@@ -402,8 +402,8 @@ func (storage *StorageS3) fileExists(filePath string) bool {
 		Key:    aws.String(filePath),
 	})
 	if err != nil {
-		var noSuchKeyType *types.NoSuchKey
-		if errors.As(err, &noSuchKeyType) {
+		var notFoundType *types.NotFound
+		if errors.As(err, &notFoundType) {
 			return false
 		}
 		PanicIfError(storage.config, err)
