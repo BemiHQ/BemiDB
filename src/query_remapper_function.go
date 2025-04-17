@@ -2,8 +2,13 @@ package main
 
 import (
 	"regexp"
+	"strings"
 
 	pgQuery "github.com/pganalyze/pg_query_go/v5"
+)
+
+const (
+	BEMIDB_FUNCTION_LAST_SYNCED_AT = "bemidb_last_synced_at"
 )
 
 var PG_CATALOG_MACRO_FUNCTION_NAMES = Set[string]{}
@@ -96,12 +101,14 @@ var BUILTIN_DUCKDB_PG_FUNCTION_NAMES = NewSet([]string{
 
 type QueryRemapperFunction struct {
 	parserFunction *ParserFunction
+	icebergReader  *IcebergReader
 	config         *Config
 }
 
-func NewQueryRemapperFunction(config *Config) *QueryRemapperFunction {
+func NewQueryRemapperFunction(config *Config, icebergReader *IcebergReader) *QueryRemapperFunction {
 	return &QueryRemapperFunction{
 		parserFunction: NewParserFunction(config),
+		icebergReader:  icebergReader,
 		config:         config,
 	}
 }
@@ -144,6 +151,29 @@ func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.F
 		remapper.parserFunction.RemoveEncode(functionCall)
 		return schemaFunction
 
+	// bemidb_last_synced_at('schema.table') -> to_timestamp(internalTableMetadata.LastSyncedAt)
+	case schemaFunction.Function == BEMIDB_FUNCTION_LAST_SYNCED_AT:
+		schemaTableName := remapper.parserFunction.FirstArgumentToString(functionCall)
+		schemaTableParts := strings.Split(schemaTableName, ".")
+		var pgSchemaTable PgSchemaTable
+		if len(schemaTableParts) == 2 {
+			pgSchemaTable.Schema = schemaTableParts[0]
+			pgSchemaTable.Table = schemaTableParts[1]
+		} else {
+			pgSchemaTable.Schema = PG_SCHEMA_PUBLIC
+			pgSchemaTable.Table = schemaTableParts[0]
+		}
+
+		internalTableMetadata, err := remapper.icebergReader.InternalTableMetadata(pgSchemaTable)
+
+		if err != nil {
+			LogError(remapper.config, "Failed to get internal table metadata for %s: %v", pgSchemaTable, err)
+			remapper.parserFunction.RemapToTimestamp(functionCall, 0)
+		} else {
+			remapper.parserFunction.RemapToTimestamp(functionCall, internalTableMetadata.LastSyncedAt)
+		}
+
+		return schemaFunction
 	}
 
 	return nil

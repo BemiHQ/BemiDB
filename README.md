@@ -254,6 +254,18 @@ To sync data periodically from a Postgres database:
   sync
 ```
 
+To check when a table was last synced, you can use the `bemidb_last_synced_at` function. For example:
+
+```sh
+# Check when a table was last synced
+psql postgres://localhost:54321/bemidb -c \
+  "SELECT bemidb_last_synced_at('public.users')"
+
+# Check how long ago a table was last synced
+psql postgres://localhost:54321/bemidb -c \
+  "SELECT ROUND(EXTRACT(EPOCH FROM age(bemidb_last_synced_at('public.users'))) / 60) AS synced_minutes_ago"
+```
+
 #### Selective table syncing
 
 By default, BemiDB syncs all tables from the Postgres database. To include and sync only specific tables from your Postgres database:

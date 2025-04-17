@@ -65,11 +65,9 @@ func (syncer *Syncer) SyncFromPostgres() {
 		for _, pgSchemaTable := range syncer.listPgSchemaTables(structureConn, schema) {
 			if syncer.shouldSyncTable(pgSchemaTable) {
 				var internalTableMetadata InternalTableMetadata
-
 				syncedPreviously := icebergSchemaTablesErr == nil && icebergSchemaTables.Contains(pgSchemaTable.ToIcebergSchemaTable())
 				if syncedPreviously {
 					internalTableMetadata = syncer.readInternalTableMetadata(pgSchemaTable)
-					LogDebug(syncer.config, "Read internal table metadata for", pgSchemaTable.String(), "to sync incrementally:", internalTableMetadata.String())
 				}
 
 				incrementalRefresh := syncer.config.Pg.IncrementallyRefreshedTables != nil && HasExactOrWildcardMatch(syncer.config.Pg.IncrementallyRefreshedTables, pgSchemaTable.ToConfigArg())

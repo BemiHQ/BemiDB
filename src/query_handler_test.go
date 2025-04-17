@@ -419,6 +419,21 @@ func TestHandleQuery(t *testing.T) {
 		})
 	})
 
+	t.Run("BemiDB functions", func(t *testing.T) {
+		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
+			"SELECT bemidb_last_synced_at('public.test_table')": {
+				"description": {"bemidb_last_synced_at"},
+				"types":       {Uint32ToString(pgtype.TimestamptzOID)},
+				"values":      {"2025-04-16 14:28:33+00:00"},
+			},
+			"SELECT bemidb_last_synced_at('table_does_not_exist')": {
+				"description": {"bemidb_last_synced_at"},
+				"types":       {Uint32ToString(pgtype.TimestamptzOID)},
+				"values":      {""},
+			},
+		})
+	})
+
 	t.Run("Column types", func(t *testing.T) {
 		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT bit_column FROM public.test_table WHERE bit_column IS NOT NULL": {
@@ -1617,7 +1632,7 @@ func createTestTables(t *testing.T) {
 
 func createTestTable(config *Config, icebergSchemaTable IcebergSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) StorageInterface {
 	xmin := uint32(0)
-	internalTableMetadata := InternalTableMetadata{LastSyncedAt: 123, LastRefreshMode: RefreshModeFull, MaxXmin: &xmin}
+	internalTableMetadata := InternalTableMetadata{LastSyncedAt: 1744813713, LastRefreshMode: RefreshModeFull, MaxXmin: &xmin}
 	icebergTableWriter := NewIcebergWriterTable(config, icebergSchemaTable, pgSchemaColumns, 777, MAX_PARQUET_PAYLOAD_THRESHOLD, false)
 	i := 0
 	icebergTableWriter.Write(

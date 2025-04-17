@@ -5,18 +5,16 @@ import (
 )
 
 type QueryRemapperSelect struct {
-	remapperFunction *QueryRemapperFunction
-	parserSelect     *ParserSelect
-	parserFunction   *ParserFunction
-	config           *Config
+	parserSelect   *ParserSelect
+	parserFunction *ParserFunction
+	config         *Config
 }
 
 func NewQueryRemapperSelect(config *Config) *QueryRemapperSelect {
 	return &QueryRemapperSelect{
-		remapperFunction: NewQueryRemapperFunction(config),
-		parserSelect:     NewParserSelect(config),
-		parserFunction:   NewParserFunction(config),
-		config:           config,
+		parserSelect:   NewParserSelect(config),
+		parserFunction: NewParserFunction(config),
+		config:         config,
 	}
 }
 
@@ -24,7 +22,7 @@ func NewQueryRemapperSelect(config *Config) *QueryRemapperSelect {
 func (remapper *QueryRemapperSelect) SetDefaultTargetNameToFunctionName(targetNode *pgQuery.Node) *pgQuery.Node {
 	functionCall := remapper.parserFunction.FunctionCall(targetNode)
 	if functionCall != nil {
-		schemaFunction := remapper.remapperFunction.SchemaFunction(functionCall)
+		schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
 		// FUNCTION(...) -> FUNCTION(...) AS FUNCTION
 		remapper.parserSelect.SetDefaultTargetName(targetNode, schemaFunction.Function)
 		return targetNode

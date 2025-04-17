@@ -41,7 +41,7 @@ func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdb *Duck
 		parserTypeCast:     NewParserTypeCast(config),
 		remapperTable:      NewQueryRemapperTable(config, icebergReader, duckdb),
 		remapperExpression: NewQueryRemapperExpression(config),
-		remapperFunction:   NewQueryRemapperFunction(config),
+		remapperFunction:   NewQueryRemapperFunction(config, icebergReader),
 		remapperSelect:     NewQueryRemapperSelect(config),
 		remapperShow:       NewQueryRemapperShow(config),
 		icebergReader:      icebergReader,

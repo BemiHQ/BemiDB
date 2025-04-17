@@ -34,6 +34,7 @@ func (reader *IcebergReader) MetadataFilePath(icebergSchemaTable IcebergSchemaTa
 }
 
 func (reader *IcebergReader) InternalTableMetadata(pgSchemaTable PgSchemaTable) (internalTableMetadata InternalTableMetadata, err error) {
+	LogDebug(reader.config, "Reading internal table metadata for "+pgSchemaTable.String()+"...")
 	return reader.storage.InternalTableMetadata(pgSchemaTable)
 }
 

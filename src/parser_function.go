@@ -19,6 +19,13 @@ func (parser *ParserFunction) FunctionCall(targetNode *pgQuery.Node) *pgQuery.Fu
 	return targetNode.GetResTarget().Val.GetFuncCall()
 }
 
+func (parser *ParserFunction) FirstArgumentToString(functionCall *pgQuery.FuncCall) string {
+	if len(functionCall.Args) < 1 {
+		return ""
+	}
+	return functionCall.Args[0].GetAConst().GetSval().Sval
+}
+
 // n from (FUNCTION()).n
 func (parser *ParserFunction) IndirectionName(targetNode *pgQuery.Node) string {
 	indirection := targetNode.GetResTarget().Val.GetAIndirection()
@@ -57,7 +64,7 @@ func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) 
 
 // format('%s %1$s', str) -> printf('%1$s %1$s', str)
 func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
-	format := functionCall.Args[0].GetAConst().GetSval().Sval
+	format := parser.FirstArgumentToString(functionCall)
 	for i := range functionCall.Args[1:] {
 		format = strings.Replace(format, "%s", "%"+IntToString(i+1)+"$s", 1)
 	}
@@ -93,4 +100,15 @@ func (parser *ParserFunction) RemoveEncode(functionCall *pgQuery.FuncCall) {
 
 	functionCall.Funcname = nestedFunctionCall.Funcname
 	functionCall.Args = nestedFunctionCall.Args
+}
+
+// to_timestamp(...)
+func (parser *ParserFunction) RemapToTimestamp(functionCall *pgQuery.FuncCall, timestamp int64) {
+	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("to_timestamp")}
+
+	if timestamp == 0 {
+		functionCall.Args[0] = parser.utils.MakeNullNode()
+	} else {
+		functionCall.Args[0] = pgQuery.MakeAConstIntNode(timestamp, 0)
+	}
 }

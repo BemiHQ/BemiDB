@@ -111,7 +111,7 @@ func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, duckdb 
 	remapper := &QueryRemapperTable{
 		parserTable:      NewParserTable(config),
 		parserFunction:   NewParserFunction(config),
-		remapperFunction: NewQueryRemapperFunction(config),
+		remapperFunction: NewQueryRemapperFunction(config, icebergReader),
 		icebergReader:    icebergReader,
 		duckdb:           duckdb,
 		config:           config,
