@@ -19,7 +19,7 @@ const (
 	MAX_PG_ROWS_BATCH_SIZE    = 1 * 1024 * 1024   // 1 MB
 	PING_PG_INTERVAL_SECONDS  = 24
 
-	MAX_PARQUET_PAYLOAD_THRESHOLD = 4 * 1024 * 1024 * 1024 // 4 GB (compressed to ~512 MB Parquet)
+	MAX_PARQUET_PAYLOAD_THRESHOLD = 2 * 1024 * 1024 * 1024 // 2 GB (compressed to ~256 MB Parquet)
 )
 
 type Syncer struct {
@@ -48,7 +48,11 @@ func NewSyncer(config *Config) *Syncer {
 
 func (syncer *Syncer) SyncFromPostgres() {
 	ctx := context.Background()
-	syncer.sendAnonymousAnalytics("sync-start")
+	if syncer.config.Pg.IncrementallyRefreshedTables == nil {
+		syncer.sendAnonymousAnalytics("sync-start")
+	} else {
+		syncer.sendAnonymousAnalytics("sync-start-incremental")
+	}
 
 	databaseUrl := syncer.urlEncodePassword(syncer.config.Pg.DatabaseUrl)
 	icebergSchemaTables, icebergSchemaTablesErr := syncer.icebergReader.SchemaTables()
@@ -86,7 +90,11 @@ func (syncer *Syncer) SyncFromPostgres() {
 		syncer.deleteOldIcebergSchemaTables(syncedPgSchemaTables)
 	}
 
-	syncer.sendAnonymousAnalytics("sync-finish")
+	if syncer.config.Pg.IncrementallyRefreshedTables == nil {
+		syncer.sendAnonymousAnalytics("sync-finish")
+	} else {
+		syncer.sendAnonymousAnalytics("sync-finish-incremental")
+	}
 }
 
 func (syncer *Syncer) WriteInternalStartSqlFile(pgSchemaTables []PgSchemaTable) {
