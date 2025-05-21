@@ -2,7 +2,7 @@ ARG PLATFORM
 ARG GOOS
 ARG GOARCH
 
-FROM --platform=$PLATFORM golang:1.23 AS builder
+FROM --platform=$PLATFORM golang:1.24.3 AS builder
 
 WORKDIR /app
 
