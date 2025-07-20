@@ -1,9 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.1/.schema/devbox.schema.json",
   "packages": [
-    "go@latest",
-    "postgresql@latest",
-    "gcc@latest"
+    "go@1.24.4",
+    "postgresql@latest"
   ],
   "shell": {
     "init_hook": [],

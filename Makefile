@@ -2,44 +2,55 @@ sh:
 	devbox --env-file .env shell
 
 install:
-	devbox run "cd src && go mod tidy"
+	devbox run "cd src/syncer-common && go mod tidy && \
+		cd ../syncer-postgres && go mod tidy && \
+		cd ../syncer-amplitude && go mod tidy && \
+		cd ../server && go mod tidy"
 
-up:
-	devbox run --env-file .env "cd src && go run ."
+lint:
+	devbox run "cd src/syncer-common && go fmt && staticcheck . && \
+		cd ../syncer-postgres && go fmt && deadcode . && staticcheck . && \
+		cd ../syncer-amplitude && go fmt && deadcode . && staticcheck . && \
+		cd ../server && go fmt && deadcode . && staticcheck ."
 
-.PHONY: build
 build:
-	rm -rf build/bemidb-* && \
-		devbox run "./scripts/build-darwin.sh" && \
-		./scripts/build-linux.sh
-
-build-local:
-	rm -rf build/bemidb-* && \
-		cd src && go build -o ../build/bemidb-darwin-arm64
+	./scripts/build-docker.sh
 
 publish:
 	./scripts/publish-docker.sh
 
-sync:
-	devbox run --env-file .env "cd src && go run . sync"
+build-local:
+	docker build --build-arg PLATFORM=linux/arm64 -t bemidb:local .
 
-test:
-	devbox run "cd src && go test ./..."
+server: build-local
+	docker run -it --rm --env-file .env -p 54321:54321 bemidb:local server
+
+syncer-postgres: build-local
+	docker run -it --rm --env-file .env -e DESTINATION_SCHEMA_NAME=postgres bemidb:local syncer-postgres
+
+syncer-amplitude: build-local
+	docker run -it --rm --env-file .env -e DESTINATION_SCHEMA_NAME=amplitude bemidb:local syncer-amplitude
+
+bash:
+	docker run -it --rm --env-file .env bemidb:local bash
+
+build-test:
+	docker build --build-arg PLATFORM=linux/arm64 -t bemidb:test -f Dockerfile.test .
+
+test: build-test
+	docker run -it --rm bemidb:test
 
 test-function:
-	devbox run "cd src && go test ./... -run $(FUNC)"
+	devbox run "cd src/server && go test ./... -run $(FUNC)"
 
 debug:
-	devbox run "cd src && dlv test github.com/BemiHQ/BemiDB"
-
-lint:
-	devbox run "cd src && go fmt && deadcode . && staticcheck ."
+	devbox run "cd src/server && dlv test github.com/BemiHQ/BemiDB"
 
 console:
-	devbox run "cd src && gore"
+	devbox run "cd src/server && gore"
 
 outdated:
-	devbox run "cd src && go list -u -m -f '{{if and .Update (not .Indirect)}}{{.}}{{end}}' all"
+	devbox run "cd src/server && go list -u -m -f '{{if and .Update (not .Indirect)}}{{.}}{{end}}' all"
 
 .PHONY: benchmark
 benchmark:

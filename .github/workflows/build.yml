@@ -14,15 +14,8 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Set Up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.24.3'
+    - name: Build test container
+      run: docker build -t bemidb-test -f Dockerfile.test --build-arg PLATFORM=linux/amd64 .
 
-    - name: Install Dependencies
-      run: go get .
-      working-directory: ./src
-
-    - name: Run Tests
-      run: go test -v ./...
-      working-directory: ./src
+    - name: Run tests
+      run: docker run --rm bemidb-test
