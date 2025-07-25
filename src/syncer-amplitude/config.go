@@ -43,11 +43,8 @@ func registerFlags() {
 	flag.StringVar(&_config.BaseConfig.DestinationSchemaName, "destination-schema-name", os.Getenv(common.ENV_DESTINATION_SCHEMA_NAME), "Destination schema name to store the synced data")
 	flag.StringVar(&_config.BaseConfig.Trino.DatabaseUrl, "trino-database-url", os.Getenv(common.ENV_TRINO_DATABASE_URL), "Trino database URL to sync to")
 	flag.StringVar(&_config.BaseConfig.Trino.CatalogName, "trino-catalog-name", os.Getenv(common.ENV_TRINO_CATALOG_NAME), "Trino catalog name")
-	flag.StringVar(&_config.BaseConfig.Aws.Region, "aws-region", os.Getenv(common.ENV_AWS_REGION), "AWS region")
 	flag.StringVar(&_config.BaseConfig.Aws.S3Endpoint, "aws-s3-endpoint", os.Getenv(common.ENV_AWS_S3_ENDPOINT), "AWS S3 endpoint. Default: \""+common.DEFAULT_AWS_S3_ENDPOINT+`"`)
 	flag.StringVar(&_config.BaseConfig.Aws.S3Bucket, "aws-s3-bucket", os.Getenv(common.ENV_AWS_S3_BUCKET), "AWS S3 bucket name")
-	flag.StringVar(&_config.BaseConfig.Aws.AccessKeyId, "aws-access-key-id", os.Getenv(common.ENV_AWS_ACCESS_KEY_ID), "AWS access key ID")
-	flag.StringVar(&_config.BaseConfig.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(common.ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
 	flag.BoolVar(&_config.BaseConfig.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(common.ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
 
 	flag.StringVar(&_config.ApiKey, "api-key", os.Getenv(ENV_API_KEY), "Amplitude API Key")

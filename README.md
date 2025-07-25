@@ -311,6 +311,7 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
   - [x] TablePlus
   - [x] DBeaver
   - [x] pgAdmin
+  - [ ] Jupyter notebooks ([#27](https://github.com/BemiHQ/BemiDB/issues/27))
 - [x] Data syncing from other sources
   - [x] Amplitude (incremental)
   - [x] Postgres (full-refresh)
@@ -318,10 +319,14 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
   - [ ] Stripe
   - [ ] Google Sheets
   - [ ] MySQL
+  - [ ] SQLite ([#24](https://github.com/BemiHQ/BemiDB/issues/24))
 - [x] Iceberg tables compaction
 - [x] Packaging in a Docker image
 - [ ] Table compaction without Trino as a dependency (WIP)
 - [ ] Real-time CDC data syncing (private beta)
+- [ ] Partitioned tables ([#15](https://github.com/BemiHQ/BemiDB/issues/15))
+- [ ] Transformations with dbt ([#25](https://github.com/BemiHQ/BemiDB/issues/25))
+
 
 ## License
 

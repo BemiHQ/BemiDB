@@ -27,11 +27,8 @@ type TrinoConfig struct {
 }
 
 type AwsConfig struct {
-	Region          string
-	S3Endpoint      string // optional
-	S3Bucket        string
-	AccessKeyId     string
-	SecretAccessKey string
+	S3Endpoint string // optional, for anonymous analytics
+	S3Bucket   string // optional, for anonymous analytics
 }
 
 type BaseConfig struct {
