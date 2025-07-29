@@ -2,17 +2,19 @@ package main
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/csv"
 	"io"
 	"strings"
+
+	goDuckdb "github.com/marcboeker/go-duckdb/v2"
 
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 var (
-	MAX_IN_MEMORY_BUFFER_SIZE = 8 * 1024 * 1024 // 8 MB
-
-	PG_NULL_STRING = "BEMIDB_NULL"
+	MAX_IN_MEMORY_BUFFER_SIZE     = 32 * 1024 * 1024   // 32 MB
+	MAX_ICEBERG_WRITER_BATCH_SIZE = 1024 * 1024 * 1024 // 1 GB
 
 	COMPACT_AFTER_INSERT_BATCH_COUNT = 40 // Compact the table after every N insert batches
 )
@@ -77,6 +79,21 @@ func (utils *SyncerUtils) DropOldTables(trino *common.Trino, keepIcebergTableNam
 	}
 }
 
+func (utils *SyncerUtils) DeleteOldTables(storageS3 *common.StorageS3, keepIcebergTableNames common.Set[string]) {
+	icebergCatalog := common.NewIcebergCatalog(utils.Config.BaseConfig)
+	icebergTableNames := icebergCatalog.TableNames()
+
+	for _, icebergTableName := range icebergTableNames.Values() {
+		if keepIcebergTableNames.Contains(icebergTableName) {
+			continue
+		}
+
+		common.LogInfo(utils.Config.BaseConfig, "Deleting old Iceberg table: "+icebergTableName)
+		icebergTable := common.NewIcebergTable(utils.Config.BaseConfig, storageS3, icebergTableName)
+		icebergTable.DeleteIfExists()
+	}
+}
+
 func (utils *SyncerUtils) InsertFromCappedBuffer(trino *common.Trino, quotedTrinoTablePath string, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, cappedBuffer *common.CappedBuffer) {
 	ctx := context.Background()
 	csvReader := csv.NewReader(cappedBuffer)
@@ -133,4 +150,44 @@ func (utils *SyncerUtils) InsertFromCappedBuffer(trino *common.Trino, quotedTrin
 		common.PanicIfError(utils.Config.BaseConfig, err)
 		common.LogInfo(utils.Config.BaseConfig, "Inserted", currentRowCount, "rows into table:", pgSchemaTable.String())
 	}
+}
+
+func (utils *SyncerUtils) ReplaceFromCappedBuffer(icebergWriter *common.IcebergWriter, icebergTable *common.IcebergTable, cappedBuffer *common.CappedBuffer) {
+	csvReader := csv.NewReader(cappedBuffer)
+	_, err := csvReader.Read() // Read the header row
+	common.PanicIfError(utils.Config.BaseConfig, err)
+
+	icebergWriter.Write(icebergTable.GeneratedS3TablePath, func(appender *goDuckdb.Appender) (rowCount int, reachedEnd bool) {
+		var loadedSize int
+
+		for {
+			row, err := csvReader.Read()
+			if err == io.EOF {
+				reachedEnd = true
+				break
+			}
+			if err != nil {
+				common.PanicIfError(utils.Config.BaseConfig, err)
+			}
+
+			values := make([]driver.Value, len(icebergWriter.IcebergSchemaColumns))
+			for i, icebergSchemaColumn := range icebergWriter.IcebergSchemaColumns {
+				values[i] = icebergSchemaColumn.DuckdbValueFromCsv(row[i])
+				loadedSize += len(row[i])
+			}
+			common.LogTrace(utils.Config.BaseConfig, "DuckDB appending values:", values)
+
+			err = appender.AppendRow(values...)
+			common.PanicIfError(utils.Config.BaseConfig, err)
+
+			rowCount++
+			if loadedSize >= MAX_ICEBERG_WRITER_BATCH_SIZE {
+				common.LogDebug(utils.Config.BaseConfig, "Reached batch size limit")
+				break
+			}
+		}
+
+		common.LogInfo(utils.Config.BaseConfig, "Loaded", rowCount, "rows")
+		return rowCount, reachedEnd
+	})
 }

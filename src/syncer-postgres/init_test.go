@@ -18,11 +18,10 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 		Namespace:        "pg_catalog",
 	},
 	{
-		ColumnName:             "bit_column",
-		DataType:               "bit",
-		UdtName:                "bit",
-		CharacterMaximumLength: "1",
-		Namespace:              "pg_catalog",
+		ColumnName: "bit_column",
+		DataType:   "bit",
+		UdtName:    "bit",
+		Namespace:  "pg_catalog",
 	},
 	{
 		ColumnName: "bool_column",
@@ -31,18 +30,16 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 		Namespace:  "pg_catalog",
 	},
 	{
-		ColumnName:             "bpchar_column",
-		DataType:               "character",
-		UdtName:                "bpchar",
-		CharacterMaximumLength: "10",
-		Namespace:              "pg_catalog",
+		ColumnName: "bpchar_column",
+		DataType:   "character",
+		UdtName:    "bpchar",
+		Namespace:  "pg_catalog",
 	},
 	{
-		ColumnName:             "varchar_column",
-		DataType:               "character varying",
-		UdtName:                "varchar",
-		CharacterMaximumLength: "255",
-		Namespace:              "pg_catalog",
+		ColumnName: "varchar_column",
+		DataType:   "character varying",
+		UdtName:    "varchar",
+		Namespace:  "pg_catalog",
 	},
 	{
 		ColumnName: "text_column",
@@ -55,7 +52,6 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 		DataType:         "smallint",
 		UdtName:          "int2",
 		NumericPrecision: "16",
-		NumericScale:     "0",
 		Namespace:        "pg_catalog",
 	},
 	{
@@ -63,7 +59,6 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 		DataType:         "integer",
 		UdtName:          "int4",
 		NumericPrecision: "32",
-		NumericScale:     "0",
 		Namespace:        "pg_catalog",
 	},
 	{
@@ -71,7 +66,6 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 		DataType:         "bigint",
 		UdtName:          "int8",
 		NumericPrecision: "64",
-		NumericScale:     "0",
 		Namespace:        "pg_catalog",
 	},
 	{
@@ -79,7 +73,6 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 		DataType:         "numeric",
 		UdtName:          "numeric",
 		NumericPrecision: "20", // Will be capped to 38
-		NumericScale:     "0",
 		Namespace:        "pg_catalog",
 	},
 	{
@@ -281,30 +274,28 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 }
 var PG_SCHEMA_COLUMNS_PARTITIONED_TABLE = []PgSchemaColumn{
 	{
-		ColumnName:             "timestamp_column",
-		DataType:               "timestamp without time zone",
-		UdtName:                "timestamp",
-		IsNullable:             "NO",
-		OrdinalPosition:        "1",
-		CharacterMaximumLength: "0",
-		NumericPrecision:       "0",
-		NumericScale:           "0",
-		DatetimePrecision:      "6",
-		Namespace:              "pg_catalog",
+		ColumnName:        "timestamp_column",
+		DataType:          "timestamp without time zone",
+		UdtName:           "timestamp",
+		IsNullable:        "NO",
+		OrdinalPosition:   "1",
+		NumericPrecision:  "0",
+		NumericScale:      "0",
+		DatetimePrecision: "6",
+		Namespace:         "pg_catalog",
 	},
 }
 var PG_SCHEMA_COLUMNS_EMPTY_TABLE = []PgSchemaColumn{
 	{
-		ColumnName:             "id",
-		DataType:               "integer",
-		UdtName:                "int4",
-		IsNullable:             "NO",
-		OrdinalPosition:        "1",
-		CharacterMaximumLength: "0",
-		NumericPrecision:       "32",
-		NumericScale:           "0",
-		DatetimePrecision:      "0",
-		Namespace:              "pg_catalog",
+		ColumnName:        "id",
+		DataType:          "integer",
+		UdtName:           "int4",
+		IsNullable:        "NO",
+		OrdinalPosition:   "1",
+		NumericPrecision:  "32",
+		NumericScale:      "0",
+		DatetimePrecision: "0",
+		Namespace:         "pg_catalog",
 	},
 }
 
@@ -353,45 +344,45 @@ var CSV_ROWS_TEST_TABLE = [][]string{
 	},
 	{
 		"2",                                // id
-		PG_NULL_STRING,                     // bit_column
+		common.BEMIDB_NULL_STRING,          // bit_column
 		"f",                                // bool_column
 		"",                                 // bpchar_column
-		PG_NULL_STRING,                     // varchar_column
+		common.BEMIDB_NULL_STRING,          // varchar_column
 		"",                                 // text_column
 		"-32767",                           // int2_column
-		PG_NULL_STRING,                     // int4_column
+		common.BEMIDB_NULL_STRING,          // int4_column
 		"-9223372036854775807",             // int8_column
-		PG_NULL_STRING,                     // hugeint_column
-		PG_NULL_STRING,                     // xid_column
-		PG_NULL_STRING,                     // xid8_column
+		common.BEMIDB_NULL_STRING,          // hugeint_column
+		common.BEMIDB_NULL_STRING,          // xid_column
+		common.BEMIDB_NULL_STRING,          // xid8_column
 		"NaN",                              // float4_column
 		"-3.141592653589793",               // float8_column
 		"-12345.00",                        // numeric_column
-		PG_NULL_STRING,                     // numeric_column_without_precision
+		common.BEMIDB_NULL_STRING,          // numeric_column_without_precision
 		"20025-11-12",                      // date_column
 		"12:00:00.123",                     // time_column
-		PG_NULL_STRING,                     // timeMsColumn
+		common.BEMIDB_NULL_STRING,          // timeMsColumn
 		"12:00:00.12300+05",                // timetz_column
 		"12:00:00.1+05",                    // timetz_ms_column
 		"2024-01-01 12:00:00",              // timestamp_column
-		PG_NULL_STRING,                     // timestamp_ms_column
+		common.BEMIDB_NULL_STRING,          // timestamp_ms_column
 		"2024-01-01 12:00:00.000123+05:30", // timestamptz_column
 		"2024-01-01 12:00:00.12+05",        // timestamptz_ms_column
-		PG_NULL_STRING,                     // uuid_column
-		PG_NULL_STRING,                     // bytea_column
-		PG_NULL_STRING,                     // interval_column
-		PG_NULL_STRING,                     // tsvector_column
-		PG_NULL_STRING,                     // xml_column
-		PG_NULL_STRING,                     // pg_snapshot_column
-		PG_NULL_STRING,                     // point_column
-		PG_NULL_STRING,                     // inet_column
-		PG_NULL_STRING,                     // json_column
+		common.BEMIDB_NULL_STRING,          // uuid_column
+		common.BEMIDB_NULL_STRING,          // bytea_column
+		common.BEMIDB_NULL_STRING,          // interval_column
+		common.BEMIDB_NULL_STRING,          // tsvector_column
+		common.BEMIDB_NULL_STRING,          // xml_column
+		common.BEMIDB_NULL_STRING,          // pg_snapshot_column
+		common.BEMIDB_NULL_STRING,          // point_column
+		common.BEMIDB_NULL_STRING,          // inet_column
+		common.BEMIDB_NULL_STRING,          // json_column
 		"{}",                               // jsonb_column
-		PG_NULL_STRING,                     // array_text_column
+		common.BEMIDB_NULL_STRING,          // array_text_column
 		"{}",                               // array_int_column
-		PG_NULL_STRING,                     // array_jsonb_column
-		PG_NULL_STRING,                     // array_ltree_column
-		PG_NULL_STRING,                     // user_defined_column
+		common.BEMIDB_NULL_STRING,          // array_jsonb_column
+		common.BEMIDB_NULL_STRING,          // array_ltree_column
+		common.BEMIDB_NULL_STRING,          // user_defined_column
 	},
 }
 var CSV_ROWS_PARTITIONED_TABLE1 = [][]string{{"2024-01-01 01:02:03.123456"}}
@@ -648,13 +639,18 @@ func init() {
 
 	utils := NewSyncerUtils(config)
 	trino.CreateSchemaIfNotExists()
-	utils.DropOldTables(trino, common.NewSet[string]())
 
 	// Prepare PgSchemaColumns
 	for i := range PG_SCHEMA_COLUMNS_TEST_TABLE {
 		PG_SCHEMA_COLUMNS_TEST_TABLE[i].OrdinalPosition = common.IntToString(i + 1)
 		if PG_SCHEMA_COLUMNS_TEST_TABLE[i].IsNullable == "" {
 			PG_SCHEMA_COLUMNS_TEST_TABLE[i].IsNullable = "YES"
+		}
+		if PG_SCHEMA_COLUMNS_TEST_TABLE[i].NumericPrecision == "" {
+			PG_SCHEMA_COLUMNS_TEST_TABLE[i].NumericPrecision = "0"
+		}
+		if PG_SCHEMA_COLUMNS_TEST_TABLE[i].NumericScale == "" {
+			PG_SCHEMA_COLUMNS_TEST_TABLE[i].NumericScale = "0"
 		}
 		PG_SCHEMA_COLUMNS_TEST_TABLE[i].Config = config
 	}
@@ -667,12 +663,15 @@ func init() {
 
 	switch config.SyncMode {
 	case SyncModeFullRefresh:
-		createTestTableViaFullRefresh(config, trino, PgSchemaTable{Schema: "public", Table: "test_table"}, PG_SCHEMA_COLUMNS_TEST_TABLE, CSV_ROWS_TEST_TABLE)
-		createTestTableViaFullRefresh(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table1"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE1)
-		createTestTableViaFullRefresh(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table2"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE2)
-		createTestTableViaFullRefresh(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table3"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE3)
-		createTestTableViaFullRefresh(config, trino, PgSchemaTable{Schema: "test", Table: "empty_table"}, PG_SCHEMA_COLUMNS_EMPTY_TABLE, [][]string{})
+		storageS3 := common.NewStorageS3(config.BaseConfig)
+		utils.DeleteOldTables(storageS3, common.NewSet[string]())
+		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "test_table"}, PG_SCHEMA_COLUMNS_TEST_TABLE, CSV_ROWS_TEST_TABLE)
+		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "partitioned_table1"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE1)
+		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "partitioned_table2"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE2)
+		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "partitioned_table3"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE3)
+		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "test", Table: "empty_table"}, PG_SCHEMA_COLUMNS_EMPTY_TABLE, [][]string{})
 	case SyncModeCDC:
+		utils.DropOldTables(trino, common.NewSet[string]())
 		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "public", Table: "test_table"}, PG_SCHEMA_COLUMNS_TEST_TABLE, JSON_ROWS_TEST_TABLE)
 		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table1"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, JSON_ROWS_PARTITIONED_TABLE1)
 		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table2"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, JSON_ROWS_PARTITIONED_TABLE2)
@@ -699,7 +698,7 @@ func createTestTableViaCdc(config *Config, trino *common.Trino, pgSchemaTable Pg
 	panic("CDC is not supported")
 }
 
-func createTestTableViaFullRefresh(config *Config, trino *common.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) {
+func createTestTableViaFullRefresh(config *Config, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) {
 	cappedBuffer := common.NewCappedBuffer(config.BaseConfig, MAX_IN_MEMORY_BUFFER_SIZE)
 	writer := csv.NewWriter(cappedBuffer)
 
@@ -719,5 +718,5 @@ func createTestTableViaFullRefresh(config *Config, trino *common.Trino, pgSchema
 	cappedBuffer.Close()
 
 	syncer := NewSyncerFullRefresh(config)
-	syncer.writeToIceberg(trino, pgSchemaTable, pgSchemaColumns, cappedBuffer)
+	syncer.writeToIceberg(pgSchemaTable, pgSchemaColumns, cappedBuffer)
 }

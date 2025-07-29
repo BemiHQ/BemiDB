@@ -16,6 +16,10 @@ func IntToString(i int) string {
 	return strconv.Itoa(i)
 }
 
+func Int64ToString(i int64) string {
+	return strconv.FormatInt(i, 10)
+}
+
 func Float64ToString(i float64) string {
 	return strconv.FormatFloat(i, 'f', -1, 64)
 }
@@ -27,6 +31,46 @@ func StringToInt(s string) int {
 	}
 
 	return int
+}
+
+func StringToInt64(s string) int64 {
+	int64Value, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		panic(err)
+	}
+
+	return int64Value
+}
+
+func StringToFloat64(s string) float64 {
+	floatValue, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		panic(err)
+	}
+
+	return floatValue
+}
+
+func StringDateToTime(str string) time.Time {
+	// Golang's time.Parse() function does not support parsing dates with 5+ digit years
+	// So we need to handle this case manually by parsing the year separately
+	var nonStandardYear int
+	parts := strings.Split(str, "-")
+	if len(parts) == 3 && len(parts[0]) > 4 {
+		nonStandardYear = StringToInt(parts[0])
+		str = str[len(parts[0])-4:] // Remove the prefix from str leaving only the standard 10 characters (YYYY-MM-DD)
+	}
+
+	// Parse the date string as a standard date
+	parsedTime, err := time.Parse("2006-01-02", str)
+
+	// If the year is non-standard, add the year difference to the parsed time after parsing
+	if err == nil && nonStandardYear != 0 {
+		parsedTime = parsedTime.AddDate(nonStandardYear-parsedTime.Year(), 0, 0)
+		return parsedTime
+	}
+
+	return parsedTime
 }
 
 func HexToString(s string) (string, error) {
@@ -55,6 +99,10 @@ func StringMsToUtcTime(s string) time.Time {
 		panic(err)
 	}
 	return t.UTC()
+}
+
+func IsLocalHost(host string) bool {
+	return strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost")
 }
 
 type AnonymousAnalyticsData struct {

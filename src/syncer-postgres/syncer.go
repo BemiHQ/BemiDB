@@ -40,7 +40,7 @@ func (syncer *Syncer) Sync() {
 		panic("Incremental sync is not supported")
 	case SyncModeFullRefresh:
 		common.LogInfo(syncer.Config.BaseConfig, "Starting full-refresh sync...")
-		NewSyncerFullRefresh(syncer.Config).Sync(postgres, trino, pgSchemaTables)
+		NewSyncerFullRefresh(syncer.Config).Sync(postgres, pgSchemaTables)
 	}
 
 	common.SendAnonymousAnalytics(syncer.Config.BaseConfig, "syncer-postgres-finish", syncer.name())

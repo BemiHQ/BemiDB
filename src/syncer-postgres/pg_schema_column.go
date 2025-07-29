@@ -11,27 +11,83 @@ import (
 )
 
 const (
+	PG_TRUE            = "YES"
 	PG_DATA_TYPE_ARRAY = "ARRAY"
 )
 
 type PgSchemaColumn struct {
-	ColumnName             string
-	DataType               string
-	UdtName                string
-	IsNullable             string
-	OrdinalPosition        string
-	CharacterMaximumLength string
-	NumericPrecision       string
-	NumericScale           string
-	DatetimePrecision      string
-	Namespace              string
-	PartOfPrimaryKey       bool
-	Config                 *Config
+	ColumnName        string
+	DataType          string
+	UdtName           string
+	IsNullable        string
+	OrdinalPosition   string
+	NumericPrecision  string
+	NumericScale      string
+	DatetimePrecision string
+	Namespace         string
+	PartOfPrimaryKey  bool
+	Config            *Config
 }
 
 func NewPgSchemaColumn(config *Config) *PgSchemaColumn {
 	return &PgSchemaColumn{
 		Config: config,
+	}
+}
+
+func (pgSchemaColumn *PgSchemaColumn) ToIcebergSchemaColumn() *common.IcebergSchemaColumn {
+	var icebergColumnType common.IcebergColumnType
+
+	switch strings.TrimLeft(pgSchemaColumn.UdtName, "_") {
+	case "bool":
+		icebergColumnType = common.IcebergColumnTypeBoolean
+	case "bit", "int2", "int4":
+		icebergColumnType = common.IcebergColumnTypeInteger
+	case "xid":
+		icebergColumnType = common.IcebergColumnTypeLong
+	case "int8", "xid8":
+		icebergColumnType = common.IcebergColumnTypeDecimal
+	case "float4":
+		icebergColumnType = common.IcebergColumnTypeFloat
+	case "float8":
+		icebergColumnType = common.IcebergColumnTypeDouble
+	case "numeric":
+		icebergColumnType = common.IcebergColumnTypeDecimal
+	case "date":
+		icebergColumnType = common.IcebergColumnTypeDate
+	case "time":
+		icebergColumnType = common.IcebergColumnTypeTime
+	case "timetz":
+		icebergColumnType = common.IcebergColumnTypeTimeTz
+	case "timestamp":
+		icebergColumnType = common.IcebergColumnTypeTimestamp
+	case "timestamptz":
+		icebergColumnType = common.IcebergColumnTypeTimestampTz
+	case "varchar", "char", "text", "jsonb", "json", "bpchar", "uuid",
+		"point", "line", "lseg", "box", "path", "polygon", "circle",
+		"cidr", "inet", "macaddr", "macaddr8",
+		"interval", "ltree", "tsvector", "xml", "pg_snapshot":
+		icebergColumnType = common.IcebergColumnTypeString
+	case "bytea":
+		icebergColumnType = common.IcebergColumnTypeBinary
+	default:
+		// User-defined types -> VARCHAR
+		if pgSchemaColumn.Namespace != PG_SCHEMA_PG_CATALOG {
+			icebergColumnType = common.IcebergColumnTypeString
+		} else {
+			panic("Unsupported PostgreSQL type: " + pgSchemaColumn.UdtName)
+		}
+	}
+
+	return &common.IcebergSchemaColumn{
+		Config:           pgSchemaColumn.Config.BaseConfig,
+		ColumnName:       pgSchemaColumn.ColumnName,
+		ColumnType:       icebergColumnType,
+		Position:         common.StringToInt(pgSchemaColumn.OrdinalPosition),
+		NumericPrecision: common.StringToInt(pgSchemaColumn.NumericPrecision),
+		NumericScale:     common.StringToInt(pgSchemaColumn.NumericScale),
+		IsList:           pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY,
+		IsNullable:       pgSchemaColumn.IsNullable == PG_TRUE,
 	}
 }
 
@@ -64,7 +120,7 @@ func (pgSchemaColumn *PgSchemaColumn) JsonToTrinoValue(jsonValue interface{}) st
 
 func (pgSchemaColumn *PgSchemaColumn) CsvToTrinoValue(csvValue string) string {
 	if pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY {
-		if csvValue == PG_NULL_STRING {
+		if csvValue == common.BEMIDB_NULL_STRING {
 			return "NULL"
 		}
 
@@ -191,7 +247,7 @@ func (pgSchemaColumn *PgSchemaColumn) jsonToPrimitiveTrinoValue(jsonValue interf
 }
 
 func (pgSchemaColumn *PgSchemaColumn) csvToPrimitiveTrinoValue(csvValue string) string {
-	if csvValue == PG_NULL_STRING {
+	if csvValue == common.BEMIDB_NULL_STRING {
 		return "NULL"
 	}
 

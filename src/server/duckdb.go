@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -26,6 +25,7 @@ var DUCKDB_INIT_BOOT_QUERIES = []string{
 	// Configure DuckDB
 	"SET scalar_subquery_error_on_multiple_rows=false",
 	"SET timezone='UTC'",
+	"SET memory_limit='2GB'",
 }
 
 type Duckdb struct {
@@ -146,10 +146,8 @@ func (duckdb *Duckdb) setExplicitAwsCredentials(ctx context.Context) {
 }
 
 func replaceNamedStringArgs(query string, args map[string]string) string {
-	re := regexp.MustCompile(`['";]`) // Escape single quotes, double quotes, and semicolons from args
-
 	for key, value := range args {
-		query = strings.ReplaceAll(query, "$"+key, re.ReplaceAllString(value, ""))
+		query = strings.ReplaceAll(query, "$"+key, value)
 	}
 	return query
 }

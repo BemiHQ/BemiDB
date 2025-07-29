@@ -25,49 +25,49 @@ type MetadataJson struct {
 }
 
 type StorageS3 struct {
-	s3Client *s3.Client
-	config   *Config
+	S3Client *s3.Client
+	Config   *Config
 }
 
-func NewS3Storage(config *Config) *StorageS3 {
+func NewS3Storage(Config *Config) *StorageS3 {
 	var awsConfigOptions = []func(*awsConfig.LoadOptions) error{
-		awsConfig.WithRegion(config.Aws.Region),
+		awsConfig.WithRegion(Config.Aws.Region),
 	}
 
-	if config.LogLevel == LOG_LEVEL_TRACE {
+	if Config.LogLevel == LOG_LEVEL_TRACE {
 		awsConfigOptions = append(awsConfigOptions, awsConfig.WithClientLogMode(aws.LogRequest))
 	}
 
-	if IsLocalHost(config.Aws.S3Endpoint) {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("http://"+config.Aws.S3Endpoint))
+	if IsLocalHost(Config.Aws.S3Endpoint) {
+		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("http://"+Config.Aws.S3Endpoint))
 	} else {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("https://"+config.Aws.S3Endpoint))
+		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("https://"+Config.Aws.S3Endpoint))
 	}
 
 	awsCredentials := credentials.NewStaticCredentialsProvider(
-		config.Aws.AccessKeyId,
-		config.Aws.SecretAccessKey,
+		Config.Aws.AccessKeyId,
+		Config.Aws.SecretAccessKey,
 		"",
 	)
 	awsConfigOptions = append(awsConfigOptions, awsConfig.WithCredentialsProvider(awsCredentials))
 
 	loadedAwsConfig, err := awsConfig.LoadDefaultConfig(context.Background(), awsConfigOptions...)
-	PanicIfError(config, err)
+	PanicIfError(Config, err)
 
-	s3Client := s3.NewFromConfig(loadedAwsConfig, func(o *s3.Options) {
-		if config.Aws.S3Endpoint != DEFAULT_AWS_S3_ENDPOINT {
+	S3Client := s3.NewFromConfig(loadedAwsConfig, func(o *s3.Options) {
+		if Config.Aws.S3Endpoint != DEFAULT_AWS_S3_ENDPOINT {
 			o.UsePathStyle = true
 		}
 	})
 
 	return &StorageS3{
-		s3Client: s3Client,
-		config:   config,
+		S3Client: S3Client,
+		Config:   Config,
 	}
 }
 
 func (storage *StorageS3) IcebergTableFields(metadataPath string) ([]IcebergTableField, error) {
-	metadataKey := strings.TrimPrefix(metadataPath, "s3://"+storage.config.Aws.S3Bucket+"/")
+	metadataKey := strings.TrimPrefix(metadataPath, "s3://"+storage.Config.Aws.S3Bucket+"/")
 	metadataContent, err := storage.readFileContent(metadataKey)
 	if err != nil {
 		return nil, err
@@ -78,8 +78,8 @@ func (storage *StorageS3) IcebergTableFields(metadataPath string) ([]IcebergTabl
 
 func (storage *StorageS3) readFileContent(fileKey string) ([]byte, error) {
 	ctx := context.Background()
-	getObjectResponse, err := storage.s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(storage.config.Aws.S3Bucket),
+	getObjectResponse, err := storage.S3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(storage.Config.Aws.S3Bucket),
 		Key:    aws.String(fileKey),
 	})
 	if err != nil {

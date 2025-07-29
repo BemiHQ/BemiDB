@@ -1,10 +1,12 @@
 package common
 
 const (
-	VERSION = "1.0.0-beta.1"
+	VERSION = "1.0.0-beta.2"
 
 	ENV_LOG_LEVEL                   = "BEMIDB_LOG_LEVEL"
 	ENV_DISABLE_ANONYMOUS_ANALYTICS = "BEMIDB_DISABLE_ANONYMOUS_ANALYTICS"
+
+	ENV_CATALOG_DATABASE_URL = "CATALOG_DATABASE_URL"
 
 	ENV_DESTINATION_SCHEMA_NAME = "DESTINATION_SCHEMA_NAME"
 
@@ -27,14 +29,18 @@ type TrinoConfig struct {
 }
 
 type AwsConfig struct {
-	S3Endpoint string // optional, for anonymous analytics
-	S3Bucket   string // optional, for anonymous analytics
+	Region          string
+	S3Endpoint      string // optional
+	S3Bucket        string
+	AccessKeyId     string
+	SecretAccessKey string
 }
 
 type BaseConfig struct {
 	LogLevel                  string
 	Trino                     TrinoConfig
 	Aws                       AwsConfig
+	CatalogDatabaseUrl        string
 	DestinationSchemaName     string
 	DisableAnonymousAnalytics bool
 }

@@ -537,7 +537,7 @@ func TestHandleQuery(t *testing.T) {
 			"SELECT float4_column FROM postgres.test_table WHERE float4_column != 3.14": {
 				"description": {"float4_column"},
 				"types":       {uint32ToString(pgtype.Float4OID)},
-				"values":      {"NaN"},
+				"values":      {"0"},
 			},
 			"SELECT float8_column FROM postgres.test_table WHERE bool_column = TRUE": {
 				"description": {"float8_column"},
@@ -590,12 +590,12 @@ func TestHandleQuery(t *testing.T) {
 				"values":      {"12:00:00.123"},
 			},
 			"SELECT timeMsColumn FROM postgres.test_table WHERE timeMsColumn IS NOT NULL": {
-				"description": {"timemscolumn"},
+				"description": {"timeMsColumn"},
 				"types":       {uint32ToString(pgtype.TimeOID)},
 				"values":      {"12:00:00.123"},
 			},
 			"SELECT timeMsColumn FROM postgres.test_table WHERE timeMsColumn IS NULL": {
-				"description": {"timemscolumn"},
+				"description": {"timeMsColumn"},
 				"types":       {uint32ToString(pgtype.TimeOID)},
 				"values":      {""},
 			},
@@ -672,7 +672,7 @@ func TestHandleQuery(t *testing.T) {
 			"SELECT interval_column FROM postgres.test_table WHERE interval_column IS NOT NULL": {
 				"description": {"interval_column"},
 				"types":       {uint32ToString(pgtype.TextOID)},
-				"values":      {"2806201000001us"},
+				"values":      {"1 mon 2 days 01:00:01.000001"},
 			},
 			"SELECT interval_column FROM postgres.test_table WHERE interval_column IS NULL": {
 				"description": {"interval_column"},
@@ -737,7 +737,7 @@ func TestHandleQuery(t *testing.T) {
 			"SELECT point_column FROM postgres.test_table WHERE point_column IS NOT NULL": {
 				"description": {"point_column"},
 				"types":       {uint32ToString(pgtype.TextOID)},
-				"values":      {"0101000000D6FFFF5F74AC4240CDFFFFDF44804640"},
+				"values":      {"(37.347301483154,45.002101898193)"},
 			},
 			"SELECT point_column FROM postgres.test_table WHERE point_column IS NULL": {
 				"description": {"point_column"},

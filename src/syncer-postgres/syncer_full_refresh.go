@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
-	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -14,18 +14,20 @@ const (
 )
 
 type SyncerFullRefresh struct {
-	Config *Config
-	Utils  *SyncerUtils
+	Config    *Config
+	Utils     *SyncerUtils
+	StorageS3 *common.StorageS3
 }
 
 func NewSyncerFullRefresh(config *Config) *SyncerFullRefresh {
 	return &SyncerFullRefresh{
-		Config: config,
-		Utils:  NewSyncerUtils(config),
+		Config:    config,
+		Utils:     NewSyncerUtils(config),
+		StorageS3: common.NewStorageS3(config.BaseConfig),
 	}
 }
 
-func (syncer *SyncerFullRefresh) Sync(postgres *Postgres, trino *common.Trino, pgSchemaTables []PgSchemaTable) {
+func (syncer *SyncerFullRefresh) Sync(postgres *Postgres, pgSchemaTables []PgSchemaTable) {
 	_, err := postgres.Conn.Exec(context.Background(), "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
 	common.PanicIfError(syncer.Config.BaseConfig, err)
 
@@ -35,15 +37,15 @@ func (syncer *SyncerFullRefresh) Sync(postgres *Postgres, trino *common.Trino, p
 		pgSchemaColumns := postgres.PgSchemaColumns(pgSchemaTable)
 
 		common.LogInfo(syncer.Config.BaseConfig, "Syncing table:", pgSchemaTable.String()+"...")
-		syncer.syncTable(postgres, trino, pgSchemaTable, pgSchemaColumns)
+		syncer.syncTable(postgres, pgSchemaTable, pgSchemaColumns)
 
 		icebergTableNames.Add(pgSchemaTable.IcebergTableName())
 	}
 
-	syncer.Utils.DropOldTables(trino, icebergTableNames)
+	syncer.Utils.DeleteOldTables(syncer.StorageS3, icebergTableNames)
 }
 
-func (syncer *SyncerFullRefresh) syncTable(postgres *Postgres, trino *common.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn) {
+func (syncer *SyncerFullRefresh) syncTable(postgres *Postgres, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn) {
 	// Create a capped buffer read and written in parallel
 	cappedBuffer := common.NewCappedBuffer(syncer.Config.BaseConfig, MAX_IN_MEMORY_BUFFER_SIZE)
 
@@ -53,57 +55,45 @@ func (syncer *SyncerFullRefresh) syncTable(postgres *Postgres, trino *common.Tri
 	}()
 
 	// Read from cappedBuffer and write to Iceberg
-	syncer.writeToIceberg(trino, pgSchemaTable, pgSchemaColumns, cappedBuffer)
+	syncer.writeToIceberg(pgSchemaTable, pgSchemaColumns, cappedBuffer)
 }
 
-func (syncer *SyncerFullRefresh) writeToIceberg(trino *common.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, cappedBuffer *common.CappedBuffer) {
-	columnSchemas := []string{}
-	for _, pgSchemaColumn := range pgSchemaColumns {
-		columnSchemas = append(columnSchemas, `"`+pgSchemaColumn.ColumnName+"\" "+pgSchemaColumn.TrinoType())
+func (syncer *SyncerFullRefresh) writeToIceberg(pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, cappedBuffer *common.CappedBuffer) {
+	icebergSchemaColumns := make([]*common.IcebergSchemaColumn, len(pgSchemaColumns))
+	for i, pgSchemaColumn := range pgSchemaColumns {
+		icebergSchemaColumns[i] = pgSchemaColumn.ToIcebergSchemaColumn()
 	}
 
-	syncingQuotedTrinoTablePath := trino.Schema() + `."` + pgSchemaTable.IcebergTableName() + TEMP_TABLE_SUFFIX_SYNCING + `"`
-	deletingQuotedTrinoTablePath := trino.Schema() + `."` + pgSchemaTable.IcebergTableName() + TEMP_TABLE_SUFFIX_DELETING + `"`
-	newQuotedTrinoTablePath := trino.Schema() + `."` + pgSchemaTable.IcebergTableName() + `"`
+	// Delete -syncing table
+	syncingIcebergTable := common.NewIcebergTable(syncer.Config.BaseConfig, syncer.StorageS3, pgSchemaTable.IcebergTableName()+TEMP_TABLE_SUFFIX_SYNCING)
+	syncingIcebergTable.DeleteIfExists()
 
-	syncer.recreateTable(trino, syncingQuotedTrinoTablePath, "("+strings.Join(columnSchemas, ",")+")")
+	// Write and create -syncing table
+	icebergWriter := common.NewIcebergWriter(syncer.Config.BaseConfig, syncer.StorageS3, icebergSchemaColumns)
+	syncingIcebergTable.GenerateS3TablePath()
+	syncer.Utils.ReplaceFromCappedBuffer(icebergWriter, syncingIcebergTable, cappedBuffer)
+	syncingIcebergTable.Create()
 
-	syncer.Utils.InsertFromCappedBuffer(trino, syncingQuotedTrinoTablePath, pgSchemaTable, pgSchemaColumns, cappedBuffer)
+	// Delete -deleting table
+	deletingIcebergTable := common.NewIcebergTable(syncer.Config.BaseConfig, syncer.StorageS3, pgSchemaTable.IcebergTableName()+TEMP_TABLE_SUFFIX_DELETING)
+	deletingIcebergTable.DeleteIfExists()
 
-	syncer.swapTable(trino, syncingQuotedTrinoTablePath, deletingQuotedTrinoTablePath, newQuotedTrinoTablePath)
+	// Rename table to -deleting
+	icebergTable := common.NewIcebergTable(syncer.Config.BaseConfig, syncer.StorageS3, pgSchemaTable.IcebergTableName())
+	icebergTable.Rename(deletingIcebergTable.Name)
 
-	common.LogInfo(syncer.Config.BaseConfig, "Compacting...")
-	trino.CompactTable(newQuotedTrinoTablePath)
+	// Rename -syncing to table
+	syncingIcebergTable.Rename(pgSchemaTable.IcebergTableName())
+
+	// Delete -deleting table
+	deletingIcebergTable.DeleteIfExists()
 }
 
 func (syncer *SyncerFullRefresh) copyFromPgTable(copyConn *pgx.Conn, pgSchemaTable PgSchemaTable, cappedBuffer *common.CappedBuffer) {
-	copySql := "COPY " + pgSchemaTable.String() + " TO STDOUT WITH CSV HEADER NULL '" + PG_NULL_STRING + "'"
+	copySql := "COPY " + pgSchemaTable.String() + " TO STDOUT WITH CSV HEADER NULL '" + common.BEMIDB_NULL_STRING + "'"
 	result, err := copyConn.PgConn().CopyTo(context.Background(), cappedBuffer, copySql)
 	common.PanicIfError(syncer.Config.BaseConfig, err)
 
-	common.LogInfo(syncer.Config.BaseConfig, "Copied", result.RowsAffected(), "row(s) into", pgSchemaTable.String())
+	common.LogInfo(syncer.Config.BaseConfig, "Copied", result.RowsAffected(), "rows from", pgSchemaTable.String())
 	cappedBuffer.Close()
-}
-
-func (syncer *SyncerFullRefresh) recreateTable(trino *common.Trino, syncingQuotedTrinoTablePath string, columnSchemasStatement string) {
-	ctx := context.Background()
-
-	_, err := trino.ExecContext(ctx, "DROP TABLE IF EXISTS "+syncingQuotedTrinoTablePath)
-	common.PanicIfError(syncer.Config.BaseConfig, err)
-
-	_, err = trino.ExecContext(ctx, "CREATE TABLE "+syncingQuotedTrinoTablePath+columnSchemasStatement)
-	common.PanicIfError(syncer.Config.BaseConfig, err)
-}
-
-func (syncer *SyncerFullRefresh) swapTable(trino *common.Trino, syncingQuotedTrinoTablePath string, deletingQuotedTrinoTablePath string, newQuotedTrinoTablePath string) {
-	ctx := context.Background()
-
-	_, err := trino.ExecContext(ctx, "DROP TABLE IF EXISTS "+deletingQuotedTrinoTablePath)
-	common.PanicIfError(syncer.Config.BaseConfig, err)
-
-	_, err = trino.ExecContext(ctx, "ALTER TABLE IF EXISTS "+newQuotedTrinoTablePath+" RENAME TO "+deletingQuotedTrinoTablePath)
-	common.PanicIfError(syncer.Config.BaseConfig, err)
-
-	_, err = trino.ExecContext(ctx, "ALTER TABLE "+syncingQuotedTrinoTablePath+" RENAME TO "+newQuotedTrinoTablePath)
-	common.PanicIfError(syncer.Config.BaseConfig, err)
 }
