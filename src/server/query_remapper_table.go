@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	pgQuery "github.com/pganalyze/pg_query_go/v5"
+	pgQuery "github.com/pganalyze/pg_query_go/v6"
 )
 
 var PG_CATALOG_TABLE_NAMES = Set[string]{}

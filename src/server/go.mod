@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/marcboeker/go-duckdb/v2 v2.3.2
-	github.com/pganalyze/pg_query_go/v5 v5.1.0
+	github.com/pganalyze/pg_query_go/v6 v6.1.0
 )
 
 require golang.org/x/crypto v0.35.0
