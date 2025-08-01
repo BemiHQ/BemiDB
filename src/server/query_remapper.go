@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	pgQuery "github.com/pganalyze/pg_query_go/v5"
+	pgQuery "github.com/pganalyze/pg_query_go/v6"
 )
 
 var SUPPORTED_SET_STATEMENTS = NewSet[string]().AddAll([]string{
