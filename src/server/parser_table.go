@@ -1,7 +1,7 @@
 package main
 
 import (
-	pgQuery "github.com/pganalyze/pg_query_go/v5"
+	pgQuery "github.com/pganalyze/pg_query_go/v6"
 )
 
 type QueryToIcebergTable struct {

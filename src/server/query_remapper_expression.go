@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	pgQuery "github.com/pganalyze/pg_query_go/v5"
+	pgQuery "github.com/pganalyze/pg_query_go/v6"
 )
 
 type QueryRemapperExpression struct {
