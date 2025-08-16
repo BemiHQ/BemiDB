@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 )
 
 type PgSchemaTable struct {
@@ -20,12 +19,12 @@ func (pgSchemaTable PgSchemaTable) ToConfigArg() string {
 }
 
 // public.table -> table
-// CustomSchema.TableName -> custom_schema_table_name
+// CustomSchema.TableName -> CustomSchemaTableName
 func (pgSchemaTable PgSchemaTable) IcebergTableName() string {
 	if pgSchemaTable.Schema != PG_SCHEMA_PUBLIC {
-		return strings.ToLower(pgSchemaTable.Schema) + "_" + strings.ToLower(pgSchemaTable.Table)
+		return pgSchemaTable.Schema + "_" + pgSchemaTable.Table
 	}
-	return strings.ToLower(pgSchemaTable.Table)
+	return pgSchemaTable.Table
 }
 
 func (pgSchemaTable PgSchemaTable) IcebergParentPartitionedTableName() string {

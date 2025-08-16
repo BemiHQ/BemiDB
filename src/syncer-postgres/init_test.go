@@ -11,12 +11,13 @@ import (
 
 var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 	{
-		ColumnName:       "id",
-		DataType:         "integer",
-		UdtName:          "int4",
-		IsNullable:       "NO",
-		NumericPrecision: "32",
-		Namespace:        "pg_catalog",
+		ColumnName:          "id",
+		DataType:            "integer",
+		UdtName:             "int4",
+		IsNullable:          "NO",
+		NumericPrecision:    "32",
+		Namespace:           "pg_catalog",
+		IsPartOfUniqueIndex: true,
 	},
 	{
 		ColumnName: "bit_column",
@@ -275,28 +276,30 @@ var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
 }
 var PG_SCHEMA_COLUMNS_PARTITIONED_TABLE = []PgSchemaColumn{
 	{
-		ColumnName:        "timestamp_column",
-		DataType:          "timestamp without time zone",
-		UdtName:           "timestamp",
-		IsNullable:        "NO",
-		OrdinalPosition:   "1",
-		NumericPrecision:  "0",
-		NumericScale:      "0",
-		DatetimePrecision: "6",
-		Namespace:         "pg_catalog",
+		ColumnName:          "timestamp_column",
+		DataType:            "timestamp without time zone",
+		UdtName:             "timestamp",
+		IsNullable:          "NO",
+		OrdinalPosition:     "1",
+		NumericPrecision:    "0",
+		NumericScale:        "0",
+		DatetimePrecision:   "6",
+		Namespace:           "pg_catalog",
+		IsPartOfUniqueIndex: true,
 	},
 }
 var PG_SCHEMA_COLUMNS_EMPTY_TABLE = []PgSchemaColumn{
 	{
-		ColumnName:        "id",
-		DataType:          "integer",
-		UdtName:           "int4",
-		IsNullable:        "NO",
-		OrdinalPosition:   "1",
-		NumericPrecision:  "32",
-		NumericScale:      "0",
-		DatetimePrecision: "0",
-		Namespace:         "pg_catalog",
+		ColumnName:          "id",
+		DataType:            "integer",
+		UdtName:             "int4",
+		IsNullable:          "NO",
+		OrdinalPosition:     "1",
+		NumericPrecision:    "32",
+		NumericScale:        "0",
+		DatetimePrecision:   "0",
+		Namespace:           "pg_catalog",
+		IsPartOfUniqueIndex: true,
 	},
 }
 
@@ -471,7 +474,7 @@ var JSON_ROWS_TEST_TABLE = []string{
 			"xmin":null
 		},
 		"transaction":null,
-		"op":"r",
+		"op":"c",
 		"ts_ms":1750942485897,
 		"ts_us":1750942485897437,
 		"ts_ns":1750942485897437000
@@ -539,7 +542,7 @@ var JSON_ROWS_TEST_TABLE = []string{
 			"xmin":null
 		},
 		"transaction":null,
-		"op":"r",
+		"op":"c",
 		"ts_ms":1750942485898,
 		"ts_us":1750942485898829,
 		"ts_ns":1750942485898829000
@@ -568,7 +571,7 @@ var JSON_ROWS_PARTITIONED_TABLE1 = []string{
 			"xmin":null
 		},
 		"transaction":null,
-		"op":"r",
+		"op":"c",
 		"ts_ms":1750942485881,
 		"ts_us":1750942485881498,
 		"ts_ns":1750942485881498000
@@ -597,7 +600,7 @@ var JSON_ROWS_PARTITIONED_TABLE2 = []string{
 			"xmin":null
 		},
 		"transaction":null,
-		"op":"r",
+		"op":"c",
 		"ts_ms":1750942485882,
 		"ts_us":1750942485882849,
 		"ts_ns":1750942485882849000
@@ -626,7 +629,63 @@ var JSON_ROWS_PARTITIONED_TABLE3 = []string{
 			"xmin":null
 		},
 		"transaction":null,
-		"op":"r",
+		"op":"c",
+		"ts_ms":1750942485884,
+		"ts_us":1750942485884078,
+		"ts_ns":1750942485884078000
+	}`,
+}
+var JSON_ROWS_EMPTY_TABLE = []string{
+	`{
+		"before":null,
+		"after":{
+			"id":1
+		},
+		"source":{
+			"version":"3.1.3.Final",
+			"connector":"postgresql",
+			"name":"prefix",
+			"ts_ms":1750942485790,
+			"snapshot":"last_in_data_collection",
+			"db":"tpch",
+			"sequence":"[null,\"98162912\"]",
+			"ts_us":1750942485790370,
+			"ts_ns":1750942485790370000,
+			"schema":"test",
+			"table":"empty_table",
+			"txId":2352,
+			"lsn":98162912,
+			"xmin":null
+		},
+		"transaction":null,
+		"op":"c",
+		"ts_ms":1750942485884,
+		"ts_us":1750942485884078,
+		"ts_ns":1750942485884078000
+	}`,
+	`{
+		"before":{
+			"id":1
+		},
+		"after":null,
+		"source":{
+			"version":"3.1.3.Final",
+			"connector":"postgresql",
+			"name":"prefix",
+			"ts_ms":1750942485790,
+			"snapshot":"last_in_data_collection",
+			"db":"tpch",
+			"sequence":"[null,\"98162912\"]",
+			"ts_us":1750942485790370,
+			"ts_ns":1750942485790370000,
+			"schema":"test",
+			"table":"empty_table",
+			"txId":2352,
+			"lsn":98162912,
+			"xmin":null
+		},
+		"transaction":null,
+		"op":"d",
 		"ts_ms":1750942485884,
 		"ts_us":1750942485884078,
 		"ts_ns":1750942485884078000
@@ -635,11 +694,10 @@ var JSON_ROWS_PARTITIONED_TABLE3 = []string{
 
 func init() {
 	config := loadTestConfig()
-	trino := syncerCommon.NewTrino(config.CommonConfig, config.TrinoConfig, config.DestinationSchemaName)
-	defer trino.Close()
 
-	utils := NewSyncerUtils(config)
-	trino.CreateSchemaIfNotExists()
+	storageS3 := syncerCommon.NewStorageS3(config.CommonConfig)
+	duckdbClient := common.NewDuckdbClient(config.CommonConfig)
+	utils := NewSyncerUtils(config, storageS3, duckdbClient)
 
 	// Prepare PgSchemaColumns
 	for i := range PG_SCHEMA_COLUMNS_TEST_TABLE {
@@ -653,6 +711,9 @@ func init() {
 		if PG_SCHEMA_COLUMNS_TEST_TABLE[i].NumericScale == "" {
 			PG_SCHEMA_COLUMNS_TEST_TABLE[i].NumericScale = "0"
 		}
+		if PG_SCHEMA_COLUMNS_TEST_TABLE[i].DatetimePrecision == "" {
+			PG_SCHEMA_COLUMNS_TEST_TABLE[i].DatetimePrecision = "0"
+		}
 		PG_SCHEMA_COLUMNS_TEST_TABLE[i].Config = config
 	}
 	for i := range PG_SCHEMA_COLUMNS_PARTITIONED_TABLE {
@@ -664,20 +725,14 @@ func init() {
 
 	switch config.SyncMode {
 	case SyncModeFullRefresh:
-		storageS3 := syncerCommon.NewStorageS3(config.CommonConfig)
-		utils.DeleteOldTables(storageS3, common.NewSet[string]())
-		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "test_table"}, PG_SCHEMA_COLUMNS_TEST_TABLE, CSV_ROWS_TEST_TABLE)
-		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "partitioned_table1"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE1)
-		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "partitioned_table2"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE2)
-		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "partitioned_table3"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE3)
-		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "test", Table: "empty_table"}, PG_SCHEMA_COLUMNS_EMPTY_TABLE, [][]string{})
+		syncer := NewSyncerFullRefresh(config, utils, storageS3, duckdbClient)
+		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "public", Table: "test_table"}, PG_SCHEMA_COLUMNS_TEST_TABLE, CSV_ROWS_TEST_TABLE)
+		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "public", Table: "partitioned_table1"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE1)
+		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "public", Table: "partitioned_table2"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE2)
+		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "public", Table: "partitioned_table3"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE3)
+		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "test", Table: "empty_table"}, PG_SCHEMA_COLUMNS_EMPTY_TABLE, [][]string{})
 	case SyncModeCDC:
-		utils.DropOldTables(trino, common.NewSet[string]())
-		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "public", Table: "test_table"}, PG_SCHEMA_COLUMNS_TEST_TABLE, JSON_ROWS_TEST_TABLE)
-		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table1"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, JSON_ROWS_PARTITIONED_TABLE1)
-		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table2"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, JSON_ROWS_PARTITIONED_TABLE2)
-		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "public", Table: "partitioned_table3"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, JSON_ROWS_PARTITIONED_TABLE3)
-		createTestTableViaCdc(config, trino, PgSchemaTable{Schema: "test", Table: "empty_table"}, PG_SCHEMA_COLUMNS_EMPTY_TABLE, []string{})
+		panic("CDC is not supported")
 	}
 }
 
@@ -695,12 +750,8 @@ func setTestArgs(args []string) {
 	registerFlags()
 }
 
-func createTestTableViaCdc(config *Config, trino *syncerCommon.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, messagesStrings []string) {
-	panic("CDC is not supported")
-}
-
-func createTestTableViaFullRefresh(config *Config, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) {
-	cappedBuffer := syncerCommon.NewCappedBuffer(config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
+func createTestTableViaFullRefresh(syncer *SyncerFullRefresh, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) {
+	cappedBuffer := syncerCommon.NewCappedBuffer(syncer.Config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
 	writer := csv.NewWriter(cappedBuffer)
 
 	headerRow := []string{}
@@ -708,16 +759,15 @@ func createTestTableViaFullRefresh(config *Config, pgSchemaTable PgSchemaTable, 
 		headerRow = append(headerRow, pgSchemaColumn.ColumnName)
 	}
 	err := writer.Write(headerRow)
-	common.PanicIfError(config.CommonConfig, err)
+	common.PanicIfError(syncer.Config.CommonConfig, err)
 
 	for _, row := range rows {
 		err := writer.Write(row)
-		common.PanicIfError(config.CommonConfig, err)
+		common.PanicIfError(syncer.Config.CommonConfig, err)
 	}
 
 	writer.Flush()
 	cappedBuffer.Close()
 
-	syncer := NewSyncerFullRefresh(config)
 	syncer.writeToIceberg(pgSchemaTable, pgSchemaColumns, cappedBuffer)
 }

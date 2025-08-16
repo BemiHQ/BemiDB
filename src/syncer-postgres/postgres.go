@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/BemiHQ/BemiDB/src/common"
@@ -26,6 +27,18 @@ func NewPostgres(config *Config) *Postgres {
 	_, err := postgresClient.Exec(context.Background(), "SET SESSION statement_timeout = '"+PG_SESSION_TIMEOUT+"'")
 	common.PanicIfError(config.CommonConfig, err)
 
+	var isStandby bool
+	err = postgresClient.QueryRow(context.Background(), "SELECT pg_is_in_recovery()").Scan(&isStandby)
+	common.PanicIfError(config.CommonConfig, err)
+
+	if isStandby {
+		_, err = postgresClient.Exec(context.Background(), "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+		common.PanicIfError(config.CommonConfig, err)
+	} else {
+		_, err = postgresClient.Exec(context.Background(), "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
+		common.PanicIfError(config.CommonConfig, err)
+	}
+
 	return &Postgres{
 		Config:         config,
 		PostgresClient: postgresClient,
@@ -34,6 +47,21 @@ func NewPostgres(config *Config) *Postgres {
 
 func (postgres *Postgres) Close() {
 	postgres.PostgresClient.Close()
+}
+
+func (postgres *Postgres) ReplicationSlotExists(slotName string) bool {
+	var slotExists bool
+	err := postgres.PostgresClient.QueryRow(context.Background(), "SELECT TRUE FROM pg_replication_slots WHERE slot_name = '"+slotName+"'").Scan(&slotExists)
+	if err != nil && err.Error() == "no rows in result set" {
+		return false
+	}
+	common.PanicIfError(postgres.Config.CommonConfig, err)
+	return slotExists
+}
+
+func (postgres *Postgres) CreateReplicationSlot(slotName string) {
+	_, err := postgres.PostgresClient.Exec(context.Background(), "SELECT pg_create_logical_replication_slot($1, 'pgoutput')", slotName)
+	common.PanicIfError(postgres.Config.CommonConfig, err)
 }
 
 func (postgres *Postgres) Schemas() []string {
@@ -98,25 +126,11 @@ func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchem
 			COALESCE(columns.numeric_precision, 0),
 			COALESCE(columns.numeric_scale, 0),
 			COALESCE(columns.datetime_precision, 0),
-			pg_namespace.nspname,
-			CASE WHEN pk.constraint_name IS NOT NULL THEN true ELSE false END
+			pg_namespace.nspname
 		FROM information_schema.columns
 		JOIN pg_type ON pg_type.typname = columns.udt_name
 		JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
-		LEFT JOIN (
-			SELECT
-				tc.constraint_name,
-				kcu.column_name,
-				kcu.table_schema,
-				kcu.table_name
-			FROM information_schema.table_constraints tc
-			JOIN information_schema.key_column_usage kcu
-				ON tc.constraint_name = kcu.constraint_name
-				AND tc.table_schema = kcu.table_schema
-				AND tc.table_name = kcu.table_name
-			WHERE tc.constraint_type = 'PRIMARY KEY'
-		) pk ON pk.column_name = columns.column_name AND pk.table_schema = columns.table_schema AND pk.table_name = columns.table_name
-		WHERE columns.table_schema = $1 AND columns.table_name = $2 AND columns.is_generated = 'NEVER'
+		WHERE columns.table_schema = $1 AND columns.table_name = $2
 		ORDER BY columns.ordinal_position`,
 		pgSchemaTable.Schema,
 		pgSchemaTable.Table,
@@ -136,10 +150,44 @@ func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchem
 			&pgSchemaColumn.NumericScale,
 			&pgSchemaColumn.DatetimePrecision,
 			&pgSchemaColumn.Namespace,
-			&pgSchemaColumn.PartOfPrimaryKey,
 		)
 		common.PanicIfError(postgres.Config.CommonConfig, err)
 		pgSchemaColumns = append(pgSchemaColumns, *pgSchemaColumn)
+	}
+
+	var joinedUniqueColumnNames string
+	err = postgres.PostgresClient.QueryRow(
+		context.Background(),
+		`SELECT array_to_string(array_agg(a.attname), ',') as columns
+		FROM pg_class t
+		JOIN pg_index ix ON t.oid = ix.indrelid
+		JOIN unnest(ix.indkey) WITH ORDINALITY AS c(colnum, ordinality) ON true
+		JOIN pg_attribute a ON t.oid = a.attrelid AND a.attnum = c.colnum
+		WHERE ix.indisunique = true AND t.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $1) AND t.relname = $2
+		GROUP BY t.relname, ix.indexrelid
+		ORDER BY
+			array_length(array_agg(a.attname), 1),
+			CASE WHEN array_to_string(array_agg(a.attname), ', ') ILIKE '%id' THEN 0 ELSE 1 END,
+			array_to_string(array_agg(a.attname), ',')`,
+		pgSchemaTable.Schema,
+		pgSchemaTable.Table,
+	).Scan(&joinedUniqueColumnNames)
+	if err != nil && err.Error() == "no rows in result set" {
+		joinedUniqueColumnNames = ""
+	} else {
+		common.PanicIfError(postgres.Config.CommonConfig, err)
+	}
+
+	uniqueColumnNames := common.NewSet[string]()
+	uniqueColumnNames.AddAll(strings.Split(joinedUniqueColumnNames, ","))
+	if uniqueColumnNames.IsEmpty() {
+		common.Panic(postgres.Config.CommonConfig, "No unique columns found for table "+pgSchemaTable.String())
+	} else {
+		common.LogInfo(postgres.Config.CommonConfig, "Unique columns for table "+pgSchemaTable.String()+":", joinedUniqueColumnNames)
+	}
+
+	for i := range pgSchemaColumns {
+		pgSchemaColumns[i].IsPartOfUniqueIndex = uniqueColumnNames.Contains(pgSchemaColumns[i].ColumnName)
 	}
 
 	return pgSchemaColumns

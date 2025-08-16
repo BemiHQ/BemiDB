@@ -34,7 +34,7 @@ func (catalog *IcebergCatalog) Schemas() ([]string, error) {
 	defer pgClient.Close()
 
 	ctx := context.Background()
-	rows, err := pgClient.Query(ctx, "SELECT namespace FROM iceberg_namespace_properties")
+	rows, err := pgClient.Query(ctx, "SELECT table_namespace FROM iceberg_tables WHERE table_name NOT LIKE '%"+TEMP_TABLE_SUFFIX_SYNCING+"' AND table_name NOT LIKE '%"+TEMP_TABLE_SUFFIX_DELETING+"' GROUP BY table_namespace")
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (catalog *IcebergCatalog) SchemaTables() (common.Set[IcebergSchemaTable], e
 	return schemaTables, nil
 }
 
-func (catalog *IcebergCatalog) MetadataFilePath(t IcebergSchemaTable) string {
+func (catalog *IcebergCatalog) MetadataFileS3Path(t IcebergSchemaTable) string {
 	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 

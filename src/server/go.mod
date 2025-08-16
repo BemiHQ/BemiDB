@@ -8,6 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/marcboeker/go-duckdb/v2 v2.3.2
 	github.com/pganalyze/pg_query_go/v6 v6.1.0
+	golang.org/x/crypto v0.37.0
 )
 
 replace github.com/BemiHQ/BemiDB/src/common => ../common

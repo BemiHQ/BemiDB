@@ -61,6 +61,8 @@ func duckdbBootQueris(config *Config) []string {
 			"CREATE SCHEMA public",
 
 			// Configure DuckDB
+			"SET memory_limit='3GB'",
+			"SET threads=2",
 			"SET scalar_subquery_error_on_multiple_rows=false",
 		},
 

@@ -360,6 +360,10 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, indentLev
 				functionCall.Args[i] = remapper.remappedExpressions(arg, indentLevel+1) // self-recursion
 			}
 		}
+
+		if functionCall.AggFilter != nil && functionCall.AggFilter.GetNullTest() != nil {
+			functionCall.AggFilter.GetNullTest().Arg = remapper.remappedExpressions(functionCall.AggFilter.GetNullTest().Arg, indentLevel+1) // self-recursion
+		}
 	}
 
 	// (FUNCTION()).n

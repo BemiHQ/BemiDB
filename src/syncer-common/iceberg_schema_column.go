@@ -2,8 +2,11 @@ package syncerCommon
 
 import (
 	"encoding/csv"
+	"encoding/json"
+	"fmt"
 	"math"
 	"math/big"
+	"reflect"
 	"strings"
 	"time"
 
@@ -30,19 +33,26 @@ const (
 
 	BEMIDB_NULL_STRING = "BEMIDB_NULL"
 
-	PARQUET_NESTED_FIELD_ID_PREFIX = 1000
 	PARQUET_NAN                    = 0 // DuckDB crashes on NaN, libc++abi: terminating due to uncaught exception of type duckdb::InvalidConfigurationException: {"exception_type":"Invalid Configuration","exception_message":"Column float4_column lower bound deserialization failed: Failed to deserialize blob '' of size 0, attempting to produce value of type 'FLOAT'"}
+	PARQUET_MAX_DECIMAL_PRECISION  = 38
+	PARQUET_FALLBACK_DECIMAL_SCALE = 6
+	PARQUET_NESTED_FIELD_ID_PREFIX = 1000
+
+	PG_USER_DEFINED_PRIMITIVE_TYPE = "USER_DEFINED"
 )
 
 type IcebergSchemaColumn struct {
-	Config           *common.CommonConfig
-	ColumnName       string
-	ColumnType       IcebergColumnType
-	Position         int
-	NumericPrecision int
-	NumericScale     int
-	IsList           bool
-	IsNullable       bool
+	Config                *common.CommonConfig
+	ColumnName            string
+	ColumnType            IcebergColumnType
+	Position              int
+	NumericPrecision      int
+	NumericScale          int
+	DatetimePrecision     int
+	IsList                bool
+	IsRequired            bool
+	IsPartOfUniqueIndex   bool
+	PgPrimitiveColumnType string
 }
 
 type ParquetSchemaField struct {
@@ -76,15 +86,15 @@ func (col *IcebergSchemaColumn) QuotedColumnName() string {
 }
 
 func (col *IcebergSchemaColumn) NormalizedPrecision() int {
-	if col.NumericPrecision > TRINO_MAX_DECIMAL_PRECISION || col.NumericPrecision == 0 {
-		return TRINO_MAX_DECIMAL_PRECISION
+	if col.NumericPrecision > PARQUET_MAX_DECIMAL_PRECISION || col.NumericPrecision == 0 {
+		return PARQUET_MAX_DECIMAL_PRECISION
 	}
 	return col.NumericPrecision
 }
 
 func (col *IcebergSchemaColumn) NormalizedScale() int {
 	if col.NumericPrecision == 0 {
-		return TRINO_FALLBACK_DECIMAL_SCALE
+		return PARQUET_FALLBACK_DECIMAL_SCALE
 	}
 	return col.NumericScale
 }
@@ -124,11 +134,7 @@ func (col *IcebergSchemaColumn) IcebergSchemaFieldMap() IcebergSchemaField {
 		panic("Unsupported column type: " + string(col.ColumnType))
 	}
 
-	if col.IsNullable {
-		icebergSchemaField.Required = false
-	} else {
-		icebergSchemaField.Required = true
-	}
+	icebergSchemaField.Required = col.IsRequired
 
 	if col.IsList {
 		icebergSchemaField.Type = map[string]interface{}{
@@ -208,6 +214,23 @@ func (col *IcebergSchemaColumn) DuckdbValueFromCsv(value string) interface{} {
 	return col.duckdbPrimitiveValueFromCsv(value)
 }
 
+func (col *IcebergSchemaColumn) DuckdbValueFromJson(value any) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	if col.IsList {
+		var values []interface{}
+		for _, itemValue := range value.([]any) {
+			primitiveValue := col.duckdbPrimitiveValueFromJson(itemValue)
+			values = append(values, primitiveValue)
+		}
+		return values
+	}
+
+	return col.duckdbPrimitiveValueFromJson(value)
+}
+
 func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromCsv(value string) interface{} {
 	switch col.ColumnType {
 	case IcebergColumnTypeBoolean:
@@ -221,39 +244,48 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromCsv(value string) interf
 	case IcebergColumnTypeLong:
 		return StringToInt64(value)
 	case IcebergColumnTypeFloat:
-		floatValue := StringToFloat64(value)
-		if math.IsNaN(floatValue) {
+		valueFloat := StringToFloat64(value)
+		if math.IsNaN(valueFloat) {
 			return PARQUET_NAN
 		}
-		return float32(floatValue)
+		return float32(valueFloat)
 	case IcebergColumnTypeDouble:
-		floatValue := StringToFloat64(value)
-		if math.IsNaN(floatValue) {
+		valueFloat := StringToFloat64(value)
+		if math.IsNaN(valueFloat) {
 			return PARQUET_NAN
 		}
-		return floatValue
+		return valueFloat
 	case IcebergColumnTypeDecimal:
-		scale := col.NormalizedScale()
-		parts := strings.Split(value, ".")
-		integerPart := parts[0]
+		switch col.PgPrimitiveColumnType {
+		case "interval":
+			microseconds := 0
 
-		// Pad fractional part with zeros if necessary
-		var fractionalPart string
-		if len(parts) == 1 {
-			fractionalPart = strings.Repeat("0", scale)
-		} else {
-			fractionalPart = parts[1]
-			if len(fractionalPart) < scale {
-				fractionalPart += strings.Repeat("0", scale-len(fractionalPart))
+			parts := strings.Split(value, " ")
+			for i, part := range parts {
+				if strings.HasPrefix(part, "year") {
+					common.Panic(col.Config, "Year intervals are not supported yet")
+				} else if strings.HasPrefix(part, "mon") {
+					months := StringToInt(parts[i-1])
+					microseconds += months * 30_437_500 * 24 * 60 * 60 // Approximation: 30.4375 days per month
+				} else if strings.HasPrefix(part, "day") {
+					days := StringToInt(parts[i-1])
+					microseconds += days * 24 * 60 * 60 * 1_000_000
+				} else if strings.Contains(part, ":") {
+					timeParts := strings.Split(part, ":")
+					hours := StringToInt(timeParts[0])
+					minutes := StringToInt(timeParts[1])
+					secondsParts := strings.Split(timeParts[2], ".")
+					seconds := StringToInt(secondsParts[0])
+					microseconds += (hours * 60 * 60 * 1_000_000) + (minutes * 60 * 1_000_000) + (seconds * 1_000_000)
+					if len(secondsParts) > 1 && len(secondsParts[1]) == 6 {
+						microseconds += StringToInt(secondsParts[1])
+					}
+				}
 			}
-		}
-		decimalValue := new(big.Int)
-		decimalValue.SetString(integerPart+fractionalPart, 10)
-
-		return duckdb.Decimal{
-			Width: uint8(col.NormalizedPrecision()),
-			Scale: uint8(scale),
-			Value: decimalValue,
+			valueMicrosecondsString := common.IntToString(microseconds)
+			return col.duckdbDecimal(valueMicrosecondsString)
+		default:
+			return col.duckdbDecimal(value)
 		}
 	case IcebergColumnTypeDate:
 		return StringDateToTime(value)
@@ -279,4 +311,153 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromCsv(value string) interf
 	}
 
 	panic("Unsupported value: " + value + " for column type: " + string(col.ColumnType))
+}
+
+func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromJson(value any) interface{} {
+	kind := reflect.TypeOf(value).Kind()
+
+	switch col.ColumnType {
+	case IcebergColumnTypeInteger,
+		IcebergColumnTypeLong,
+		IcebergColumnTypeFloat,
+		IcebergColumnTypeDouble:
+		switch kind {
+		case reflect.Bool:
+			if value.(bool) {
+				return 1
+			} else {
+				return 0
+			}
+		case reflect.String:
+			if value.(string) == "NaN" {
+				return PARQUET_NAN
+			}
+		default:
+			return value
+		}
+	case IcebergColumnTypeDecimal:
+		valueString := Float64ToString(value.(float64))
+		return col.duckdbDecimal(valueString)
+	case IcebergColumnTypeBinary:
+		return []byte("\\x" + value.(string))
+	case IcebergColumnTypeBoolean:
+		switch kind {
+		case reflect.String:
+			return value.(string) == "true"
+		default:
+			return value
+		}
+	case IcebergColumnTypeString:
+		switch col.PgPrimitiveColumnType {
+		case "bpchar":
+			return strings.TrimRight(value.(string), " ")
+		case "point":
+			valueMap := value.(map[string]interface{})
+			return "(" + Float64ToString(valueMap["x"].(float64)) + "," + Float64ToString(valueMap["y"].(float64)) + ")"
+		case PG_USER_DEFINED_PRIMITIVE_TYPE:
+			valueString := value.(string)
+			valueDecodedHex, err := HexToString(valueString)
+			if err == nil {
+				return valueDecodedHex
+			} else {
+				return valueString
+			}
+		}
+
+		switch kind {
+		case reflect.Map:
+			jsonBytes, err := json.Marshal(value)
+			common.PanicIfError(col.Config, err)
+			return string(jsonBytes)
+		case reflect.Float64:
+			return Float64ToString(value.(float64))
+		default:
+			return value
+		}
+	case IcebergColumnTypeDate:
+		days := value.(float64)
+		return time.Unix(0, 0).UTC().AddDate(0, 0, int(days))
+	case IcebergColumnTypeTime:
+		var nanoseconds int64
+		if col.DatetimePrecision == 6 {
+			nanoseconds = int64(value.(float64)) * 1_000
+		} else {
+			nanoseconds = int64(value.(float64)) * 1_000_000
+		}
+		valueTime := time.Unix(0, nanoseconds).UTC()
+		return valueTime
+	case IcebergColumnTypeTimeTz:
+		valueString := value.(string)
+		if valueString == "" {
+			return nil
+		}
+		if strings.HasSuffix(valueString, "Z") {
+			valueString = strings.TrimSuffix(valueString, "Z") + "-00"
+		}
+		parsedTime, err := time.Parse("15:04:05.999999-07", valueString)
+		common.PanicIfError(col.Config, err)
+		return parsedTime
+	case IcebergColumnTypeTimestamp:
+		switch kind {
+		case reflect.String:
+			valueString := value.(string)
+			if valueString == "" {
+				return nil
+			}
+			parsedTimestamp, err := time.Parse("2006-01-02 15:04:05.999999", valueString)
+			common.PanicIfError(col.Config, err)
+			return parsedTimestamp
+		case reflect.Float64:
+			valueFloat := value.(float64)
+			epoch := time.Unix(0, 0).UTC()
+			if col.DatetimePrecision == 6 {
+				microseconds := int64(valueFloat)
+				return epoch.Add(time.Duration(microseconds) * time.Microsecond)
+			}
+			milliseconds := int64(valueFloat)
+			return epoch.Add(time.Duration(milliseconds) * time.Millisecond)
+		}
+	case IcebergColumnTypeTimestampTz:
+		valueString := value.(string)
+		if valueString == "" {
+			return nil
+		}
+		if strings.HasSuffix(valueString, "Z") {
+			valueString = strings.TrimSuffix(valueString, "Z") + "-00"
+		}
+
+		parsedTimestamp, err := time.Parse("2006-01-02T15:04:05.999999-07:00", valueString)
+		if err != nil {
+			parsedTimestamp, err = time.Parse("2006-01-02T15:04:05.999999-07", valueString)
+			common.PanicIfError(col.Config, err)
+		}
+		return parsedTimestamp
+	}
+
+	panic(fmt.Sprintf("Unsupported value: %v for column type: %s", value, col.ColumnType))
+}
+
+func (col *IcebergSchemaColumn) duckdbDecimal(value string) duckdb.Decimal {
+	scale := col.NormalizedScale()
+	parts := strings.Split(value, ".")
+	integerPart := parts[0]
+
+	// Pad fractional part with zeros if necessary
+	var fractionalPart string
+	if len(parts) == 1 {
+		fractionalPart = strings.Repeat("0", scale)
+	} else {
+		fractionalPart = parts[1]
+		if len(fractionalPart) < scale {
+			fractionalPart += strings.Repeat("0", scale-len(fractionalPart))
+		}
+	}
+	decimalValue := new(big.Int)
+	decimalValue.SetString(integerPart+fractionalPart, 10)
+
+	return duckdb.Decimal{
+		Width: uint8(col.NormalizedPrecision()),
+		Scale: uint8(scale),
+		Value: decimalValue,
+	}
 }

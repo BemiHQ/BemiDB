@@ -2,13 +2,15 @@ sh:
 	devbox --env-file .env shell
 
 install:
-	devbox run "cd src/syncer-common && go mod tidy && \
+	devbox run "cd src/common && go mod tidy && \
+		cd ../syncer-common && go mod tidy && \
 		cd ../syncer-postgres && go mod tidy && \
 		cd ../syncer-amplitude && go mod tidy && \
 		cd ../server && go mod tidy"
 
 lint:
-	devbox run "cd src/syncer-common && go fmt && staticcheck . && \
+	devbox run "cd src/common && go fmt && staticcheck . && \
+		cd ../syncer-common && go fmt && staticcheck . && \
 		cd ../syncer-postgres && go fmt && deadcode . && staticcheck . && \
 		cd ../syncer-amplitude && go fmt && deadcode . && staticcheck . && \
 		cd ../server && go fmt && deadcode . && staticcheck ."

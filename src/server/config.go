@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	VERSION = "1.0.0-beta.2"
-
 	ENV_PORT     = "BEMIDB_PORT"
 	ENV_DATABASE = "BEMIDB_DATABASE"
 	ENV_USER     = "BEMIDB_USER"

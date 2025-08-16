@@ -14,20 +14,16 @@ export AWS_S3_BUCKET=bemidb-bucket
 postgres_pid=$!
 /app/bin/postgres_configure.sh
 
-/app/bin/trino_configure_and_start.sh &
-trino_pid=$!
+psql $CATALOG_DATABASE_URL -f /app/scripts/catalog.sql
+
 /app/bin/minio_start.sh &
 minio_pid=$!
-trap 'kill -s TERM $postgres_pid $trino_pid $minio_pid 2>/dev/null' EXIT # kill children on exit
-
-/app/bin/trino_ensure_started.sh
+trap 'kill -s TERM $postgres_pid $minio_pid 2>/dev/null' EXIT # kill children on exit
 /app/bin/minio_configure.sh
 
 # Seed data
 cd /app/src/syncer-postgres
-TRINO_DATABASE_URL=http://user@localhost:8080 \
-  TRINO_CATALOG_NAME=iceberg \
-  SOURCE_POSTGRES_SYNC_MODE=FULL_REFRESH \
+SOURCE_POSTGRES_SYNC_MODE=FULL_REFRESH \
   DESTINATION_SCHEMA_NAME=postgres \
   go test -v ./...
 
@@ -40,4 +36,4 @@ BEMIDB_USER=user \
   BEMIDB_LOG_LEVEL=ERROR \
   go test -v -count=1 ./...
 
-kill -s TERM $postgres_pid $trino_pid $minio_pid 2>/dev/null
+kill -s TERM $postgres_pid $minio_pid 2>/dev/null

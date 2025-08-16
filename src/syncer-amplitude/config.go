@@ -8,13 +8,9 @@ import (
 	"time"
 
 	"github.com/BemiHQ/BemiDB/src/common"
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 const (
-	ENV_TRINO_DATABASE_URL = "TRINO_DATABASE_URL"
-	ENV_TRINO_CATALOG_NAME = "TRINO_CATALOG_NAME"
-
 	ENV_DESTINATION_SCHEMA_NAME = "DESTINATION_SCHEMA_NAME"
 
 	ENV_API_KEY    = "SOURCE_AMPLITUDE_API_KEY"
@@ -26,12 +22,10 @@ const (
 
 type Config struct {
 	CommonConfig          *common.CommonConfig
-	TrinoConfig           *syncerCommon.TrinoConfig
 	DestinationSchemaName string
-
-	ApiKey    string
-	SecretKey string
-	StartDate time.Time
+	ApiKey                string
+	SecretKey             string
+	StartDate             time.Time
 }
 
 type configParseValues struct {
@@ -47,7 +41,6 @@ func init() {
 
 func registerFlags() {
 	_config.CommonConfig = &common.CommonConfig{}
-	_config.TrinoConfig = &syncerCommon.TrinoConfig{}
 
 	flag.StringVar(&_config.CommonConfig.LogLevel, "log-level", os.Getenv(common.ENV_LOG_LEVEL), `Log level: "ERROR", "WARN", "INFO", "DEBUG", "TRACE". Default: "`+common.DEFAULT_LOG_LEVEL+`"`)
 	flag.StringVar(&_config.CommonConfig.CatalogDatabaseUrl, "catalog-database-url", os.Getenv(common.ENV_CATALOG_DATABASE_URL), "Catalog database URL")
@@ -58,10 +51,7 @@ func registerFlags() {
 	flag.StringVar(&_config.CommonConfig.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(common.ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
 	flag.BoolVar(&_config.CommonConfig.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(common.ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
 
-	flag.StringVar(&_config.TrinoConfig.DatabaseUrl, "trino-database-url", os.Getenv(ENV_TRINO_DATABASE_URL), "Trino database URL to sync to")
-	flag.StringVar(&_config.TrinoConfig.CatalogName, "trino-catalog-name", os.Getenv(ENV_TRINO_CATALOG_NAME), "Trino catalog name")
 	flag.StringVar(&_config.DestinationSchemaName, "destination-schema-name", os.Getenv(ENV_DESTINATION_SCHEMA_NAME), "Destination schema name to store the synced data")
-
 	flag.StringVar(&_config.ApiKey, "api-key", os.Getenv(ENV_API_KEY), "Amplitude API Key")
 	flag.StringVar(&_config.SecretKey, "secret-key", os.Getenv(ENV_SECRET_KEY), "Amplitude Secret Key")
 	flag.StringVar(&_configParseValues.StartDate, "start-date", os.Getenv(ENV_START_DATE), "Amplitude start date in YYYY-MM-DD format")
@@ -94,16 +84,9 @@ func parseFlags() {
 		panic("AWS access key ID is required")
 	}
 
-	if _config.TrinoConfig.DatabaseUrl == "" {
-		panic("Trino database URL is required")
-	}
-	if _config.TrinoConfig.CatalogName == "" {
-		panic("Trino catalog name is required")
-	}
 	if _config.DestinationSchemaName == "" {
 		panic("Destination schema name is required")
 	}
-
 	if _config.ApiKey == "" {
 		panic("Amplitude API key is required")
 	}

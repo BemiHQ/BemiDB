@@ -178,7 +178,7 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 			return node // Let it return "Catalog Error: Table with name _ does not exist!"
 		}
 	}
-	icebergPath := remapper.icebergReader.MetadataFilePath(schemaTable) // iceberg/schema/table/metadata/v1.metadata.json
+	icebergPath := remapper.icebergReader.MetadataFileS3Path(schemaTable) // iceberg/schema/table/metadata/v1.metadata.json
 
 	return parser.MakeIcebergTableNode(QueryToIcebergTable{
 		QuerySchemaTable: qSchemaTable,

@@ -9,8 +9,9 @@ const (
 	PG_SCHEMA_PG_CATALOG         = "pg_catalog"
 	PG_SCHEMA_PUBLIC             = "public"
 
-	PG_FUNCTION_FORMAT = "format"
-	PG_FUNCTION_ENCODE = "encode"
+	PG_FUNCTION_FORMAT    = "format"
+	PG_FUNCTION_ENCODE    = "encode"
+	PG_FUNCTION_JSONB_AGG = "jsonb_agg"
 
 	PG_TABLE_PG_CLASS            = "pg_class"
 	PG_TABLE_PG_STAT_USER_TABLES = "pg_stat_user_tables"

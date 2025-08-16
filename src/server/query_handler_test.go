@@ -158,6 +158,21 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"},
 			},
+			"SELECT JSONB_AGG(jsonb_column->'key') FILTER (WHERE jsonb_column->'key' IS NOT NULL) as nested_objects FROM postgres.test_table": {
+				"description": {"nested_objects"},
+				"types":       {uint32ToString(pgtype.JSONOID)},
+				"values":      {"[\"value\"]"},
+			},
+			"SELECT string_agg(jsonb_column->'key') FILTER (WHERE jsonb_column->'key' IS NOT NULL) FROM postgres.test_table;": {
+				"description": {"string_agg"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"\"value\""},
+			},
+			"SELECT jsonb_object_agg('key', 'value')": {
+				"description": {"jsonb_object_agg"},
+				"types":       {uint32ToString(pgtype.JSONOID)},
+				"values":      {"{\"key\":\"value\"}"},
+			},
 			"SELECT json_build_object('min', 1, 'max', 2) AS json_build_object": {
 				"description": {"json_build_object"},
 				"types":       {uint32ToString(pgtype.JSONOID)},
@@ -673,12 +688,12 @@ func TestHandleQuery(t *testing.T) {
 			},
 			"SELECT interval_column FROM postgres.test_table WHERE interval_column IS NOT NULL": {
 				"description": {"interval_column"},
-				"types":       {uint32ToString(pgtype.TextOID)},
-				"values":      {"1 mon 2 days 01:00:01.000001"},
+				"types":       {uint32ToString(pgtype.NumericOID)},
+				"values":      {"2.806201000001e+12"},
 			},
 			"SELECT interval_column FROM postgres.test_table WHERE interval_column IS NULL": {
 				"description": {"interval_column"},
-				"types":       {uint32ToString(pgtype.TextOID)},
+				"types":       {uint32ToString(pgtype.NumericOID)},
 				"values":      {""},
 			},
 			"SELECT json_column FROM postgres.test_table WHERE json_column IS NOT NULL": {
@@ -700,6 +715,11 @@ func TestHandleQuery(t *testing.T) {
 				"description": {"key"},
 				"types":       {uint32ToString(pgtype.JSONOID)},
 				"values":      {"\"value\""},
+			},
+			"SELECT json_column->>'key' AS key FROM postgres.test_table WHERE id = 1 AND json_column::json->>'key' IN ('value')": {
+				"description": {"key"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"value"},
 			},
 			"SELECT jsonb_column FROM postgres.test_table WHERE bool_column = FALSE": {
 				"description": {"jsonb_column"},

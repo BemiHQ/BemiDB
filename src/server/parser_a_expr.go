@@ -22,6 +22,42 @@ func (parser *ParserAExpr) AExpr(node *pgQuery.Node) *pgQuery.A_Expr {
 	return node.GetAExpr()
 }
 
+// [column]->>'value' -> json_extract_string([column], 'value')
+//
+// DuckDB bug with wrong precedence of ->> operator: it has lower precedence than AND, so make it a function call explicitly:
+// SELECT * FROM postgres.test_table WHERE id = 1 ((   AND json_column   ))->>'key' IN ('value');
+// ^ Could not convert string '...' to BOOL when casting from source column json_column
+func (parser *ParserAExpr) RemappedJsonExtractString(node *pgQuery.Node) *pgQuery.Node {
+	aExpr := parser.AExpr(node)
+	if aExpr == nil || aExpr.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || len(aExpr.Name) != 1 || aExpr.Name[0].GetString_().Sval != "->>" {
+		return node
+	}
+
+	return pgQuery.MakeFuncCallNode(
+		[]*pgQuery.Node{pgQuery.MakeStrNode("json_extract_string")},
+		[]*pgQuery.Node{aExpr.Lexpr, aExpr.Rexpr},
+		0,
+	)
+}
+
+// [column]->'value' -> json_extract([column], 'value')
+//
+// DuckDB bug with wrong precedence of -> operator: it has lower precedence than IS NOT NULL, so make it a function call explicitly:
+// SELECT string_agg(jsonb_column->'key') FILTER (WHERE jsonb_column->   ((   'key' IS NOT NULL   ))   ) FROM postgres.test_table;
+// ^ Binder Error: No function matches the given name and argument types 'json_extract(VARCHAR, BOOLEAN)'
+func (parser *ParserAExpr) RemappedJsonExtract(node *pgQuery.Node) *pgQuery.Node {
+	aExpr := parser.AExpr(node)
+	if aExpr == nil || aExpr.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || len(aExpr.Name) != 1 || aExpr.Name[0].GetString_().Sval != "->" {
+		return node
+	}
+
+	return pgQuery.MakeFuncCallNode(
+		[]*pgQuery.Node{pgQuery.MakeStrNode("json_extract")},
+		[]*pgQuery.Node{aExpr.Lexpr, aExpr.Rexpr},
+		0,
+	)
+}
+
 // = ANY({schema_information}) -> IN (schema_information)
 func (parser *ParserAExpr) ConvertedRightAnyToIn(node *pgQuery.Node) *pgQuery.Node {
 	aExpr := parser.AExpr(node)
@@ -50,7 +86,6 @@ func (parser *ParserAExpr) ConvertedRightAnyToIn(node *pgQuery.Node) *pgQuery.No
 							Sval: value,
 						},
 					},
-					Location: 0,
 				},
 			},
 		}

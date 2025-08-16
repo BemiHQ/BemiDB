@@ -55,9 +55,13 @@ func NewS3Client(Config *CommonConfig) *S3Client {
 	}
 }
 
+func (s3Client *S3Client) BucketS3Prefix() string {
+	return "s3://" + s3Client.Config.Aws.S3Bucket + "/"
+}
+
 // s3://bucket/some/path -> some/path
 func (s3Client *S3Client) ObjectKey(objectPath string) string {
-	return strings.TrimPrefix(objectPath, "s3://"+s3Client.Config.Aws.S3Bucket+"/")
+	return strings.TrimPrefix(objectPath, s3Client.BucketS3Prefix())
 }
 
 func (s3Client *S3Client) HeadObject(fileKey string) *s3.HeadObjectOutput {

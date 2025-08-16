@@ -17,15 +17,6 @@ const (
 	SyncModeCDC         SyncMode = "CDC"
 	SyncModeIncremental SyncMode = "INCREMENTAL"
 
-	ENV_NATS_URL                   = "NATS_URL"
-	ENV_NATS_STREAM                = "NATS_JETSTREAM_STREAM"
-	ENV_NATS_SUBJECT               = "NATS_JETSTREAM_SUBJECT"
-	ENV_NATS_CONSUMER_NAME         = "NATS_JETSTREAM_CONSUMER_NAME"
-	ENV_NATS_FETCH_TIMEOUT_SECONDS = "NATS_FETCH_TIMEOUT_SECONDS"
-
-	ENV_TRINO_DATABASE_URL = "TRINO_DATABASE_URL"
-	ENV_TRINO_CATALOG_NAME = "TRINO_CATALOG_NAME"
-
 	ENV_DESTINATION_SCHEMA_NAME = "DESTINATION_SCHEMA_NAME"
 
 	ENV_DATABASE_URL          = "SOURCE_POSTGRES_DATABASE_URL"
@@ -33,8 +24,16 @@ const (
 	ENV_INCLUDE_SCHEMAS       = "SOURCE_POSTGRES_INCLUDE_SCHEMAS"
 	ENV_INCLUDE_TABLES        = "SOURCE_POSTGRES_INCLUDE_TABLES"
 	ENV_EXCLUDE_TABLES        = "SOURCE_POSTGRES_EXCLUDE_TABLES"
-	ENV_CURSOR_COLUMNS        = "SOURCE_POSTGRES_CURSOR_COLUMNS"
-	ENV_IGNORE_UPDATE_COLUMNS = "SOURCE_POSTGRES_IGNORE_UPDATE_COLUMNS"
+	ENV_CURSOR_COLUMNS        = "SOURCE_POSTGRES_CURSOR_COLUMNS"        // Incremental sync
+	ENV_REPLICATION_SLOT      = "SOURCE_POSTGRES_REPLICATION_SLOT"      // CDC sync
+	ENV_IGNORE_UPDATE_COLUMNS = "SOURCE_POSTGRES_IGNORE_UPDATE_COLUMNS" // CDC sync
+
+	// CDC sync
+	ENV_NATS_URL                   = "NATS_URL"
+	ENV_NATS_STREAM                = "NATS_JETSTREAM_STREAM"
+	ENV_NATS_SUBJECT               = "NATS_JETSTREAM_SUBJECT"
+	ENV_NATS_CONSUMER_NAME         = "NATS_JETSTREAM_CONSUMER_NAME"
+	ENV_NATS_FETCH_TIMEOUT_SECONDS = "NATS_FETCH_TIMEOUT_SECONDS"
 
 	DEFAULT_NATS_FETCH_TIMEOUT_SECONDS = 30
 )
@@ -49,7 +48,6 @@ type NatsConfig struct {
 
 type Config struct {
 	CommonConfig          *common.CommonConfig
-	TrinoConfig           *syncerCommon.TrinoConfig
 	DestinationSchemaName string
 
 	SyncMode                    SyncMode
@@ -58,6 +56,7 @@ type Config struct {
 	IncludeTables               common.Set[string]
 	ExcludeTables               common.Set[string]
 	CursorColumnNameByTableName map[string]string  // Incremental sync
+	ReplicationSlot             string             // CDC sync
 	IgnoreUpdateColumns         common.Set[string] // CDC sync
 	Nats                        NatsConfig         // CDC sync
 }
@@ -79,7 +78,6 @@ func init() {
 
 func registerFlags() {
 	_config.CommonConfig = &common.CommonConfig{}
-	_config.TrinoConfig = &syncerCommon.TrinoConfig{}
 
 	flag.StringVar(&_config.CommonConfig.LogLevel, "log-level", os.Getenv(common.ENV_LOG_LEVEL), `Log level: "ERROR", "WARN", "INFO", "DEBUG", "TRACE". Default: "`+common.DEFAULT_LOG_LEVEL+`"`)
 	flag.StringVar(&_config.CommonConfig.CatalogDatabaseUrl, "catalog-database-url", os.Getenv(common.ENV_CATALOG_DATABASE_URL), "Catalog database URL")
@@ -90,16 +88,14 @@ func registerFlags() {
 	flag.StringVar(&_config.CommonConfig.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(common.ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
 	flag.BoolVar(&_config.CommonConfig.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(common.ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
 
-	flag.StringVar(&_config.TrinoConfig.DatabaseUrl, "trino-database-url", os.Getenv(ENV_TRINO_DATABASE_URL), "Trino database URL to sync to")
-	flag.StringVar(&_config.TrinoConfig.CatalogName, "trino-catalog-name", os.Getenv(ENV_TRINO_CATALOG_NAME), "Trino catalog name")
 	flag.StringVar(&_config.DestinationSchemaName, "destination-schema-name", os.Getenv(ENV_DESTINATION_SCHEMA_NAME), "Destination schema name to store the synced data")
-
 	flag.StringVar(&_config.DatabaseUrl, "database-url", os.Getenv(ENV_DATABASE_URL), "PostgreSQL database URL")
 	flag.StringVar((*string)(&_config.SyncMode), "sync-mode", os.Getenv(ENV_SYNC_MODE), `Sync mode: "FULL_REFRESH", "CDC", or "INCREMENTAL"`)
 	flag.StringVar(&_configParseValues.IncludeSchemas, "include-schemas", os.Getenv(ENV_INCLUDE_SCHEMAS), "Comma-separated list of schemas to include in the sync. Default: all schemas included")
 	flag.StringVar(&_configParseValues.IncludeTables, "include-tables", os.Getenv(ENV_INCLUDE_TABLES), "Comma-separated list of tables to include in the sync. Default: all tables included")
 	flag.StringVar(&_configParseValues.ExcludeTables, "exclude-tables", os.Getenv(ENV_EXCLUDE_TABLES), "Comma-separated list of tables to exclude from the sync. Default: no tables excluded")
 	flag.StringVar(&_configParseValues.CursorColumns, "cursor-columns", os.Getenv(ENV_CURSOR_COLUMNS), "Cursor columns to use for incremental sync. Format: schema.table=column,schema2.table2=column2. Default: no cursor columns specified")
+	flag.StringVar(&_config.ReplicationSlot, "replication-slot", os.Getenv(ENV_REPLICATION_SLOT), "Replication slot name for CDC sync")
 	flag.StringVar(&_configParseValues.IgnoreUpdateColumns, "ignore-update-columns", os.Getenv(ENV_IGNORE_UPDATE_COLUMNS), "Comma-separated list of columns to ignore for updates in CDC mode. Default: no columns ignored")
 	flag.StringVar(&_config.Nats.Url, "nats-url", os.Getenv(ENV_NATS_URL), "NATS URL")
 	flag.StringVar(&_config.Nats.Stream, "nats-stream", os.Getenv(ENV_NATS_STREAM), "NATS stream to read from")
@@ -139,16 +135,9 @@ func parseFlags() {
 		panic("AWS access key ID is required")
 	}
 
-	if _config.TrinoConfig.DatabaseUrl == "" {
-		panic("Trino database URL is required")
-	}
-	if _config.TrinoConfig.CatalogName == "" {
-		panic("Trino catalog name is required")
-	}
 	if _config.DestinationSchemaName == "" {
 		panic("Destination schema name is required")
 	}
-
 	if _configParseValues.IncludeSchemas != "" {
 		_config.IncludeSchemas = common.NewSet[string]().AddAll(strings.Split(_configParseValues.IncludeSchemas, ","))
 	}
@@ -161,20 +150,6 @@ func parseFlags() {
 	if _configParseValues.ExcludeTables != "" {
 		_config.ExcludeTables = common.NewSet[string]().AddAll(strings.Split(_configParseValues.ExcludeTables, ","))
 	}
-	if _configParseValues.IgnoreUpdateColumns != "" {
-		_config.IgnoreUpdateColumns = common.NewSet[string]().AddAll(strings.Split(_configParseValues.IgnoreUpdateColumns, ","))
-	}
-	if _configParseValues.CursorColumns != "" {
-		_config.CursorColumnNameByTableName = make(map[string]string)
-		cursorColumns := strings.Split(_configParseValues.CursorColumns, ",")
-		for _, cursorColumn := range cursorColumns {
-			parts := strings.Split(cursorColumn, "=")
-			if len(parts) != 2 {
-				panic("Invalid cursor column format. Expected schema.table=column, got: " + cursorColumn)
-			}
-			_config.CursorColumnNameByTableName[parts[0]] = parts[1]
-		}
-	}
 
 	if _config.SyncMode == "" {
 		panic("Sync mode is required")
@@ -184,6 +159,13 @@ func parseFlags() {
 
 	switch _config.SyncMode {
 	case SyncModeCDC:
+		if _config.ReplicationSlot == "" {
+			panic("Replication slot name is required for CDC sync")
+		}
+		if _configParseValues.IgnoreUpdateColumns != "" {
+			_config.IgnoreUpdateColumns = common.NewSet[string]().AddAll(strings.Split(_configParseValues.IgnoreUpdateColumns, ","))
+		}
+
 		if _config.Nats.Url == "" {
 			panic("NATS URL is required")
 		}
@@ -193,8 +175,23 @@ func parseFlags() {
 		if _config.Nats.Subject == "" {
 			panic("NATS subject is required")
 		}
+		if _config.Nats.ConsumerName == "" {
+			panic("NATS consumer name is required")
+		}
 		if _config.Nats.FetchTimeoutSeconds <= 0 {
 			panic("NATS fetch timeout must be greater than 0")
+		}
+	case SyncModeIncremental:
+		if _configParseValues.CursorColumns != "" {
+			_config.CursorColumnNameByTableName = make(map[string]string)
+			cursorColumns := strings.Split(_configParseValues.CursorColumns, ",")
+			for _, cursorColumn := range cursorColumns {
+				parts := strings.Split(cursorColumn, "=")
+				if len(parts) != 2 {
+					panic("Invalid cursor column format. Expected schema.table=column, got: " + cursorColumn)
+				}
+				_config.CursorColumnNameByTableName[parts[0]] = parts[1]
+			}
 		}
 	}
 

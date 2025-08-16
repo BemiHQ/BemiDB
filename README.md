@@ -322,11 +322,11 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
   - [ ] SQLite ([#24](https://github.com/BemiHQ/BemiDB/issues/24))
 - [x] Iceberg tables compaction
 - [x] Packaging in a Docker image
-- [ ] Table compaction without Trino as a dependency (WIP)
-- [ ] Real-time CDC data syncing (private beta)
+- [x] Table compaction without Trino as a dependency
 - [ ] Partitioned tables ([#15](https://github.com/BemiHQ/BemiDB/issues/15))
 - [ ] Transformations with dbt ([#25](https://github.com/BemiHQ/BemiDB/issues/25))
 
+Are you looking for real-time data syncing? Check out [BemiDB Cloud](https://bemidb.com), our managed data platform.
 
 ## License
 

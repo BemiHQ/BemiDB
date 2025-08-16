@@ -12,7 +12,6 @@ import (
 	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
-	"github.com/marcboeker/go-duckdb/v2"
 	"github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go/source"
 	"golang.org/x/exp/maps"
@@ -79,47 +78,29 @@ func NewStorageUtils(config *common.CommonConfig) *StorageUtils {
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageUtils) WriteParquetFile(duckdbClient *common.DuckdbClient, fileS3Path string, icebergSchemaColumns []*IcebergSchemaColumn, loadRows func(appender *duckdb.Appender) (rowCount int, reachedEnd bool)) (rowCount int, reachedEnd bool) {
-	ctx := context.Background()
-	tableName := "temp_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	columnSchemas := make([]string, len(icebergSchemaColumns))
+func (utils *StorageUtils) WriteParquetFile(fileS3Path string, duckdbClient *common.DuckdbClient, tempDuckdbTableName string, icebergSchemaColumns []*IcebergSchemaColumn) {
 	fieldIds := make([]string, len(icebergSchemaColumns))
 	for i, col := range icebergSchemaColumns {
-		columnSchemas[i] = col.QuotedColumnName() + " " + col.DuckdbType()
 		if col.IsList {
 			fieldIds[i] = col.QuotedColumnName() + ":{__duckdb_field_id: " + common.IntToString(col.Position) + ", element: " + common.IntToString(PARQUET_NESTED_FIELD_ID_PREFIX+col.Position) + "}"
 		} else {
 			fieldIds[i] = col.QuotedColumnName() + ":" + common.IntToString(col.Position)
 		}
 	}
-	_, err := duckdbClient.ExecContext(ctx, "CREATE TABLE "+tableName+"("+strings.Join(columnSchemas, ",")+")")
-	common.PanicIfError(storage.Config, err)
 
-	appender, err := duckdbClient.Appender("", tableName)
-	common.PanicIfError(storage.Config, err)
-
-	rowCount, reachedEnd = loadRows(appender)
-	err = appender.Close()
-	common.PanicIfError(storage.Config, err)
-
-	copyQuery := "COPY " + tableName + " TO '$fileS3Path' (FORMAT PARQUET, COMPRESSION 'ZSTD', FIELD_IDS {$fieldIds})"
-	_, err = duckdbClient.ExecContext(ctx, copyQuery, map[string]string{
+	copyQuery := "COPY " + tempDuckdbTableName + " TO '$fileS3Path' (FORMAT PARQUET, COMPRESSION 'ZSTD', FIELD_IDS {$fieldIds})"
+	_, err := duckdbClient.ExecContext(context.Background(), copyQuery, map[string]string{
 		"fileS3Path": fileS3Path,
 		"fieldIds":   strings.Join(fieldIds, ","),
 	})
-	common.PanicIfError(storage.Config, err)
-
-	_, err = duckdbClient.ExecContext(ctx, "DROP TABLE "+tableName)
-	common.PanicIfError(storage.Config, err)
-
-	return rowCount, reachedEnd
+	common.PanicIfError(utils.Config, err)
 }
 
-func (storage *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, icebergSchemaColumns []*IcebergSchemaColumn) (parquetStats ParquetFileStats) {
+func (utils *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, icebergSchemaColumns []*IcebergSchemaColumn) (parquetStats ParquetFileStats) {
 	defer fileReader.Close()
 
 	pr, err := reader.NewParquetReader(fileReader, nil, 1)
-	common.PanicIfError(storage.Config, err)
+	common.PanicIfError(utils.Config, err)
 	defer pr.ReadStop()
 
 	parquetStats = ParquetFileStats{
@@ -175,7 +156,7 @@ func (storage *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, ice
 
 	return parquetStats
 }
-func (storage *StorageUtils) WriteManifestFile(filePath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
+func (utils *StorageUtils) WriteManifestFile(filePath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
 	snapshotId := time.Now().UnixNano()
 	codec, err := goavro.NewCodec(MANIFEST_SCHEMA)
 	if err != nil {
@@ -299,7 +280,7 @@ func (storage *StorageUtils) WriteManifestFile(filePath string, parquetFile Parq
 	}, nil
 }
 
-func (storage *StorageUtils) WriteManifestListFile(filePath string, manifestListItemsSortedDesc []ManifestListItem) (ManifestListFile, error) {
+func (utils *StorageUtils) WriteManifestListFile(filePath string, manifestListItemsSortedDesc []ManifestListItem) (ManifestListFile, error) {
 	codec, err := goavro.NewCodec(MANIFEST_LIST_SCHEMA)
 	if err != nil {
 		return ManifestListFile{}, fmt.Errorf("failed to create Avro codec for manifest list: %v", err)
@@ -398,7 +379,7 @@ func (storage *StorageUtils) WriteManifestListFile(filePath string, manifestList
 	return manifestListFile, nil
 }
 
-func (storage *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string, icebergSchemaColumns []*IcebergSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (err error) {
+func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string, icebergSchemaColumns []*IcebergSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (err error) {
 	tableUuid := uuid.New().String()
 
 	lastColumnId := 0
@@ -523,20 +504,73 @@ func (storage *StorageUtils) WriteMetadataFile(s3TablePath string, filePath stri
 	return nil
 }
 
-func (storage *StorageUtils) WriteVersionHintFile(filePath string, metadataFile MetadataFile) (err error) {
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create version hint file: %v", err)
-	}
-	defer file.Close()
+// Read ---------------------------------------------------------------------------------------------------------------
 
-	_, err = file.WriteString(fmt.Sprintf("%d", metadataFile.Version))
-	if err != nil {
-		return fmt.Errorf("failed to write to version hint file: %v", err)
-	}
+func (utils *StorageUtils) ParseLastManifestListFile(bucketS3Prefix string, metadataContent []byte) ManifestListFile {
+	var manifestListsJson ManifestListsJson
+	err := json.Unmarshal(metadataContent, &manifestListsJson)
+	common.PanicIfError(utils.Config, err)
 
-	return nil
+	snapshot := manifestListsJson.Snapshots[len(manifestListsJson.Snapshots)-1]
+
+	return ManifestListFile{
+		SequenceNumber:   snapshot.SequenceNumber,
+		SnapshotId:       snapshot.SnapshotId,
+		TimestampMs:      snapshot.TimestampMs,
+		Key:              strings.TrimPrefix(snapshot.Path, bucketS3Prefix),
+		Path:             snapshot.Path,
+		Operation:        snapshot.Summary.Operation,
+		AddedFilesSize:   StringToInt64(snapshot.Summary.AddedFilesSize),
+		AddedDataFiles:   StringToInt64(snapshot.Summary.AddedDataFiles),
+		AddedRecords:     StringToInt64(snapshot.Summary.AddedRecords),
+		RemovedFilesSize: StringToInt64(snapshot.Summary.RemovedFilesSize),
+		DeletedDataFiles: StringToInt64(snapshot.Summary.DeletedDataFiles),
+		DeletedRecords:   StringToInt64(snapshot.Summary.DeletedRecords),
+	}
 }
+
+func (utils *StorageUtils) ParseManifestListItems(bucketS3Prefix string, manifestListFileContent []byte) []ManifestListItem {
+	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestListFileContent)))
+	common.PanicIfError(utils.Config, err)
+
+	manifestListItemsSortedDesc := []ManifestListItem{}
+
+	for ocfReader.Scan() {
+		record, err := ocfReader.Read()
+		common.PanicIfError(utils.Config, err)
+
+		recordMap := record.(map[string]interface{})
+
+		manifestListItemsSortedDesc = append(manifestListItemsSortedDesc, ManifestListItem{
+			ManifestFile: ManifestFile{
+				SnapshotId:  recordMap["added_snapshot_id"].(int64),
+				Key:         strings.TrimPrefix(recordMap["manifest_path"].(string), bucketS3Prefix),
+				Path:        recordMap["manifest_path"].(string),
+				Size:        recordMap["manifest_length"].(int64),
+				RecordCount: recordMap["added_rows_count"].(int64),
+			},
+			SequenceNumber: int(recordMap["sequence_number"].(int64)),
+		})
+	}
+
+	return manifestListItemsSortedDesc
+}
+
+func (utils *StorageUtils) ParseParquetFileS3Path(manifestContent []byte) string {
+	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestContent)))
+	common.PanicIfError(utils.Config, err)
+
+	ocfReader.Scan()
+	record, err := ocfReader.Read()
+	common.PanicIfError(utils.Config, err)
+
+	recordMap := record.(map[string]interface{})
+	dataFile := recordMap["data_file"].(map[string]interface{})
+
+	return dataFile["file_path"].(string)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 
 const (
 	MANIFEST_SCHEMA = `{

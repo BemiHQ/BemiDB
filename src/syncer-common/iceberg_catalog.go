@@ -28,11 +28,11 @@ func NewIcebergCatalog(config *common.CommonConfig, schemaName string) *IcebergC
 }
 
 func (catalog *IcebergCatalog) TableNames() common.Set[string] {
-	pgClient := catalog.newPgClient()
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
-	ctx := context.Background()
-	rows, err := pgClient.Query(ctx,
+	rows, err := pgClient.Query(
+		context.Background(),
 		"SELECT table_name FROM iceberg_tables WHERE table_namespace=$1 AND table_name NOT LIKE '%"+TEMP_TABLE_SUFFIX_SYNCING+"' AND table_name NOT LIKE '%"+TEMP_TABLE_SUFFIX_DELETING+"'",
 		catalog.SchemaName,
 	)
@@ -49,12 +49,12 @@ func (catalog *IcebergCatalog) TableNames() common.Set[string] {
 	return tableNames
 }
 
-func (catalog *IcebergCatalog) S3TablePath(icebergTableName string) string {
-	pgClient := catalog.newPgClient()
+func (catalog *IcebergCatalog) MetadataFileS3Path(icebergTableName string) string {
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
-	ctx := context.Background()
-	row := pgClient.QueryRow(ctx,
+	row := pgClient.QueryRow(
+		context.Background(),
 		"SELECT metadata_location FROM iceberg_tables WHERE table_namespace=$1 AND table_name=$2",
 		catalog.SchemaName,
 		icebergTableName,
@@ -67,15 +67,24 @@ func (catalog *IcebergCatalog) S3TablePath(icebergTableName string) string {
 	}
 	common.PanicIfError(catalog.Config, err)
 
-	return strings.Split(nullPath.String, "/metadata/")[0]
+	return nullPath.String
+}
+
+func (catalog *IcebergCatalog) TableS3Path(icebergTableName string) string {
+	metadataFileS3Path := catalog.MetadataFileS3Path(icebergTableName)
+	if metadataFileS3Path == "" {
+		return ""
+	}
+
+	return strings.Split(metadataFileS3Path, "/metadata/")[0]
 }
 
 func (catalog *IcebergCatalog) RenameTable(oldIcebergTableName string, newIcebergTableName string) {
-	pgClient := catalog.newPgClient()
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
-	ctx := context.Background()
-	_, err := pgClient.Exec(ctx,
+	_, err := pgClient.Exec(
+		context.Background(),
 		"UPDATE iceberg_tables SET table_name=$1 WHERE table_namespace=$2 AND table_name=$3",
 		newIcebergTableName,
 		catalog.SchemaName,
@@ -85,11 +94,11 @@ func (catalog *IcebergCatalog) RenameTable(oldIcebergTableName string, newIceber
 }
 
 func (catalog *IcebergCatalog) DeleteTable(icebergTableName string) {
-	pgClient := catalog.newPgClient()
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
-	ctx := context.Background()
-	_, err := pgClient.Exec(ctx,
+	_, err := pgClient.Exec(
+		context.Background(),
 		"DELETE FROM iceberg_tables WHERE table_namespace=$1 AND table_name=$2",
 		catalog.SchemaName,
 		icebergTableName,
@@ -98,11 +107,11 @@ func (catalog *IcebergCatalog) DeleteTable(icebergTableName string) {
 }
 
 func (catalog *IcebergCatalog) CreateTable(icebergTableName string, metadataLocation string) {
-	pgClient := catalog.newPgClient()
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
-	ctx := context.Background()
-	_, err := pgClient.Exec(ctx,
+	_, err := pgClient.Exec(
+		context.Background(),
 		"INSERT INTO iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) VALUES ($1, $2, $3, $4)",
 		CATALOG_NAME,
 		catalog.SchemaName,
@@ -112,6 +121,6 @@ func (catalog *IcebergCatalog) CreateTable(icebergTableName string, metadataLoca
 	common.PanicIfError(catalog.Config, err)
 }
 
-func (catalog *IcebergCatalog) newPgClient() *common.PostgresClient {
+func (catalog *IcebergCatalog) newPostgresClient() *common.PostgresClient {
 	return common.NewPostgresClient(catalog.Config, catalog.Config.CatalogDatabaseUrl)
 }

@@ -14,6 +14,11 @@ import (
 	"github.com/BemiHQ/BemiDB/src/common"
 )
 
+var DUCKDB_BOOT_QUERIES = []string{
+	"SET memory_limit='2GB'",
+	"SET threads=2",
+}
+
 func Int64ToString(i int64) string {
 	return strconv.FormatInt(i, 10)
 }

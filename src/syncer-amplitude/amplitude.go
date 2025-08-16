@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/BemiHQ/BemiDB/src/common"
+	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 const (
@@ -30,55 +31,54 @@ func NewAmplitude(config *Config) *Amplitude {
 	}
 }
 
-func (c *Amplitude) Export(startTime, endTime time.Time) ([]Event, error) {
+func (amplitude *Amplitude) Export(jsonQueueWriter *syncerCommon.JsonQueueWriter, startTime, endTime time.Time) error {
 	startString := startTime.UTC().Format(AMPLITUDE_TIME_FORMAT)
 	endString := endTime.UTC().Format(AMPLITUDE_TIME_FORMAT)
 
 	req, err := http.NewRequest("GET", AMPLITUDE_API_URL, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	q := req.URL.Query()
 	q.Add("start", startString)
 	q.Add("end", endString)
 	req.URL.RawQuery = q.Encode()
-	req.SetBasicAuth(c.Config.ApiKey, c.Config.SecretKey)
+	req.SetBasicAuth(amplitude.Config.ApiKey, amplitude.Config.SecretKey)
 
-	common.LogInfo(c.Config.CommonConfig, "Fetching data from Amplitude from", startString, "to", endString)
-	resp, err := c.HttpClient.Do(req)
+	common.LogInfo(amplitude.Config.CommonConfig, "Fetching data from Amplitude from", startString, "to", endString)
+	resp, err := amplitude.HttpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("amplitude API returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("amplitude API returned status %d: %s", resp.StatusCode, string(body))
 	}
-	common.LogDebug(c.Config.CommonConfig, "Received response from Amplitude:", resp.Status)
+	common.LogDebug(amplitude.Config.CommonConfig, "Received response from Amplitude:", resp.Status)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	zipReader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var events []Event
 	for _, zipFile := range zipReader.File {
-		common.LogInfo(c.Config.CommonConfig, "Processing file:", zipFile.Name)
+		common.LogInfo(amplitude.Config.CommonConfig, "Processing file:", zipFile.Name)
 		unzippedFile, err := zipFile.Open()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer unzippedFile.Close()
 
 		gzipReader, err := gzip.NewReader(unzippedFile)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer gzipReader.Close()
 
@@ -90,11 +90,15 @@ func (c *Amplitude) Export(startTime, endTime time.Time) ([]Event, error) {
 				if err == io.EOF {
 					break // We're done
 				}
-				common.PanicIfError(c.Config.CommonConfig, err)
+				return err
 			}
-			events = append(events, event)
+
+			err = jsonQueueWriter.Write(event.ToMap())
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	return events, nil
+	return nil
 }

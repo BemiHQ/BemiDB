@@ -89,6 +89,12 @@ func (remapper *QueryRemapperExpression) remappedArithmeticExpression(node *pgQu
 	// pg_catalog.[operator] -> [operator]
 	remapper.parserAExpr.RemovePgCatalog(node)
 
+	// [column]->>'value' -> json_extract_string([column], 'value')
+	node = remapper.parserAExpr.RemappedJsonExtractString(node)
+
+	// [column]->'value' -> json_extract([column], 'value')
+	node = remapper.parserAExpr.RemappedJsonExtract(node)
+
 	return node
 }
 

@@ -8,14 +8,21 @@ import (
 )
 
 type Syncer struct {
-	Config *Config
-	Utils  *SyncerUtils
+	Config       *Config
+	Utils        *SyncerUtils
+	StorageS3    *syncerCommon.StorageS3
+	DuckdbClient *common.DuckdbClient
 }
 
 func NewSyncer(config *Config) *Syncer {
+	storageS3 := syncerCommon.NewStorageS3(config.CommonConfig)
+	duckdbClient := common.NewDuckdbClient(config.CommonConfig, syncerCommon.DUCKDB_BOOT_QUERIES)
+
 	return &Syncer{
-		Config: config,
-		Utils:  NewSyncerUtils(config),
+		Config:       config,
+		Utils:        NewSyncerUtils(config, storageS3, duckdbClient),
+		StorageS3:    storageS3,
+		DuckdbClient: duckdbClient,
 	}
 }
 
@@ -25,12 +32,7 @@ func (syncer *Syncer) Sync() {
 	postgres := NewPostgres(syncer.Config)
 	defer postgres.Close()
 
-	trino := syncerCommon.NewTrino(syncer.Config.CommonConfig, syncer.Config.TrinoConfig, syncer.Config.DestinationSchemaName)
-	defer trino.Close()
-
-	trino.CreateSchemaIfNotExists()
-
-	pgSchemaTables := syncer.pgSchemaTables(postgres, trino)
+	pgSchemaTables := syncer.pgSchemaTables(postgres)
 
 	switch syncer.Config.SyncMode {
 	case SyncModeCDC:
@@ -41,13 +43,13 @@ func (syncer *Syncer) Sync() {
 		panic("Incremental sync is not supported")
 	case SyncModeFullRefresh:
 		common.LogInfo(syncer.Config.CommonConfig, "Starting full-refresh sync...")
-		NewSyncerFullRefresh(syncer.Config).Sync(postgres, pgSchemaTables)
+		NewSyncerFullRefresh(syncer.Config, syncer.Utils, syncer.StorageS3, syncer.DuckdbClient).Sync(postgres, pgSchemaTables)
 	}
 
 	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-finish", syncer.name())
 }
 
-func (syncer *Syncer) pgSchemaTables(postgres *Postgres, trino *syncerCommon.Trino) []PgSchemaTable {
+func (syncer *Syncer) pgSchemaTables(postgres *Postgres) []PgSchemaTable {
 	pgSchemaTables := make([]PgSchemaTable, 0)
 	for _, schema := range postgres.Schemas() {
 		for _, pgSchemaTable := range postgres.SchemaTables(schema) {

@@ -40,6 +40,7 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 			WHEN true THEN json_extract_path_text(from_json, path_elems)[1]::varchar
 			ELSE json_extract_path_text(from_json, path_elems)::varchar
 		END`,
+		`CREATE MACRO jsonb_object_agg(key, value) AS to_json(map(array_agg(key), array_agg(value)))`,
 		`CREATE MACRO json_build_object(k1, v1) AS json_object(k1, v1),
 			(k1, v1, k2, v2) AS json_object(k1, v1, k2, v2),
 			(k1, v1, k2, v2, k3, v3) AS json_object(k1, v1, k2, v2, k3, v3),
@@ -110,13 +111,9 @@ func NewQueryRemapperFunction(config *Config, icebergReader *IcebergReader) *Que
 	}
 }
 
-func (remapper *QueryRemapperFunction) SchemaFunction(functionCall *pgQuery.FuncCall) *QuerySchemaFunction {
-	return remapper.parserFunction.SchemaFunction(functionCall)
-}
-
 // FUNCTION(...) -> ANOTHER_FUNCTION(...)
 func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.FuncCall) *QuerySchemaFunction {
-	schemaFunction := remapper.SchemaFunction(functionCall)
+	schemaFunction := remapper.parserFunction.SchemaFunction(functionCall)
 
 	// Pre-defined macro functions
 	switch schemaFunction.Schema {
@@ -146,6 +143,12 @@ func (remapper *QueryRemapperFunction) RemapFunctionCall(functionCall *pgQuery.F
 	// encode(sha256(...), 'hex') -> sha256(...)
 	case schemaFunction.Function == PG_FUNCTION_ENCODE:
 		remapper.parserFunction.RemoveEncode(functionCall)
+		return schemaFunction
+	}
+
+	// jsonb_agg(...) -> to_json(array_agg(...))
+	if schemaFunction.Function == PG_FUNCTION_JSONB_AGG {
+		remapper.parserFunction.RemapJsonbAgg(functionCall)
 		return schemaFunction
 	}
 

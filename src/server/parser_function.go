@@ -53,19 +53,50 @@ func (parser *ParserFunction) SchemaFunction(functionCall *pgQuery.FuncCall) *Qu
 }
 
 // pg_catalog.func() -> main.func()
-func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
+func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) {
 	switch len(functionCall.Funcname) {
 	case 1:
 		functionCall.Funcname = append([]*pgQuery.Node{pgQuery.MakeStrNode(DUCKDB_SCHEMA_MAIN)}, functionCall.Funcname...)
 	case 2:
 		functionCall.Funcname[0] = pgQuery.MakeStrNode(DUCKDB_SCHEMA_MAIN)
 	}
+}
 
-	return functionCall
+// jsonb_agg(...) -> to_json(array_agg(...))
+//
+// DuckDB does not support jsonb_agg. We can't remap and fully support all features with just a macro:
+// Function "jsonb_agg" is a Macro Function. "DISTINCT", "FILTER", and "ORDER BY" are only applicable to aggregate functions.
+func (parser *ParserFunction) RemapJsonbAgg(functionCall *pgQuery.FuncCall) {
+	originalArgs := functionCall.Args
+	originalAggOrder := functionCall.AggOrder
+	originalAggFilter := functionCall.AggFilter
+	originalAggWithinGroup := functionCall.AggWithinGroup
+	originalAggStar := functionCall.AggStar
+	originalAggDistinct := functionCall.AggDistinct
+
+	nestedFunctionCallNode := pgQuery.MakeFuncCallNode(
+		[]*pgQuery.Node{pgQuery.MakeStrNode("array_agg")},
+		originalArgs,
+		0,
+	)
+	nestedFunctionCall := nestedFunctionCallNode.GetFuncCall()
+	nestedFunctionCall.AggOrder = originalAggOrder
+	nestedFunctionCall.AggFilter = originalAggFilter
+	nestedFunctionCall.AggWithinGroup = originalAggWithinGroup
+	nestedFunctionCall.AggStar = originalAggStar
+	nestedFunctionCall.AggDistinct = originalAggDistinct
+
+	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("to_json")}
+	functionCall.Args = []*pgQuery.Node{nestedFunctionCallNode}
+	functionCall.AggOrder = nil
+	functionCall.AggFilter = nil
+	functionCall.AggWithinGroup = false
+	functionCall.AggStar = false
+	functionCall.AggDistinct = false
 }
 
 // format('%s %1$s', str) -> printf('%1$s %1$s', str)
-func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
+func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall) {
 	format := parser.FirstArgumentToString(functionCall)
 	for i := range functionCall.Args[1:] {
 		format = strings.Replace(format, "%s", "%"+common.IntToString(i+1)+"$s", 1)
@@ -73,7 +104,6 @@ func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall
 
 	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("printf")}
 	functionCall.Args[0] = pgQuery.MakeAConstStrNode(format, 0)
-	return functionCall
 }
 
 // encode(sha256(...), 'hex') -> sha256(...)

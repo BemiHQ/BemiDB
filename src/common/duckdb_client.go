@@ -29,7 +29,6 @@ func NewDuckdbClient(config *CommonConfig, bootQueries ...[]string) *DuckdbClien
 
 	queries := []string{
 		"SET timezone='UTC'",
-		"SET memory_limit='2GB'",
 	}
 	if bootQueries != nil {
 		queries = append(queries, bootQueries[0]...)
@@ -65,6 +64,14 @@ func NewDuckdbClient(config *CommonConfig, bootQueries ...[]string) *DuckdbClien
 func (client *DuckdbClient) QueryContext(ctx context.Context, query string) (*sql.Rows, error) {
 	LogDebug(client.Config, "Querying DuckDBClient:", query)
 	return client.Db.QueryContext(ctx, query)
+}
+
+func (client *DuckdbClient) QueryRowContext(ctx context.Context, query string, args ...map[string]string) *sql.Row {
+	LogDebug(client.Config, "Querying DuckDBClient:", query)
+	if len(args) == 0 {
+		return client.Db.QueryRowContext(ctx, query)
+	}
+	return client.Db.QueryRowContext(ctx, replaceNamedStringArgs(query, args[0]))
 }
 
 func (client *DuckdbClient) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {

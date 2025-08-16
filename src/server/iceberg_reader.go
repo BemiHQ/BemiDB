@@ -27,11 +27,11 @@ func (reader *IcebergReader) SchemaTables() (icebergSchemaTables common.Set[Iceb
 }
 
 func (reader *IcebergReader) TableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error) {
-	metadataPath := reader.MetadataFilePath(icebergSchemaTable)
+	metadataPath := reader.MetadataFileS3Path(icebergSchemaTable)
 	common.LogDebug(reader.Config.CommonConfig, "Reading Iceberg table "+icebergSchemaTable.String()+" fields from "+metadataPath+" ...")
 	return reader.Storage.IcebergTableFields(metadataPath)
 }
 
-func (reader *IcebergReader) MetadataFilePath(icebergSchemaTable IcebergSchemaTable) string {
-	return reader.Catalog.MetadataFilePath(icebergSchemaTable)
+func (reader *IcebergReader) MetadataFileS3Path(icebergSchemaTable IcebergSchemaTable) string {
+	return reader.Catalog.MetadataFileS3Path(icebergSchemaTable)
 }
