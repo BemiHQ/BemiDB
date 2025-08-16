@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
@@ -35,57 +36,57 @@ func NewPgSchemaColumn(config *Config) *PgSchemaColumn {
 	}
 }
 
-func (pgSchemaColumn *PgSchemaColumn) ToIcebergSchemaColumn() *common.IcebergSchemaColumn {
-	var icebergColumnType common.IcebergColumnType
+func (pgSchemaColumn *PgSchemaColumn) ToIcebergSchemaColumn() *syncerCommon.IcebergSchemaColumn {
+	var icebergColumnType syncerCommon.IcebergColumnType
 
 	switch strings.TrimLeft(pgSchemaColumn.UdtName, "_") {
 	case "bool":
-		icebergColumnType = common.IcebergColumnTypeBoolean
+		icebergColumnType = syncerCommon.IcebergColumnTypeBoolean
 	case "bit", "int2", "int4":
-		icebergColumnType = common.IcebergColumnTypeInteger
+		icebergColumnType = syncerCommon.IcebergColumnTypeInteger
 	case "xid":
-		icebergColumnType = common.IcebergColumnTypeLong
+		icebergColumnType = syncerCommon.IcebergColumnTypeLong
 	case "int8", "xid8":
-		icebergColumnType = common.IcebergColumnTypeDecimal
+		icebergColumnType = syncerCommon.IcebergColumnTypeDecimal
 	case "float4":
-		icebergColumnType = common.IcebergColumnTypeFloat
+		icebergColumnType = syncerCommon.IcebergColumnTypeFloat
 	case "float8":
-		icebergColumnType = common.IcebergColumnTypeDouble
+		icebergColumnType = syncerCommon.IcebergColumnTypeDouble
 	case "numeric":
-		icebergColumnType = common.IcebergColumnTypeDecimal
+		icebergColumnType = syncerCommon.IcebergColumnTypeDecimal
 	case "date":
-		icebergColumnType = common.IcebergColumnTypeDate
+		icebergColumnType = syncerCommon.IcebergColumnTypeDate
 	case "time":
-		icebergColumnType = common.IcebergColumnTypeTime
+		icebergColumnType = syncerCommon.IcebergColumnTypeTime
 	case "timetz":
-		icebergColumnType = common.IcebergColumnTypeTimeTz
+		icebergColumnType = syncerCommon.IcebergColumnTypeTimeTz
 	case "timestamp":
-		icebergColumnType = common.IcebergColumnTypeTimestamp
+		icebergColumnType = syncerCommon.IcebergColumnTypeTimestamp
 	case "timestamptz":
-		icebergColumnType = common.IcebergColumnTypeTimestampTz
+		icebergColumnType = syncerCommon.IcebergColumnTypeTimestampTz
 	case "varchar", "char", "text", "jsonb", "json", "bpchar", "uuid",
 		"point", "line", "lseg", "box", "path", "polygon", "circle",
 		"cidr", "inet", "macaddr", "macaddr8",
 		"interval", "ltree", "tsvector", "xml", "pg_snapshot":
-		icebergColumnType = common.IcebergColumnTypeString
+		icebergColumnType = syncerCommon.IcebergColumnTypeString
 	case "bytea":
-		icebergColumnType = common.IcebergColumnTypeBinary
+		icebergColumnType = syncerCommon.IcebergColumnTypeBinary
 	default:
 		// User-defined types -> VARCHAR
 		if pgSchemaColumn.Namespace != PG_SCHEMA_PG_CATALOG {
-			icebergColumnType = common.IcebergColumnTypeString
+			icebergColumnType = syncerCommon.IcebergColumnTypeString
 		} else {
 			panic("Unsupported PostgreSQL type: " + pgSchemaColumn.UdtName)
 		}
 	}
 
-	return &common.IcebergSchemaColumn{
-		Config:           pgSchemaColumn.Config.BaseConfig,
+	return &syncerCommon.IcebergSchemaColumn{
+		Config:           pgSchemaColumn.Config.CommonConfig,
 		ColumnName:       pgSchemaColumn.ColumnName,
 		ColumnType:       icebergColumnType,
-		Position:         common.StringToInt(pgSchemaColumn.OrdinalPosition),
-		NumericPrecision: common.StringToInt(pgSchemaColumn.NumericPrecision),
-		NumericScale:     common.StringToInt(pgSchemaColumn.NumericScale),
+		Position:         syncerCommon.StringToInt(pgSchemaColumn.OrdinalPosition),
+		NumericPrecision: syncerCommon.StringToInt(pgSchemaColumn.NumericPrecision),
+		NumericScale:     syncerCommon.StringToInt(pgSchemaColumn.NumericScale),
 		IsList:           pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY,
 		IsNullable:       pgSchemaColumn.IsNullable == PG_TRUE,
 	}
@@ -120,7 +121,7 @@ func (pgSchemaColumn *PgSchemaColumn) JsonToTrinoValue(jsonValue interface{}) st
 
 func (pgSchemaColumn *PgSchemaColumn) CsvToTrinoValue(csvValue string) string {
 	if pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY {
-		if csvValue == common.BEMIDB_NULL_STRING {
+		if csvValue == syncerCommon.BEMIDB_NULL_STRING {
 			return "NULL"
 		}
 
@@ -134,7 +135,7 @@ func (pgSchemaColumn *PgSchemaColumn) CsvToTrinoValue(csvValue string) string {
 		csvString = strings.ReplaceAll(csvString, "\\\"", "\"\"")
 		csvReader := csv.NewReader(strings.NewReader(csvString))
 		stringValues, err := csvReader.Read()
-		common.PanicIfError(pgSchemaColumn.Config.BaseConfig, err)
+		common.PanicIfError(pgSchemaColumn.Config.CommonConfig, err)
 
 		var values []string
 		for _, stringValue := range stringValues {
@@ -165,26 +166,26 @@ func (pgSchemaColumn *PgSchemaColumn) jsonToPrimitiveTrinoValue(jsonValue interf
 		}
 		return "0"
 	case "int2", "int4", "xid":
-		return common.Float64ToString(jsonValue.(float64))
+		return syncerCommon.Float64ToString(jsonValue.(float64))
 	case "float4":
 		if kind == reflect.String {
 			return "nan()"
 		}
-		return common.Float64ToString(jsonValue.(float64))
+		return syncerCommon.Float64ToString(jsonValue.(float64))
 	case "float8":
 		if kind == reflect.String {
 			return "nan()"
 		}
-		return "CAST('" + common.Float64ToString(jsonValue.(float64)) + "' AS DOUBLE)"
+		return "CAST('" + syncerCommon.Float64ToString(jsonValue.(float64)) + "' AS DOUBLE)"
 	case "int8", "xid8", "numeric":
-		return "DECIMAL '" + common.Float64ToString(jsonValue.(float64)) + "'"
+		return "DECIMAL '" + syncerCommon.Float64ToString(jsonValue.(float64)) + "'"
 	case "date":
-		return "DATE '1970-01-01' + INTERVAL '" + common.Float64ToString(jsonValue.(float64)) + "' DAY"
+		return "DATE '1970-01-01' + INTERVAL '" + syncerCommon.Float64ToString(jsonValue.(float64)) + "' DAY"
 	case "timestamp":
 		if pgSchemaColumn.DatetimePrecision == "6" {
-			return "from_unixtime_nanos(" + common.Float64ToString(jsonValue.(float64)) + " * 1000)"
+			return "from_unixtime_nanos(" + syncerCommon.Float64ToString(jsonValue.(float64)) + " * 1000)"
 		}
-		return "from_unixtime_nanos(" + common.Float64ToString(jsonValue.(float64)) + " * 1000000)"
+		return "from_unixtime_nanos(" + syncerCommon.Float64ToString(jsonValue.(float64)) + " * 1000000)"
 	case "timestamptz":
 		return "from_iso8601_timestamp_nanos('" + jsonValue.(string) + "')"
 	case "time":
@@ -209,7 +210,7 @@ func (pgSchemaColumn *PgSchemaColumn) jsonToPrimitiveTrinoValue(jsonValue interf
 	case "timetz":
 		return "TIME '" + strings.TrimRight(jsonValue.(string), "Z") + "' AT TIME ZONE 'UTC'"
 	case "interval":
-		return "'" + common.Float64ToString(jsonValue.(float64)) + "us'"
+		return "'" + syncerCommon.Float64ToString(jsonValue.(float64)) + "us'"
 	case "varchar", "char", "text", "jsonb", "json", "uuid",
 		"line", "lseg", "box", "path", "polygon", "circle",
 		"cidr", "inet", "macaddr", "macaddr8",
@@ -225,12 +226,12 @@ func (pgSchemaColumn *PgSchemaColumn) jsonToPrimitiveTrinoValue(jsonValue interf
 		if point["wkb"] == nil {
 			return "NULL"
 		}
-		return "'" + common.Base64ToHex(point["wkb"].(string)) + "'"
+		return "'" + syncerCommon.Base64ToHex(point["wkb"].(string)) + "'"
 	default:
 		// User-defined types -> VARCHAR value
 		if pgSchemaColumn.Namespace != PG_SCHEMA_PG_CATALOG {
 			if kind == reflect.String {
-				stringValue, err := common.HexToString(jsonValue.(string))
+				stringValue, err := syncerCommon.HexToString(jsonValue.(string))
 				if err == nil {
 					return "'" + stringValue + "'"
 				} else {
@@ -247,7 +248,7 @@ func (pgSchemaColumn *PgSchemaColumn) jsonToPrimitiveTrinoValue(jsonValue interf
 }
 
 func (pgSchemaColumn *PgSchemaColumn) csvToPrimitiveTrinoValue(csvValue string) string {
-	if csvValue == common.BEMIDB_NULL_STRING {
+	if csvValue == syncerCommon.BEMIDB_NULL_STRING {
 		return "NULL"
 	}
 
@@ -285,7 +286,7 @@ func (pgSchemaColumn *PgSchemaColumn) csvToPrimitiveTrinoValue(csvValue string) 
 		} else if pgSchemaColumn.DatetimePrecision == "3" {
 			parsedTime, err = time.Parse("15:04:05.999-07", csvValue)
 		}
-		common.PanicIfError(pgSchemaColumn.Config.BaseConfig, err)
+		common.PanicIfError(pgSchemaColumn.Config.CommonConfig, err)
 
 		parsedTime = parsedTime.In(time.UTC)
 		return "TIME '" + parsedTime.Format("15:04:05.999999-07:00") + "' AT TIME ZONE 'UTC'"
@@ -295,20 +296,20 @@ func (pgSchemaColumn *PgSchemaColumn) csvToPrimitiveTrinoValue(csvValue string) 
 		parts := strings.Split(csvValue, " ")
 		for i, part := range parts {
 			if strings.HasPrefix(part, "mon") {
-				months := common.StringToInt(parts[i-1])
+				months := syncerCommon.StringToInt(parts[i-1])
 				microseconds += months * 30_437_500 * 24 * 60 * 60 // Approximation: 30.4375 days per month
 			} else if strings.HasPrefix(part, "day") {
-				days := common.StringToInt(parts[i-1])
+				days := syncerCommon.StringToInt(parts[i-1])
 				microseconds += days * 24 * 60 * 60 * 1_000_000
 			} else if strings.Contains(part, ":") {
 				timeParts := strings.Split(part, ":")
-				hours := common.StringToInt(timeParts[0])
-				minutes := common.StringToInt(timeParts[1])
+				hours := syncerCommon.StringToInt(timeParts[0])
+				minutes := syncerCommon.StringToInt(timeParts[1])
 				secondsParts := strings.Split(timeParts[2], ".")
-				seconds := common.StringToInt(secondsParts[0])
+				seconds := syncerCommon.StringToInt(secondsParts[0])
 				microseconds += (hours * 60 * 60 * 1_000_000) + (minutes * 60 * 1_000_000) + (seconds * 1_000_000)
 				if len(secondsParts) > 1 && len(secondsParts[1]) == 6 {
-					microseconds += common.StringToInt(secondsParts[1])
+					microseconds += syncerCommon.StringToInt(secondsParts[1])
 				}
 			}
 		}
@@ -351,13 +352,13 @@ func (pgSchemaColumn *PgSchemaColumn) primitiveTrinoType() string {
 	case "float8":
 		return "DOUBLE"
 	case "numeric":
-		scale := common.StringToInt(pgSchemaColumn.NumericScale)
-		precision := common.StringToInt(pgSchemaColumn.NumericPrecision)
-		if precision > common.TRINO_MAX_DECIMAL_PRECISION {
-			precision = common.TRINO_MAX_DECIMAL_PRECISION
+		scale := syncerCommon.StringToInt(pgSchemaColumn.NumericScale)
+		precision := syncerCommon.StringToInt(pgSchemaColumn.NumericPrecision)
+		if precision > syncerCommon.TRINO_MAX_DECIMAL_PRECISION {
+			precision = syncerCommon.TRINO_MAX_DECIMAL_PRECISION
 		} else if precision == 0 {
-			precision = common.TRINO_MAX_DECIMAL_PRECISION
-			scale = common.TRINO_MAX_DECIMAL_PRECISION / 2
+			precision = syncerCommon.TRINO_MAX_DECIMAL_PRECISION
+			scale = syncerCommon.TRINO_MAX_DECIMAL_PRECISION / 2
 		}
 		return "DECIMAL(" + common.IntToString(precision) + ", " + common.IntToString(scale) + ")"
 	case "date":

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const (
@@ -28,7 +30,7 @@ func NewIcebergCatalog(config *Config) *IcebergCatalog {
 }
 
 func (catalog *IcebergCatalog) Schemas() ([]string, error) {
-	pgClient := catalog.newPgClient()
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
 	ctx := context.Background()
@@ -50,8 +52,8 @@ func (catalog *IcebergCatalog) Schemas() ([]string, error) {
 	return schemas, nil
 }
 
-func (catalog *IcebergCatalog) SchemaTables() (Set[IcebergSchemaTable], error) {
-	pgClient := catalog.newPgClient()
+func (catalog *IcebergCatalog) SchemaTables() (common.Set[IcebergSchemaTable], error) {
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
 	ctx := context.Background()
@@ -61,7 +63,7 @@ func (catalog *IcebergCatalog) SchemaTables() (Set[IcebergSchemaTable], error) {
 	}
 	defer rows.Close()
 
-	schemaTables := make(Set[IcebergSchemaTable])
+	schemaTables := make(common.Set[IcebergSchemaTable])
 	for rows.Next() {
 		var schema, table string
 		err := rows.Scan(&schema, &table)
@@ -74,7 +76,7 @@ func (catalog *IcebergCatalog) SchemaTables() (Set[IcebergSchemaTable], error) {
 }
 
 func (catalog *IcebergCatalog) MetadataFilePath(t IcebergSchemaTable) string {
-	pgClient := catalog.newPgClient()
+	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
 	ctx := context.Background()
@@ -82,11 +84,11 @@ func (catalog *IcebergCatalog) MetadataFilePath(t IcebergSchemaTable) string {
 
 	var path string
 	err := row.Scan(&path)
-	PanicIfError(nil, err)
+	common.PanicIfError(catalog.Config.CommonConfig, err)
 
 	return path
 }
 
-func (catalog *IcebergCatalog) newPgClient() *PostgresClient {
-	return NewPostgresClient(catalog.Config, catalog.Config.CatalogDatabaseUrl)
+func (catalog *IcebergCatalog) newPostgresClient() *common.PostgresClient {
+	return common.NewPostgresClient(catalog.Config.CommonConfig, catalog.Config.CommonConfig.CatalogDatabaseUrl)
 }

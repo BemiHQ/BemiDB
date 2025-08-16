@@ -6,16 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"strconv"
-	"strings"
 	"unicode"
 
 	"golang.org/x/crypto/pbkdf2"
 )
-
-func IntToString(i int) string {
-	return strconv.Itoa(i)
-}
 
 func StringToScramSha256(password string) string {
 	saltLength := 16
@@ -51,10 +45,6 @@ func StringContainsUpper(str string) bool {
 		}
 	}
 	return false
-}
-
-func IsLocalHost(host string) bool {
-	return strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost")
 }
 
 func hmacSha256Hash(key []byte, message []byte) []byte {

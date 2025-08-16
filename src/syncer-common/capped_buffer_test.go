@@ -1,4 +1,4 @@
-package common
+package syncerCommon
 
 import (
 	"bytes"
@@ -6,11 +6,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
-func initTestConfig() *BaseConfig {
-	return &BaseConfig{
-		LogLevel: LOG_LEVEL_INFO, // Use INFO to avoid excessive logging during tests
+func initTestConfig() *common.CommonConfig {
+	return &common.CommonConfig{
+		LogLevel: common.LOG_LEVEL_INFO, // Use INFO to avoid excessive logging during tests
 	}
 }
 

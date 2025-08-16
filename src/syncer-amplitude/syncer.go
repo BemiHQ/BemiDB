@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
@@ -27,9 +28,9 @@ func NewSyncer(config *Config) *Syncer {
 }
 
 func (syncer *Syncer) Sync() {
-	common.SendAnonymousAnalytics(syncer.Config.BaseConfig, "syncer-amplitude-start", syncer.name())
+	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-start", syncer.name())
 
-	trino := common.NewTrino(syncer.Config.BaseConfig)
+	trino := syncerCommon.NewTrino(syncer.Config.CommonConfig, syncer.Config.TrinoConfig, syncer.Config.DestinationSchemaName)
 	defer trino.Close()
 
 	trino.CreateSchemaIfNotExists()
@@ -41,13 +42,13 @@ func (syncer *Syncer) Sync() {
 	if lastSyncedTime.IsZero() {
 		lastSyncedTime = syncer.Config.StartDate
 	} else {
-		common.LogInfo(syncer.Config.BaseConfig, "Last synced time found:", lastSyncedTime)
+		common.LogInfo(syncer.Config.CommonConfig, "Last synced time found:", lastSyncedTime)
 		syncer.deleteHourFromTable(trino, quotedTablePath, lastSyncedTime)
 	}
 
 	now := time.Now().UTC()
 	endOfSyncWindow := now.Add(-AMPLITUDE_DATA_DELAY).Truncate(time.Hour)
-	common.LogInfo(syncer.Config.BaseConfig, "Starting incremental sync from", lastSyncedTime, "to", endOfSyncWindow)
+	common.LogInfo(syncer.Config.CommonConfig, "Starting incremental sync from", lastSyncedTime, "to", endOfSyncWindow)
 
 	for t := lastSyncedTime; t.Before(endOfSyncWindow); t = t.Add(PAGINATION_TIME_INTERVAL) {
 		startTime := t
@@ -55,10 +56,10 @@ func (syncer *Syncer) Sync() {
 
 		events, err := syncer.Amplitude.Export(startTime, endTime)
 		if err != nil && strings.Contains(err.Error(), "Raw data files were not found.") {
-			common.LogInfo(syncer.Config.BaseConfig, "No data found for the time range", startTime, "to", endTime, "- will retry later.")
+			common.LogInfo(syncer.Config.CommonConfig, "No data found for the time range", startTime, "to", endTime, "- will retry later.")
 			break
 		}
-		common.PanicIfError(syncer.Config.BaseConfig, err)
+		common.PanicIfError(syncer.Config.CommonConfig, err)
 
 		if len(events) > 0 {
 			syncer.insertEvents(trino, quotedTablePath, events)
@@ -66,18 +67,18 @@ func (syncer *Syncer) Sync() {
 
 		// Compact every 24 hours
 		if t.Hour() == 23 {
-			common.LogInfo(syncer.Config.BaseConfig, "Compacting...")
+			common.LogInfo(syncer.Config.CommonConfig, "Compacting...")
 			trino.CompactTable(quotedTablePath)
 		}
 	}
 
-	common.LogInfo(syncer.Config.BaseConfig, "Compacting...")
+	common.LogInfo(syncer.Config.CommonConfig, "Compacting...")
 	trino.CompactTable(quotedTablePath)
 
-	common.SendAnonymousAnalytics(syncer.Config.BaseConfig, "syncer-amplitude-finish", syncer.name())
+	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-finish", syncer.name())
 }
 
-func (syncer *Syncer) findLastCursorValue(trino *common.Trino) time.Time {
+func (syncer *Syncer) findLastCursorValue(trino *syncerCommon.Trino) time.Time {
 	var nullString sql.NullString
 	query := `SELECT CAST(max("server_upload_time") AS VARCHAR) FROM ` + trino.Schema() + `."` + EVENTS_TABLE_NAME + `"`
 	err := trino.QueryRowContext(
@@ -90,20 +91,20 @@ func (syncer *Syncer) findLastCursorValue(trino *common.Trino) time.Time {
 			return time.Time{}
 		}
 		if strings.Contains(err.Error(), "does not exist") || strings.Contains(err.Error(), "Table not found") {
-			common.LogInfo(syncer.Config.BaseConfig, "Table", EVENTS_TABLE_NAME, "does not exist yet. Starting from scratch.")
+			common.LogInfo(syncer.Config.CommonConfig, "Table", EVENTS_TABLE_NAME, "does not exist yet. Starting from scratch.")
 			return time.Time{}
 		}
-		common.PanicIfError(syncer.Config.BaseConfig, err)
+		common.PanicIfError(syncer.Config.CommonConfig, err)
 	}
 
 	if !nullString.Valid || nullString.String == "" {
 		return time.Time{}
 	}
 
-	return common.StringMsToUtcTime(nullString.String).Truncate(time.Hour)
+	return syncerCommon.StringMsToUtcTime(nullString.String).Truncate(time.Hour)
 }
 
-func (syncer *Syncer) insertEvents(trino *common.Trino, quotedTrinoTablePath string, events []Event) {
+func (syncer *Syncer) insertEvents(trino *syncerCommon.Trino, quotedTrinoTablePath string, events []Event) {
 	if len(events) == 0 {
 		return
 	}
@@ -121,15 +122,15 @@ func (syncer *Syncer) insertEvents(trino *common.Trino, quotedTrinoTablePath str
 		}
 
 		currentRowCount++
-		if len(currentSql)+len(rowValuesStatement)+1 < common.TRINO_MAX_QUERY_LENGTH { // +1 for the comma
+		if len(currentSql)+len(rowValuesStatement)+1 < syncerCommon.TRINO_MAX_QUERY_LENGTH { // +1 for the comma
 			if currentSql != insertSqlPrefix {
 				currentSql += ","
 			}
 			currentSql += rowValuesStatement
 		} else {
 			_, err := trino.ExecContext(ctx, currentSql)
-			common.PanicIfError(syncer.Config.BaseConfig, err)
-			common.LogInfo(syncer.Config.BaseConfig, "Inserted", currentRowCount, "rows into table:", quotedTrinoTablePath)
+			common.PanicIfError(syncer.Config.CommonConfig, err)
+			common.LogInfo(syncer.Config.CommonConfig, "Inserted", currentRowCount, "rows into table:", quotedTrinoTablePath)
 			currentSql = insertSqlPrefix + rowValuesStatement
 			currentRowCount = 1
 		}
@@ -137,21 +138,21 @@ func (syncer *Syncer) insertEvents(trino *common.Trino, quotedTrinoTablePath str
 
 	if currentSql != insertSqlPrefix {
 		_, err := trino.ExecContext(ctx, currentSql)
-		common.PanicIfError(syncer.Config.BaseConfig, err)
-		common.LogInfo(syncer.Config.BaseConfig, "Inserted", currentRowCount, "rows into table:", quotedTrinoTablePath)
+		common.PanicIfError(syncer.Config.CommonConfig, err)
+		common.LogInfo(syncer.Config.CommonConfig, "Inserted", currentRowCount, "rows into table:", quotedTrinoTablePath)
 	}
 }
 
-func (syncer *Syncer) deleteHourFromTable(trino *common.Trino, quotedTablePath string, startTime time.Time) {
+func (syncer *Syncer) deleteHourFromTable(trino *syncerCommon.Trino, quotedTablePath string, startTime time.Time) {
 	result, err := trino.ExecContext(
 		context.Background(),
-		`DELETE FROM `+quotedTablePath+` WHERE "server_upload_time" >= TIMESTAMP '`+common.TimeToUtcStringMs(startTime)+`'`,
+		`DELETE FROM `+quotedTablePath+` WHERE "server_upload_time" >= TIMESTAMP '`+syncerCommon.TimeToUtcStringMs(startTime)+`'`,
 	)
-	common.PanicIfError(syncer.Config.BaseConfig, err)
+	common.PanicIfError(syncer.Config.CommonConfig, err)
 
 	rowCount, err := result.RowsAffected()
-	common.PanicIfError(syncer.Config.BaseConfig, err)
-	common.LogInfo(syncer.Config.BaseConfig, "Deleted", rowCount, "rows after", startTime)
+	common.PanicIfError(syncer.Config.CommonConfig, err)
+	common.LogInfo(syncer.Config.CommonConfig, "Deleted", rowCount, "rows after", startTime)
 }
 
 func (syncer *Syncer) name() string {

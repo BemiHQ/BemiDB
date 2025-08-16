@@ -22,29 +22,29 @@ var LOG_LEVELS = []string{
 	LOG_LEVEL_ERROR,
 }
 
-func LogError(config *BaseConfig, message ...interface{}) {
+func LogError(config *CommonConfig, message ...interface{}) {
 	log.Println(append([]interface{}{"[ERROR]"}, message...)...)
 }
 
-func LogWarn(config *BaseConfig, message ...interface{}) {
+func LogWarn(config *CommonConfig, message ...interface{}) {
 	if config.LogLevel != LOG_LEVEL_ERROR {
 		log.Println(append([]interface{}{"[WARN]"}, message...)...)
 	}
 }
 
-func LogInfo(config *BaseConfig, message ...interface{}) {
+func LogInfo(config *CommonConfig, message ...interface{}) {
 	if config.LogLevel != LOG_LEVEL_ERROR && config.LogLevel != LOG_LEVEL_WARN {
 		log.Println(append([]interface{}{"[INFO]"}, message...)...)
 	}
 }
 
-func LogDebug(config *BaseConfig, message ...interface{}) {
+func LogDebug(config *CommonConfig, message ...interface{}) {
 	if config.LogLevel == LOG_LEVEL_DEBUG || config.LogLevel == LOG_LEVEL_TRACE {
 		log.Println(append([]interface{}{"[DEBUG]"}, message...)...)
 	}
 }
 
-func LogTrace(config *BaseConfig, message ...interface{}) {
+func LogTrace(config *CommonConfig, message ...interface{}) {
 	if config.LogLevel == LOG_LEVEL_TRACE {
 		log.Println(append([]interface{}{"[TRACE]"}, message...)...)
 	}

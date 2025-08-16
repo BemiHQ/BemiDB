@@ -1,4 +1,4 @@
-package common
+package syncerCommon
 
 import (
 	"context"
@@ -6,22 +6,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsConfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/google/uuid"
-	goDuckdb "github.com/marcboeker/go-duckdb/v2"
+	"github.com/marcboeker/go-duckdb/v2"
 	"github.com/xitongsys/parquet-go-source/s3v2"
 )
 
 type StorageS3 struct {
-	S3Client     *s3.Client
-	Config       *BaseConfig
+	S3Client     *common.S3Client
+	Config       *common.CommonConfig
 	StorageUtils *StorageUtils
-	Duckdb       *Duckdb
+	DuckdbClient *common.DuckdbClient
 }
 
 type ParquetFileStats struct {
@@ -77,66 +72,32 @@ type MetadataFile struct {
 	Key     string
 }
 
-func NewStorageS3(Config *BaseConfig) *StorageS3 {
-	var awsConfigOptions = []func(*awsConfig.LoadOptions) error{
-		awsConfig.WithRegion(Config.Aws.Region),
-	}
-
-	if Config.LogLevel == LOG_LEVEL_TRACE {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithClientLogMode(aws.LogRequest))
-	}
-
-	if IsLocalHost(Config.Aws.S3Endpoint) {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("http://"+Config.Aws.S3Endpoint))
-	} else {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("https://"+Config.Aws.S3Endpoint))
-	}
-
-	awsCredentials := credentials.NewStaticCredentialsProvider(
-		Config.Aws.AccessKeyId,
-		Config.Aws.SecretAccessKey,
-		"",
-	)
-	awsConfigOptions = append(awsConfigOptions, awsConfig.WithCredentialsProvider(awsCredentials))
-
-	loadedAwsConfig, err := awsConfig.LoadDefaultConfig(context.Background(), awsConfigOptions...)
-	PanicIfError(Config, err)
-
-	S3Client := s3.NewFromConfig(loadedAwsConfig, func(o *s3.Options) {
-		if Config.Aws.S3Endpoint != DEFAULT_AWS_S3_ENDPOINT {
-			o.UsePathStyle = true
-		}
-	})
-
+func NewStorageS3(Config *common.CommonConfig) *StorageS3 {
 	return &StorageS3{
-		S3Client:     S3Client,
+		S3Client:     common.NewS3Client(Config),
 		Config:       Config,
 		StorageUtils: NewStorageUtils(Config),
-		Duckdb:       NewDuckdb(Config),
+		DuckdbClient: common.NewDuckdbClient(Config),
 	}
 }
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageS3) CreateParquet(s3DataPath string, icebergSchemaColumns []*IcebergSchemaColumn, loadRows func(appender *goDuckdb.Appender) (rowCount int, reachedEnd bool)) (parquetFile ParquetFile, reachedEnd bool) {
+func (storage *StorageS3) CreateParquet(s3DataPath string, icebergSchemaColumns []*IcebergSchemaColumn, loadRows func(appender *duckdb.Appender) (rowCount int, reachedEnd bool)) (parquetFile ParquetFile, reachedEnd bool) {
 	ctx := context.Background()
 	uuid := uuid.New().String()
 	fileName := fmt.Sprintf("00000-0-%s.parquet", uuid)
 	fileS3Path := s3DataPath + "/" + fileName
-	fileKey := storage.s3Key(fileS3Path)
+	fileKey := storage.S3Client.ObjectKey(fileS3Path)
 
-	rowCount, reachedEnd := storage.StorageUtils.WriteParquetFile(storage.Duckdb, fileS3Path, icebergSchemaColumns, loadRows)
-	LogDebug(storage.Config, "Parquet file with", rowCount, "record(s) created at:", fileKey)
+	rowCount, reachedEnd := storage.StorageUtils.WriteParquetFile(storage.DuckdbClient, fileS3Path, icebergSchemaColumns, loadRows)
+	common.LogDebug(storage.Config, "Parquet file with", rowCount, "record(s) created at:", fileKey)
 
-	headObjectResponse, err := storage.S3Client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(storage.Config.Aws.S3Bucket),
-		Key:    aws.String(fileKey),
-	})
-	PanicIfError(storage.Config, err)
-	fileSize := *headObjectResponse.ContentLength
+	headObjectOutput := storage.S3Client.HeadObject(fileKey)
+	fileSize := *headObjectOutput.ContentLength
 
-	fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.S3Client, storage.Config.Aws.S3Bucket, fileKey)
-	PanicIfError(storage.Config, err)
+	fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.S3Client.S3, storage.Config.Aws.S3Bucket, fileKey)
+	common.PanicIfError(storage.Config, err)
 	parquetStats := storage.StorageUtils.ReadParquetStats(fileReader, icebergSchemaColumns)
 
 	return ParquetFile{
@@ -150,17 +111,12 @@ func (storage *StorageS3) CreateParquet(s3DataPath string, icebergSchemaColumns 
 }
 
 func (storage *StorageS3) DeleteParquet(parquetFile ParquetFile) {
-	ctx := context.Background()
-	_, err := storage.S3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(storage.Config.Aws.S3Bucket),
-		Key:    aws.String(parquetFile.Key),
-	})
-	PanicIfError(storage.Config, err)
+	storage.S3Client.DeleteObject(parquetFile.Key)
 }
 
 func (storage *StorageS3) CreateManifest(s3MetadataPath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
 	fileName := fmt.Sprintf("%s-m0.avro", parquetFile.Uuid)
-	fileKey := storage.s3Key(s3MetadataPath) + "/" + fileName
+	fileKey := storage.S3Client.ObjectKey(s3MetadataPath) + "/" + fileName
 
 	err = storage.uploadTemporaryFile("manifest", fileKey, func(tempFile *os.File) error {
 		manifestFile, err = storage.StorageUtils.WriteManifestFile(tempFile.Name(), parquetFile)
@@ -169,7 +125,7 @@ func (storage *StorageS3) CreateManifest(s3MetadataPath string, parquetFile Parq
 	if err != nil {
 		return manifestFile, err
 	}
-	LogDebug(storage.Config, "Manifest file created at:", fileKey)
+	common.LogDebug(storage.Config, "Manifest file created at:", fileKey)
 
 	manifestFile.Key = fileKey
 	manifestFile.Path = s3MetadataPath + "/" + fileName
@@ -178,7 +134,7 @@ func (storage *StorageS3) CreateManifest(s3MetadataPath string, parquetFile Parq
 
 func (storage *StorageS3) CreateManifestList(s3MetadataPath string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile, err error) {
 	fileName := fmt.Sprintf("snap-%d-0-%s.avro", manifestListItemsSortedDesc[0].ManifestFile.SnapshotId, parquetFileUuid)
-	fileKey := storage.s3Key(s3MetadataPath) + "/" + fileName
+	fileKey := storage.S3Client.ObjectKey(s3MetadataPath) + "/" + fileName
 
 	err = storage.uploadTemporaryFile("manifest-list", fileKey, func(tempFile *os.File) error {
 		manifestListFile, err = storage.StorageUtils.WriteManifestListFile(tempFile.Name(), manifestListItemsSortedDesc)
@@ -187,7 +143,7 @@ func (storage *StorageS3) CreateManifestList(s3MetadataPath string, parquetFileU
 	if err != nil {
 		return manifestListFile, err
 	}
-	LogDebug(storage.Config, "Manifest list file created at:", fileKey)
+	common.LogDebug(storage.Config, "Manifest list file created at:", fileKey)
 
 	manifestListFile.Key = fileKey
 	manifestListFile.Path = s3MetadataPath + "/" + fileName
@@ -195,7 +151,7 @@ func (storage *StorageS3) CreateManifestList(s3MetadataPath string, parquetFileU
 }
 
 func (storage *StorageS3) CreateMetadata(s3MetadataPath string, icebergSchemaColumns []*IcebergSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (metadataFile MetadataFile, err error) {
-	fileKey := storage.s3Key(s3MetadataPath) + "/" + ICEBERG_METADATA_INITIAL_FILE_NAME
+	fileKey := storage.S3Client.ObjectKey(s3MetadataPath) + "/" + ICEBERG_METADATA_INITIAL_FILE_NAME
 
 	err = storage.uploadTemporaryFile("metadata", fileKey, func(tempFile *os.File) error {
 		s3TablePath := strings.TrimSuffix(s3MetadataPath, "/metadata")
@@ -204,13 +160,13 @@ func (storage *StorageS3) CreateMetadata(s3MetadataPath string, icebergSchemaCol
 	if err != nil {
 		return metadataFile, err
 	}
-	LogDebug(storage.Config, "Metadata file created at:", fileKey)
+	common.LogDebug(storage.Config, "Metadata file created at:", fileKey)
 
 	return MetadataFile{Version: 1, Key: fileKey}, nil
 }
 
 func (storage *StorageS3) DeleteTableFiles(s3TablePath string) (err error) {
-	tableKey := storage.s3Key(s3TablePath)
+	tableKey := storage.S3Client.ObjectKey(s3TablePath)
 	return storage.deleteNestedObjects(tableKey)
 }
 
@@ -230,15 +186,7 @@ func (storage *StorageS3) uploadTemporaryFile(tempFilePattern string, uploadFile
 		return err
 	}
 
-	uploader := manager.NewUploader(storage.S3Client)
-	_, err = uploader.Upload(context.Background(), &s3.PutObjectInput{
-		Bucket: aws.String(storage.Config.Aws.S3Bucket),
-		Key:    aws.String(uploadFilePath),
-		Body:   tempFile,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to upload file: %v", err)
-	}
+	storage.S3Client.UploadObject(uploadFilePath, tempFile)
 
 	err = tempFile.Close()
 	if err != nil {
@@ -248,42 +196,20 @@ func (storage *StorageS3) uploadTemporaryFile(tempFilePattern string, uploadFile
 	return nil
 }
 
-// s3://bucket/some/path -> some/path
-func (storage *StorageS3) s3Key(s3Path string) string {
-	return strings.Split(s3Path, "s3://"+storage.Config.Aws.S3Bucket+"/")[1]
-}
-
 func (storage *StorageS3) deleteNestedObjects(prefixKey string) (err error) {
-	ctx := context.Background()
+	listResponse := storage.S3Client.ListObjects(prefixKey)
 
-	listResponse, err := storage.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(storage.Config.Aws.S3Bucket),
-		Prefix: aws.String(prefixKey),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list objects: %v", err)
-	}
-
-	var objectsToDelete []types.ObjectIdentifier
+	var fileKeys []*string
 	for _, obj := range listResponse.Contents {
-		LogDebug(storage.Config, "Object to delete:", *obj.Key)
-		objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{Key: obj.Key})
+		common.LogDebug(storage.Config, "Object to delete:", *obj.Key)
+		fileKeys = append(fileKeys, obj.Key)
 	}
 
-	if len(objectsToDelete) > 0 {
-		_, err = storage.S3Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-			Bucket: aws.String(storage.Config.Aws.S3Bucket),
-			Delete: &types.Delete{
-				Objects: objectsToDelete,
-				Quiet:   aws.Bool(true),
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to delete objects: %v", err)
-		}
-		LogDebug(storage.Config, "Deleted", len(objectsToDelete), "object(s).")
+	if len(fileKeys) > 0 {
+		storage.S3Client.DeleteObjects(fileKeys)
+		common.LogDebug(storage.Config, "Deleted", len(fileKeys), "object(s).")
 	} else {
-		LogDebug(storage.Config, "No objects to delete.")
+		common.LogDebug(storage.Config, "No objects to delete.")
 	}
 
 	return nil

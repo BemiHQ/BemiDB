@@ -8,11 +8,6 @@ const (
 
 	ENV_CATALOG_DATABASE_URL = "CATALOG_DATABASE_URL"
 
-	ENV_DESTINATION_SCHEMA_NAME = "DESTINATION_SCHEMA_NAME"
-
-	ENV_TRINO_DATABASE_URL = "TRINO_DATABASE_URL"
-	ENV_TRINO_CATALOG_NAME = "TRINO_CATALOG_NAME"
-
 	ENV_AWS_REGION            = "AWS_REGION"
 	ENV_AWS_S3_ENDPOINT       = "AWS_S3_ENDPOINT"
 	ENV_AWS_S3_BUCKET         = "AWS_S3_BUCKET"
@@ -23,11 +18,6 @@ const (
 	DEFAULT_AWS_S3_ENDPOINT = "s3.amazonaws.com"
 )
 
-type TrinoConfig struct {
-	DatabaseUrl string
-	CatalogName string
-}
-
 type AwsConfig struct {
 	Region          string
 	S3Endpoint      string // optional
@@ -36,11 +26,9 @@ type AwsConfig struct {
 	SecretAccessKey string
 }
 
-type BaseConfig struct {
-	LogLevel                  string
-	Trino                     TrinoConfig
+type CommonConfig struct {
 	Aws                       AwsConfig
+	LogLevel                  string
 	CatalogDatabaseUrl        string
-	DestinationSchemaName     string
 	DisableAnonymousAnalytics bool
 }

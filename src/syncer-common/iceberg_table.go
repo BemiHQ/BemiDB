@@ -1,48 +1,51 @@
-package common
+package syncerCommon
 
 import (
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/google/uuid"
 )
 
 type IcebergTable struct {
-	Config               *BaseConfig
-	Name                 string
+	Config               *common.CommonConfig
+	SchemaName           string
+	TableName            string
 	IcebergCatalog       *IcebergCatalog
 	StorageS3            *StorageS3
 	GeneratedS3TablePath string
 }
 
-func NewIcebergTable(config *BaseConfig, storageS3 *StorageS3, name string) *IcebergTable {
+func NewIcebergTable(config *common.CommonConfig, storageS3 *StorageS3, schemaName string, tableName string) *IcebergTable {
 	return &IcebergTable{
 		Config:         config,
-		Name:           name,
-		IcebergCatalog: NewIcebergCatalog(config),
+		SchemaName:     schemaName,
+		TableName:      tableName,
+		IcebergCatalog: NewIcebergCatalog(config, schemaName),
 		StorageS3:      storageS3,
 	}
 }
 
 func (table *IcebergTable) Create() {
-	LogInfo(table.Config, "Creating Iceberg table:", table.Name)
-	table.IcebergCatalog.CreateTable(table.Name, table.GeneratedS3TablePath+"/metadata/"+ICEBERG_METADATA_INITIAL_FILE_NAME)
+	common.LogInfo(table.Config, "Creating Iceberg table:", table.TableName)
+	table.IcebergCatalog.CreateTable(table.TableName, table.GeneratedS3TablePath+"/metadata/"+ICEBERG_METADATA_INITIAL_FILE_NAME)
 }
 
 func (table *IcebergTable) DeleteIfExists() {
-	s3TablePath := table.IcebergCatalog.S3TablePath(table.Name)
+	s3TablePath := table.IcebergCatalog.S3TablePath(table.TableName)
 	if s3TablePath == "" {
 		return
 	}
 
-	LogInfo(table.Config, "Deleting Iceberg table:", table.Name)
+	common.LogInfo(table.Config, "Deleting Iceberg table:", table.TableName)
 	table.StorageS3.DeleteTableFiles(s3TablePath)
-	table.IcebergCatalog.DeleteTable(table.Name)
+	table.IcebergCatalog.DeleteTable(table.TableName)
 }
 
 func (table *IcebergTable) Rename(newName string) {
-	LogInfo(table.Config, "Renaming Iceberg table from", table.Name, "to", newName)
-	table.IcebergCatalog.RenameTable(table.Name, newName)
-	table.Name = newName
+	common.LogInfo(table.Config, "Renaming Iceberg table from", table.TableName, "to", newName)
+	table.IcebergCatalog.RenameTable(table.TableName, newName)
+	table.TableName = newName
 }
 
 func (table *IcebergTable) GenerateS3TablePath() {
-	table.GeneratedS3TablePath = "s3://" + table.Config.Aws.S3Bucket + "/iceberg/" + table.Config.DestinationSchemaName + "/" + table.Name + "-" + uuid.New().String()
+	table.GeneratedS3TablePath = "s3://" + table.Config.Aws.S3Bucket + "/iceberg/" + table.SchemaName + "/" + table.TableName + "-" + uuid.New().String()
 }

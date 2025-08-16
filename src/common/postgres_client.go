@@ -1,12 +1,14 @@
-package main
+package common
 
 import (
 	"context"
+	"io"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -15,10 +17,10 @@ const (
 
 type PostgresClient struct {
 	Conn   *pgx.Conn
-	Config *Config
+	Config *CommonConfig
 }
 
-func NewPostgresClient(config *Config, databaseUrl string) *PostgresClient {
+func NewPostgresClient(config *CommonConfig, databaseUrl string) *PostgresClient {
 	ctx, cancel := context.WithTimeout(context.Background(), CONNECTION_TIMEOUT)
 	defer cancel()
 
@@ -44,6 +46,16 @@ func (client *PostgresClient) Query(ctx context.Context, query string, args ...a
 func (client *PostgresClient) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	LogDebug(client.Config, "Postgres query:", query)
 	return client.Conn.QueryRow(ctx, query, args...)
+}
+
+func (client *PostgresClient) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	LogDebug(client.Config, "Postgres exec:", query)
+	return client.Conn.Exec(ctx, query, args...)
+}
+
+func (client *PostgresClient) Copy(writer io.Writer, query string) (pgconn.CommandTag, error) {
+	LogDebug(client.Config, "Postgres copy:", query)
+	return client.Conn.PgConn().CopyTo(context.Background(), writer, query)
 }
 
 // Example:

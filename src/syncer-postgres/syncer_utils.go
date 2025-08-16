@@ -7,8 +7,9 @@ import (
 	"io"
 	"strings"
 
-	goDuckdb "github.com/marcboeker/go-duckdb/v2"
+	"github.com/marcboeker/go-duckdb/v2"
 
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
@@ -45,7 +46,7 @@ func (utils *SyncerUtils) ShouldSyncTable(pgSchemaTable PgSchemaTable) bool {
 	return true
 }
 
-func (utils *SyncerUtils) CreateTableIfNotExists(trino *common.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn) {
+func (utils *SyncerUtils) CreateTableIfNotExists(trino *syncerCommon.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn) {
 	columnSchemas := []string{}
 	for _, pgSchemaColumn := range pgSchemaColumns {
 		columnSchemas = append(columnSchemas, `"`+pgSchemaColumn.ColumnName+"\" "+pgSchemaColumn.TrinoType())
@@ -54,17 +55,17 @@ func (utils *SyncerUtils) CreateTableIfNotExists(trino *common.Trino, pgSchemaTa
 	trino.CreateTableIfNotExists(pgSchemaTable.IcebergTableName(), "("+strings.Join(columnSchemas, ",")+")")
 }
 
-func (utils *SyncerUtils) DropOldTables(trino *common.Trino, keepIcebergTableNames common.Set[string]) {
+func (utils *SyncerUtils) DropOldTables(trino *syncerCommon.Trino, keepIcebergTableNames common.Set[string]) {
 	ctx := context.Background()
 	trinoTableNames := make([]string, 0)
 
 	rows, err := trino.QueryContext(ctx, "SHOW TABLES FROM "+trino.Schema())
-	common.PanicIfError(utils.Config.BaseConfig, err)
+	common.PanicIfError(utils.Config.CommonConfig, err)
 
 	for rows.Next() {
 		var tableName string
 		err := rows.Scan(&tableName)
-		common.PanicIfError(utils.Config.BaseConfig, err)
+		common.PanicIfError(utils.Config.CommonConfig, err)
 		trinoTableNames = append(trinoTableNames, tableName)
 	}
 
@@ -73,14 +74,14 @@ func (utils *SyncerUtils) DropOldTables(trino *common.Trino, keepIcebergTableNam
 			continue
 		}
 
-		common.LogInfo(utils.Config.BaseConfig, "Dropping old table: "+trinoTableName)
+		common.LogInfo(utils.Config.CommonConfig, "Dropping old table: "+trinoTableName)
 		_, err = trino.ExecContext(ctx, "DROP TABLE IF EXISTS "+trino.Schema()+`."`+trinoTableName+`"`)
-		common.PanicIfError(utils.Config.BaseConfig, err)
+		common.PanicIfError(utils.Config.CommonConfig, err)
 	}
 }
 
-func (utils *SyncerUtils) DeleteOldTables(storageS3 *common.StorageS3, keepIcebergTableNames common.Set[string]) {
-	icebergCatalog := common.NewIcebergCatalog(utils.Config.BaseConfig)
+func (utils *SyncerUtils) DeleteOldTables(storageS3 *syncerCommon.StorageS3, keepIcebergTableNames common.Set[string]) {
+	icebergCatalog := syncerCommon.NewIcebergCatalog(utils.Config.CommonConfig, utils.Config.DestinationSchemaName)
 	icebergTableNames := icebergCatalog.TableNames()
 
 	for _, icebergTableName := range icebergTableNames.Values() {
@@ -88,17 +89,17 @@ func (utils *SyncerUtils) DeleteOldTables(storageS3 *common.StorageS3, keepIcebe
 			continue
 		}
 
-		common.LogInfo(utils.Config.BaseConfig, "Deleting old Iceberg table: "+icebergTableName)
-		icebergTable := common.NewIcebergTable(utils.Config.BaseConfig, storageS3, icebergTableName)
+		common.LogInfo(utils.Config.CommonConfig, "Deleting old Iceberg table: "+icebergTableName)
+		icebergTable := syncerCommon.NewIcebergTable(utils.Config.CommonConfig, storageS3, utils.Config.DestinationSchemaName, icebergTableName)
 		icebergTable.DeleteIfExists()
 	}
 }
 
-func (utils *SyncerUtils) InsertFromCappedBuffer(trino *common.Trino, quotedTrinoTablePath string, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, cappedBuffer *common.CappedBuffer) {
+func (utils *SyncerUtils) InsertFromCappedBuffer(trino *syncerCommon.Trino, quotedTrinoTablePath string, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, cappedBuffer *syncerCommon.CappedBuffer) {
 	ctx := context.Background()
 	csvReader := csv.NewReader(cappedBuffer)
 	_, err := csvReader.Read() // Read the header row
-	common.PanicIfError(utils.Config.BaseConfig, err)
+	common.PanicIfError(utils.Config.CommonConfig, err)
 
 	quotedColumnNames := []string{}
 	for _, pgSchemaColumn := range pgSchemaColumns {
@@ -116,7 +117,7 @@ func (utils *SyncerUtils) InsertFromCappedBuffer(trino *common.Trino, quotedTrin
 			break
 		}
 		if err != nil {
-			common.PanicIfError(utils.Config.BaseConfig, err)
+			common.PanicIfError(utils.Config.CommonConfig, err)
 		}
 
 		rowValues := []string{}
@@ -126,20 +127,20 @@ func (utils *SyncerUtils) InsertFromCappedBuffer(trino *common.Trino, quotedTrin
 		rowValuesStatement := "(" + strings.Join(rowValues, ",") + ")"
 
 		currentRowCount++
-		if len(currentSql)+len(rowValuesStatement)+1 < common.TRINO_MAX_QUERY_LENGTH { // +1 for the comma
+		if len(currentSql)+len(rowValuesStatement)+1 < syncerCommon.TRINO_MAX_QUERY_LENGTH { // +1 for the comma
 			if currentSql != insertSqlPrefix {
 				currentSql += ","
 			}
 			currentSql += rowValuesStatement
 		} else {
 			_, err := trino.ExecContext(ctx, currentSql)
-			common.PanicIfError(utils.Config.BaseConfig, err)
-			common.LogInfo(utils.Config.BaseConfig, "Inserted", currentRowCount, "rows into table:", pgSchemaTable.String())
+			common.PanicIfError(utils.Config.CommonConfig, err)
+			common.LogInfo(utils.Config.CommonConfig, "Inserted", currentRowCount, "rows into table:", pgSchemaTable.String())
 			currentSql = insertSqlPrefix + rowValuesStatement
 			currentRowCount = 1
 			batchCount++
 			if batchCount%COMPACT_AFTER_INSERT_BATCH_COUNT == 0 {
-				common.LogInfo(utils.Config.BaseConfig, "Compacting table:", pgSchemaTable.String(), "after", batchCount, "insert batches")
+				common.LogInfo(utils.Config.CommonConfig, "Compacting table:", pgSchemaTable.String(), "after", batchCount, "insert batches")
 				trino.CompactTable(quotedTrinoTablePath)
 			}
 		}
@@ -147,17 +148,17 @@ func (utils *SyncerUtils) InsertFromCappedBuffer(trino *common.Trino, quotedTrin
 
 	if currentSql != insertSqlPrefix {
 		_, err := trino.ExecContext(ctx, currentSql)
-		common.PanicIfError(utils.Config.BaseConfig, err)
-		common.LogInfo(utils.Config.BaseConfig, "Inserted", currentRowCount, "rows into table:", pgSchemaTable.String())
+		common.PanicIfError(utils.Config.CommonConfig, err)
+		common.LogInfo(utils.Config.CommonConfig, "Inserted", currentRowCount, "rows into table:", pgSchemaTable.String())
 	}
 }
 
-func (utils *SyncerUtils) ReplaceFromCappedBuffer(icebergWriter *common.IcebergWriter, icebergTable *common.IcebergTable, cappedBuffer *common.CappedBuffer) {
+func (utils *SyncerUtils) ReplaceFromCappedBuffer(icebergWriter *syncerCommon.IcebergWriter, icebergTable *syncerCommon.IcebergTable, cappedBuffer *syncerCommon.CappedBuffer) {
 	csvReader := csv.NewReader(cappedBuffer)
 	_, err := csvReader.Read() // Read the header row
-	common.PanicIfError(utils.Config.BaseConfig, err)
+	common.PanicIfError(utils.Config.CommonConfig, err)
 
-	icebergWriter.Write(icebergTable.GeneratedS3TablePath, func(appender *goDuckdb.Appender) (rowCount int, reachedEnd bool) {
+	icebergWriter.Write(icebergTable.GeneratedS3TablePath, func(appender *duckdb.Appender) (rowCount int, reachedEnd bool) {
 		var loadedSize int
 
 		for {
@@ -167,7 +168,7 @@ func (utils *SyncerUtils) ReplaceFromCappedBuffer(icebergWriter *common.IcebergW
 				break
 			}
 			if err != nil {
-				common.PanicIfError(utils.Config.BaseConfig, err)
+				common.PanicIfError(utils.Config.CommonConfig, err)
 			}
 
 			values := make([]driver.Value, len(icebergWriter.IcebergSchemaColumns))
@@ -175,19 +176,19 @@ func (utils *SyncerUtils) ReplaceFromCappedBuffer(icebergWriter *common.IcebergW
 				values[i] = icebergSchemaColumn.DuckdbValueFromCsv(row[i])
 				loadedSize += len(row[i])
 			}
-			common.LogTrace(utils.Config.BaseConfig, "DuckDB appending values:", values)
+			common.LogTrace(utils.Config.CommonConfig, "DuckDB appending values:", values)
 
 			err = appender.AppendRow(values...)
-			common.PanicIfError(utils.Config.BaseConfig, err)
+			common.PanicIfError(utils.Config.CommonConfig, err)
 
 			rowCount++
 			if loadedSize >= MAX_ICEBERG_WRITER_BATCH_SIZE {
-				common.LogDebug(utils.Config.BaseConfig, "Reached batch size limit")
+				common.LogDebug(utils.Config.CommonConfig, "Reached batch size limit")
 				break
 			}
 		}
 
-		common.LogInfo(utils.Config.BaseConfig, "Loaded", rowCount, "rows")
+		common.LogInfo(utils.Config.CommonConfig, "Loaded", rowCount, "rows")
 		return rowCount, reachedEnd
 	})
 }

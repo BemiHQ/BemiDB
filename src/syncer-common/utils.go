@@ -1,4 +1,4 @@
-package common
+package syncerCommon
 
 import (
 	"bytes"
@@ -10,11 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
 
-func IntToString(i int) string {
-	return strconv.Itoa(i)
-}
+	"github.com/BemiHQ/BemiDB/src/common"
+)
 
 func Int64ToString(i int64) string {
 	return strconv.FormatInt(i, 10)
@@ -101,10 +99,6 @@ func StringMsToUtcTime(s string) time.Time {
 	return t.UTC()
 }
 
-func IsLocalHost(host string) bool {
-	return strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost")
-}
-
 type AnonymousAnalyticsData struct {
 	Command  string `json:"command"`
 	OsName   string `json:"osName"`
@@ -113,7 +107,7 @@ type AnonymousAnalyticsData struct {
 	Name     string `json:"name"`
 }
 
-func SendAnonymousAnalytics(config *BaseConfig, command string, name string) {
+func SendAnonymousAnalytics(config *common.CommonConfig, command string, name string) {
 	if config.DisableAnonymousAnalytics {
 		return
 	}
@@ -121,7 +115,7 @@ func SendAnonymousAnalytics(config *BaseConfig, command string, name string) {
 	data := AnonymousAnalyticsData{
 		Command:  command,
 		OsName:   runtime.GOOS + "-" + runtime.GOARCH,
-		Version:  VERSION,
+		Version:  common.VERSION,
 		S3Bucket: config.Aws.S3Endpoint + "/" + config.Aws.S3Bucket,
 		Name:     name,
 	}

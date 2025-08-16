@@ -1,16 +1,11 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"reflect"
-	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsConfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 type MetadataJson struct {
@@ -25,49 +20,21 @@ type MetadataJson struct {
 }
 
 type StorageS3 struct {
-	S3Client *s3.Client
+	S3Client *common.S3Client
 	Config   *Config
 }
 
-func NewS3Storage(Config *Config) *StorageS3 {
-	var awsConfigOptions = []func(*awsConfig.LoadOptions) error{
-		awsConfig.WithRegion(Config.Aws.Region),
-	}
-
-	if Config.LogLevel == LOG_LEVEL_TRACE {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithClientLogMode(aws.LogRequest))
-	}
-
-	if IsLocalHost(Config.Aws.S3Endpoint) {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("http://"+Config.Aws.S3Endpoint))
-	} else {
-		awsConfigOptions = append(awsConfigOptions, awsConfig.WithBaseEndpoint("https://"+Config.Aws.S3Endpoint))
-	}
-
-	awsCredentials := credentials.NewStaticCredentialsProvider(
-		Config.Aws.AccessKeyId,
-		Config.Aws.SecretAccessKey,
-		"",
-	)
-	awsConfigOptions = append(awsConfigOptions, awsConfig.WithCredentialsProvider(awsCredentials))
-
-	loadedAwsConfig, err := awsConfig.LoadDefaultConfig(context.Background(), awsConfigOptions...)
-	PanicIfError(Config, err)
-
-	S3Client := s3.NewFromConfig(loadedAwsConfig, func(o *s3.Options) {
-		if Config.Aws.S3Endpoint != DEFAULT_AWS_S3_ENDPOINT {
-			o.UsePathStyle = true
-		}
-	})
+func NewS3Storage(config *Config) *StorageS3 {
+	s3Client := common.NewS3Client(config.CommonConfig)
 
 	return &StorageS3{
-		S3Client: S3Client,
-		Config:   Config,
+		Config:   config,
+		S3Client: s3Client,
 	}
 }
 
 func (storage *StorageS3) IcebergTableFields(metadataPath string) ([]IcebergTableField, error) {
-	metadataKey := strings.TrimPrefix(metadataPath, "s3://"+storage.Config.Aws.S3Bucket+"/")
+	metadataKey := storage.S3Client.ObjectKey(metadataPath)
 	metadataContent, err := storage.readFileContent(metadataKey)
 	if err != nil {
 		return nil, err
@@ -77,14 +44,7 @@ func (storage *StorageS3) IcebergTableFields(metadataPath string) ([]IcebergTabl
 }
 
 func (storage *StorageS3) readFileContent(fileKey string) ([]byte, error) {
-	ctx := context.Background()
-	getObjectResponse, err := storage.S3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(storage.Config.Aws.S3Bucket),
-		Key:    aws.String(fileKey),
-	})
-	if err != nil {
-		return nil, err
-	}
+	getObjectResponse := storage.S3Client.GetObject(fileKey)
 
 	fileContent, err := io.ReadAll(getObjectResponse.Body)
 	if err != nil {

@@ -6,7 +6,7 @@ import (
 	nts "github.com/nats-io/nats.go"
 	js "github.com/nats-io/nats.go/jetstream"
 
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const ()
@@ -24,14 +24,14 @@ func NewNats(config *Config) *Nats {
 func (nats *Nats) Stream(ctx context.Context) js.Stream {
 	jetstream := nats.newJetstream()
 	stream, err := jetstream.Stream(ctx, nats.Config.Nats.Stream)
-	common.PanicIfError(nats.Config.BaseConfig, err)
+	common.PanicIfError(nats.Config.CommonConfig, err)
 	return stream
 }
 
 func (nats *Nats) newJetstream() js.JetStream {
 	nc, err := nts.Connect(nats.Config.Nats.Url)
-	common.PanicIfError(nats.Config.BaseConfig, err)
+	common.PanicIfError(nats.Config.CommonConfig, err)
 	jetstream, err := js.New(nc)
-	common.PanicIfError(nats.Config.BaseConfig, err)
+	common.PanicIfError(nats.Config.CommonConfig, err)
 	return jetstream
 }

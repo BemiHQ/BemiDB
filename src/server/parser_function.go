@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	pgQuery "github.com/pganalyze/pg_query_go/v6"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 type ParserFunction struct {
@@ -66,7 +68,7 @@ func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) 
 func (parser *ParserFunction) RemapFormatToPrintf(functionCall *pgQuery.FuncCall) *pgQuery.FuncCall {
 	format := parser.FirstArgumentToString(functionCall)
 	for i := range functionCall.Args[1:] {
-		format = strings.Replace(format, "%s", "%"+IntToString(i+1)+"$s", 1)
+		format = strings.Replace(format, "%s", "%"+common.IntToString(i+1)+"$s", 1)
 	}
 
 	functionCall.Funcname = []*pgQuery.Node{pgQuery.MakeStrNode("printf")}

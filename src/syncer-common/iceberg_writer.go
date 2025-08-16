@@ -1,16 +1,17 @@
-package common
+package syncerCommon
 
 import (
-	goDuckdb "github.com/marcboeker/go-duckdb/v2"
+	"github.com/BemiHQ/BemiDB/src/common"
+	"github.com/marcboeker/go-duckdb/v2"
 )
 
 type IcebergWriter struct {
-	Config               *BaseConfig
+	Config               *common.CommonConfig
 	IcebergSchemaColumns []*IcebergSchemaColumn
 	StorageS3            *StorageS3
 }
 
-func NewIcebergWriter(config *BaseConfig, storageS3 *StorageS3, icebergSchemaColumns []*IcebergSchemaColumn) *IcebergWriter {
+func NewIcebergWriter(config *common.CommonConfig, storageS3 *StorageS3, icebergSchemaColumns []*IcebergSchemaColumn) *IcebergWriter {
 	return &IcebergWriter{
 		Config:               config,
 		IcebergSchemaColumns: icebergSchemaColumns,
@@ -18,7 +19,7 @@ func NewIcebergWriter(config *BaseConfig, storageS3 *StorageS3, icebergSchemaCol
 	}
 }
 
-func (writer *IcebergWriter) Write(s3TablePath string, loadRows func(appender *goDuckdb.Appender) (rowCount int, reachedEnd bool)) {
+func (writer *IcebergWriter) Write(s3TablePath string, loadRows func(appender *duckdb.Appender) (rowCount int, reachedEnd bool)) {
 	s3DataPath := s3TablePath + "/data"
 	s3MetadataPath := s3TablePath + "/metadata"
 
@@ -38,20 +39,20 @@ func (writer *IcebergWriter) Write(s3TablePath string, loadRows func(appender *g
 		}
 
 		newManifestFile, err := writer.StorageS3.CreateManifest(s3MetadataPath, newParquetFile)
-		PanicIfError(writer.Config, err)
+		common.PanicIfError(writer.Config, err)
 
 		lastSequenceNumber++
 		newManifestListItem := ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: newManifestFile}
 		newManifestListItemsSortedDesc = append([]ManifestListItem{newManifestListItem}, newManifestListItemsSortedDesc...)
 
 		newManifestListFile, err := writer.StorageS3.CreateManifestList(s3MetadataPath, firstNewParquetFile.Uuid, newManifestListItemsSortedDesc)
-		PanicIfError(writer.Config, err)
+		common.PanicIfError(writer.Config, err)
 
 		finalManifestListFilesSortedAsc = append(finalManifestListFilesSortedAsc, newManifestListFile)
 		_, err = writer.StorageS3.CreateMetadata(s3MetadataPath, writer.IcebergSchemaColumns, finalManifestListFilesSortedAsc)
-		PanicIfError(writer.Config, err)
+		common.PanicIfError(writer.Config, err)
 
-		LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in Parquet file #"+IntToString(newParquetCount))
+		common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in Parquet file #"+common.IntToString(newParquetCount))
 
 		if reachedEnd {
 			return

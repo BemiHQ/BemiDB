@@ -6,10 +6,12 @@ import (
 	"strings"
 
 	pgQuery "github.com/pganalyze/pg_query_go/v6"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
-var PG_CATALOG_TABLE_NAMES = Set[string]{}
-var PG_INFORMATION_SCHEMA_TABLE_NAMES = Set[string]{}
+var PG_CATALOG_TABLE_NAMES = common.Set[string]{}
+var PG_INFORMATION_SCHEMA_TABLE_NAMES = common.Set[string]{}
 
 func CreatePgCatalogTableQueries(config *Config) []string {
 	result := []string{
@@ -101,13 +103,13 @@ type QueryRemapperTable struct {
 	parserTable         *ParserTable
 	parserFunction      *ParserFunction
 	remapperFunction    *QueryRemapperFunction
-	icebergSchemaTables Set[IcebergSchemaTable]
+	icebergSchemaTables common.Set[IcebergSchemaTable]
 	icebergReader       *IcebergReader
-	duckdb              *Duckdb // nilable
+	duckdb              *common.DuckdbClient // nilable
 	config              *Config
 }
 
-func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, duckdb *Duckdb) *QueryRemapperTable {
+func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, duckdb *common.DuckdbClient) *QueryRemapperTable {
 	remapper := &QueryRemapperTable{
 		parserTable:      NewParserTable(config),
 		parserFunction:   NewParserFunction(config),
@@ -200,11 +202,11 @@ func (remapper *QueryRemapperTable) RemapTableFunctionCall(rangeFunction *pgQuer
 func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 	newIcebergSchemaTables, err := remapper.icebergReader.SchemaTables()
 	if err != nil && strings.Contains(err.Error(), "no Iceberg directory found") {
-		PrintErrorAndExit(remapper.config, err.Error()+".\n\n"+
+		common.PrintErrorAndExit(remapper.config.CommonConfig, err.Error()+".\n\n"+
 			"Please make sure to run 'bemidb sync' first.\n"+
 			"See https://github.com/BemiHQ/BemiDB#quickstart for more information.")
 	}
-	PanicIfError(remapper.config, err)
+	common.PanicIfError(remapper.config.CommonConfig, err)
 
 	previousIcebergSchemaTables := remapper.icebergSchemaTables
 	remapper.icebergSchemaTables = newIcebergSchemaTables
@@ -218,29 +220,29 @@ func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 	for _, icebergSchemaTable := range newIcebergSchemaTables.Values() {
 		if !previousIcebergSchemaTables.Contains(icebergSchemaTable) {
 			icebergTableFields, err := remapper.icebergReader.TableFields(icebergSchemaTable)
-			PanicIfError(remapper.config, err)
+			common.PanicIfError(remapper.config.CommonConfig, err)
 
 			var sqlColumns []string
 			for _, icebergTableField := range icebergTableFields {
 				sqlColumns = append(sqlColumns, icebergTableField.ToSql())
 			}
 
-			_, err = remapper.duckdb.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+icebergSchemaTable.Schema, nil)
-			PanicIfError(remapper.config, err)
-			_, err = remapper.duckdb.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS "+icebergSchemaTable.String()+" ("+strings.Join(sqlColumns, ", ")+")", nil)
-			PanicIfError(remapper.config, err)
+			_, err = remapper.duckdb.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+icebergSchemaTable.Schema)
+			common.PanicIfError(remapper.config.CommonConfig, err)
+			_, err = remapper.duckdb.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS "+icebergSchemaTable.String()+" ("+strings.Join(sqlColumns, ", ")+")")
+			common.PanicIfError(remapper.config.CommonConfig, err)
 		}
 	}
 	// DROP TABLE IF EXISTS
 	for _, icebergSchemaTable := range previousIcebergSchemaTables.Values() {
 		if !newIcebergSchemaTables.Contains(icebergSchemaTable) {
-			_, err = remapper.duckdb.ExecContext(ctx, "DROP TABLE IF EXISTS "+icebergSchemaTable.String(), nil)
-			PanicIfError(remapper.config, err)
+			_, err = remapper.duckdb.ExecContext(ctx, "DROP TABLE IF EXISTS "+icebergSchemaTable.String())
+			common.PanicIfError(remapper.config.CommonConfig, err)
 		}
 	}
 }
 
-func (remapper *QueryRemapperTable) upsertPgStatUserTables(icebergSchemaTables Set[IcebergSchemaTable]) {
+func (remapper *QueryRemapperTable) upsertPgStatUserTables(icebergSchemaTables common.Set[IcebergSchemaTable]) {
 	if remapper.duckdb == nil {
 		return
 	}
@@ -254,7 +256,7 @@ func (remapper *QueryRemapperTable) upsertPgStatUserTables(icebergSchemaTables S
 		"DELETE FROM pg_stat_user_tables",
 		"INSERT INTO pg_stat_user_tables VALUES " + strings.Join(values, ", "),
 	})
-	PanicIfError(remapper.config, err)
+	common.PanicIfError(remapper.config.CommonConfig, err)
 }
 
 // System pg_* tables
@@ -265,8 +267,8 @@ func (remapper *QueryRemapperTable) isTableFromPgCatalog(qSchemaTable QuerySchem
 			!remapper.icebergSchemaTables.Contains(qSchemaTable.ToIcebergSchemaTable()))
 }
 
-func extractTableNames(tables []string) Set[string] {
-	names := make(Set[string])
+func extractTableNames(tables []string) common.Set[string] {
+	names := make(common.Set[string])
 	re := regexp.MustCompile(`CREATE (TABLE|VIEW) (\w+)`)
 
 	for _, table := range tables {

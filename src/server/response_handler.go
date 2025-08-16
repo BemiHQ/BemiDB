@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	duckDb "github.com/marcboeker/go-duckdb/v2"
+	"github.com/marcboeker/go-duckdb/v2"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 type ResponseHandler struct {
@@ -106,7 +108,7 @@ func (responseHandler *ResponseHandler) ColumnDescriptionTypeOid(col *sql.Column
 		}
 	}
 
-	Panic(responseHandler.Config, "Unsupported serialized column type: "+col.DatabaseTypeName())
+	common.Panic(responseHandler.Config.CommonConfig, "Unsupported serialized column type: "+col.DatabaseTypeName())
 	return 0
 }
 
@@ -139,7 +141,7 @@ func (responseHandler *ResponseHandler) RowValuePointer(col *sql.ColumnType) int
 		return new(NullArray)
 	}
 
-	Panic(responseHandler.Config, "Unsupported data row type: "+col.ScanType().String())
+	common.Panic(responseHandler.Config.CommonConfig, "Unsupported data row type: "+col.ScanType().String())
 	return nil
 }
 
@@ -147,19 +149,19 @@ func (responseHandler *ResponseHandler) RowValueBytes(valuePtr interface{}, col 
 	switch value := valuePtr.(type) {
 	case *sql.NullInt16:
 		if value.Valid {
-			return []byte(IntToString(int(value.Int16)))
+			return []byte(common.IntToString(int(value.Int16)))
 		} else {
 			return nil
 		}
 	case *sql.NullInt32:
 		if value.Valid {
-			return []byte(IntToString(int(value.Int32)))
+			return []byte(common.IntToString(int(value.Int32)))
 		} else {
 			return nil
 		}
 	case *sql.NullInt64:
 		if value.Valid {
-			return []byte(IntToString(int(value.Int64)))
+			return []byte(common.IntToString(int(value.Int64)))
 		} else {
 			return nil
 		}
@@ -193,7 +195,7 @@ func (responseHandler *ResponseHandler) RowValueBytes(valuePtr interface{}, col 
 			case "TIMESTAMPTZ":
 				return []byte(value.Time.Format("2006-01-02 15:04:05.999999-07:00"))
 			default:
-				Panic(responseHandler.Config, "Unsupported scanned time type: "+col.DatabaseTypeName())
+				common.Panic(responseHandler.Config.CommonConfig, "Unsupported scanned time type: "+col.DatabaseTypeName())
 			}
 		} else {
 			return nil
@@ -226,7 +228,7 @@ func (responseHandler *ResponseHandler) RowValueBytes(valuePtr interface{}, col 
 		return []byte(*value)
 	}
 
-	Panic(responseHandler.Config, "Unsupported scanned row type: "+col.ScanType().Name())
+	common.Panic(responseHandler.Config.CommonConfig, "Unsupported scanned row type: "+col.ScanType().Name())
 	return nil
 }
 
@@ -249,7 +251,7 @@ func (responseHandler *ResponseHandler) isSystemTableOidColumn(colName string) b
 
 type NullDecimal struct {
 	Present bool
-	Value   duckDb.Decimal
+	Value   duckdb.Decimal
 }
 
 func (nullDecimal *NullDecimal) Scan(value interface{}) error {
@@ -259,7 +261,7 @@ func (nullDecimal *NullDecimal) Scan(value interface{}) error {
 	}
 
 	nullDecimal.Present = true
-	nullDecimal.Value = value.(duckDb.Decimal)
+	nullDecimal.Value = value.(duckdb.Decimal)
 	return nil
 }
 
@@ -274,7 +276,7 @@ func (nullDecimal NullDecimal) String() string {
 
 type NullInterval struct {
 	Present bool
-	Value   duckDb.Interval
+	Value   duckdb.Interval
 }
 
 func (nullInterval *NullInterval) Scan(value interface{}) error {
@@ -284,7 +286,7 @@ func (nullInterval *NullInterval) Scan(value interface{}) error {
 	}
 
 	nullInterval.Present = true
-	nullInterval.Value = value.(duckDb.Interval)
+	nullInterval.Value = value.(duckdb.Interval)
 	return nil
 }
 

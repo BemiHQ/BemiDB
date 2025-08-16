@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
@@ -21,6 +22,11 @@ const (
 	ENV_NATS_SUBJECT               = "NATS_JETSTREAM_SUBJECT"
 	ENV_NATS_CONSUMER_NAME         = "NATS_JETSTREAM_CONSUMER_NAME"
 	ENV_NATS_FETCH_TIMEOUT_SECONDS = "NATS_FETCH_TIMEOUT_SECONDS"
+
+	ENV_TRINO_DATABASE_URL = "TRINO_DATABASE_URL"
+	ENV_TRINO_CATALOG_NAME = "TRINO_CATALOG_NAME"
+
+	ENV_DESTINATION_SCHEMA_NAME = "DESTINATION_SCHEMA_NAME"
 
 	ENV_DATABASE_URL          = "SOURCE_POSTGRES_DATABASE_URL"
 	ENV_SYNC_MODE             = "SOURCE_POSTGRES_SYNC_MODE"
@@ -42,7 +48,10 @@ type NatsConfig struct {
 }
 
 type Config struct {
-	BaseConfig                  *common.BaseConfig
+	CommonConfig          *common.CommonConfig
+	TrinoConfig           *syncerCommon.TrinoConfig
+	DestinationSchemaName string
+
 	SyncMode                    SyncMode
 	DatabaseUrl                 string
 	IncludeSchemas              common.Set[string]
@@ -69,19 +78,21 @@ func init() {
 }
 
 func registerFlags() {
-	_config.BaseConfig = &common.BaseConfig{}
+	_config.CommonConfig = &common.CommonConfig{}
+	_config.TrinoConfig = &syncerCommon.TrinoConfig{}
 
-	flag.StringVar(&_config.BaseConfig.LogLevel, "log-level", os.Getenv(common.ENV_LOG_LEVEL), `Log level: "ERROR", "WARN", "INFO", "DEBUG", "TRACE". Default: "`+common.DEFAULT_LOG_LEVEL+`"`)
-	flag.StringVar(&_config.BaseConfig.CatalogDatabaseUrl, "catalog-database-url", os.Getenv(common.ENV_CATALOG_DATABASE_URL), "Catalog database URL")
-	flag.StringVar(&_config.BaseConfig.DestinationSchemaName, "destination-schema-name", os.Getenv(common.ENV_DESTINATION_SCHEMA_NAME), "Destination schema name to store the synced data")
-	flag.StringVar(&_config.BaseConfig.Trino.DatabaseUrl, "trino-database-url", os.Getenv(common.ENV_TRINO_DATABASE_URL), "Trino database URL to sync to")
-	flag.StringVar(&_config.BaseConfig.Trino.CatalogName, "trino-catalog-name", os.Getenv(common.ENV_TRINO_CATALOG_NAME), "Trino catalog name")
-	flag.StringVar(&_config.BaseConfig.Aws.Region, "aws-region", os.Getenv(common.ENV_AWS_REGION), "AWS region")
-	flag.StringVar(&_config.BaseConfig.Aws.S3Endpoint, "aws-s3-endpoint", os.Getenv(common.ENV_AWS_S3_ENDPOINT), "AWS S3 endpoint. Default: \""+common.DEFAULT_AWS_S3_ENDPOINT+`"`)
-	flag.StringVar(&_config.BaseConfig.Aws.S3Bucket, "aws-s3-bucket", os.Getenv(common.ENV_AWS_S3_BUCKET), "AWS S3 bucket name")
-	flag.StringVar(&_config.BaseConfig.Aws.AccessKeyId, "aws-access-key-id", os.Getenv(common.ENV_AWS_ACCESS_KEY_ID), "AWS access key ID")
-	flag.StringVar(&_config.BaseConfig.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(common.ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
-	flag.BoolVar(&_config.BaseConfig.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(common.ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
+	flag.StringVar(&_config.CommonConfig.LogLevel, "log-level", os.Getenv(common.ENV_LOG_LEVEL), `Log level: "ERROR", "WARN", "INFO", "DEBUG", "TRACE". Default: "`+common.DEFAULT_LOG_LEVEL+`"`)
+	flag.StringVar(&_config.CommonConfig.CatalogDatabaseUrl, "catalog-database-url", os.Getenv(common.ENV_CATALOG_DATABASE_URL), "Catalog database URL")
+	flag.StringVar(&_config.CommonConfig.Aws.Region, "aws-region", os.Getenv(common.ENV_AWS_REGION), "AWS region")
+	flag.StringVar(&_config.CommonConfig.Aws.S3Endpoint, "aws-s3-endpoint", os.Getenv(common.ENV_AWS_S3_ENDPOINT), "AWS S3 endpoint. Default: \""+common.DEFAULT_AWS_S3_ENDPOINT+`"`)
+	flag.StringVar(&_config.CommonConfig.Aws.S3Bucket, "aws-s3-bucket", os.Getenv(common.ENV_AWS_S3_BUCKET), "AWS S3 bucket name")
+	flag.StringVar(&_config.CommonConfig.Aws.AccessKeyId, "aws-access-key-id", os.Getenv(common.ENV_AWS_ACCESS_KEY_ID), "AWS access key ID")
+	flag.StringVar(&_config.CommonConfig.Aws.SecretAccessKey, "aws-secret-access-key", os.Getenv(common.ENV_AWS_SECRET_ACCESS_KEY), "AWS secret access key")
+	flag.BoolVar(&_config.CommonConfig.DisableAnonymousAnalytics, "disable-anonymous-analytics", os.Getenv(common.ENV_DISABLE_ANONYMOUS_ANALYTICS) == "true", "Disable anonymous analytics collection")
+
+	flag.StringVar(&_config.TrinoConfig.DatabaseUrl, "trino-database-url", os.Getenv(ENV_TRINO_DATABASE_URL), "Trino database URL to sync to")
+	flag.StringVar(&_config.TrinoConfig.CatalogName, "trino-catalog-name", os.Getenv(ENV_TRINO_CATALOG_NAME), "Trino catalog name")
+	flag.StringVar(&_config.DestinationSchemaName, "destination-schema-name", os.Getenv(ENV_DESTINATION_SCHEMA_NAME), "Destination schema name to store the synced data")
 
 	flag.StringVar(&_config.DatabaseUrl, "database-url", os.Getenv(ENV_DATABASE_URL), "PostgreSQL database URL")
 	flag.StringVar((*string)(&_config.SyncMode), "sync-mode", os.Getenv(ENV_SYNC_MODE), `Sync mode: "FULL_REFRESH", "CDC", or "INCREMENTAL"`)
@@ -97,45 +108,45 @@ func registerFlags() {
 	flag.IntVar(&_config.Nats.FetchTimeoutSeconds, "nats-fetch-timeout-seconds", DEFAULT_NATS_FETCH_TIMEOUT_SECONDS, "NATS fetch timeout in seconds")
 	fetchTimeoutSeconds := os.Getenv(ENV_NATS_FETCH_TIMEOUT_SECONDS)
 	if fetchTimeoutSeconds != "" {
-		_config.Nats.FetchTimeoutSeconds = common.StringToInt(fetchTimeoutSeconds)
+		_config.Nats.FetchTimeoutSeconds = syncerCommon.StringToInt(fetchTimeoutSeconds)
 	}
 }
 
 func parseFlags() {
 	flag.Parse()
 
-	if _config.BaseConfig.LogLevel == "" {
-		_config.BaseConfig.LogLevel = common.DEFAULT_LOG_LEVEL
-	} else if !slices.Contains(common.LOG_LEVELS, _config.BaseConfig.LogLevel) {
-		panic("Invalid log level " + _config.BaseConfig.LogLevel + ". Must be one of " + strings.Join(common.LOG_LEVELS, ", "))
+	if _config.CommonConfig.LogLevel == "" {
+		_config.CommonConfig.LogLevel = common.DEFAULT_LOG_LEVEL
+	} else if !slices.Contains(common.LOG_LEVELS, _config.CommonConfig.LogLevel) {
+		panic("Invalid log level " + _config.CommonConfig.LogLevel + ". Must be one of " + strings.Join(common.LOG_LEVELS, ", "))
 	}
-	if _config.BaseConfig.CatalogDatabaseUrl == "" {
+	if _config.CommonConfig.CatalogDatabaseUrl == "" {
 		panic("Catalog database URL is required")
 	}
-	if _config.BaseConfig.DestinationSchemaName == "" {
-		panic("Destination schema name is required")
-	}
-	if _config.BaseConfig.Trino.DatabaseUrl == "" {
-		panic("Trino database URL is required")
-	}
-	if _config.BaseConfig.Trino.CatalogName == "" {
-		panic("Trino catalog name is required")
-	}
-
-	if _config.BaseConfig.Aws.Region == "" {
+	if _config.CommonConfig.Aws.Region == "" {
 		panic("AWS region is required")
 	}
-	if _config.BaseConfig.Aws.S3Endpoint == "" {
-		_config.BaseConfig.Aws.S3Endpoint = common.DEFAULT_AWS_S3_ENDPOINT
+	if _config.CommonConfig.Aws.S3Endpoint == "" {
+		_config.CommonConfig.Aws.S3Endpoint = common.DEFAULT_AWS_S3_ENDPOINT
 	}
-	if _config.BaseConfig.Aws.S3Bucket == "" {
+	if _config.CommonConfig.Aws.S3Bucket == "" {
 		panic("AWS S3 bucket name is required")
 	}
-	if _config.BaseConfig.Aws.AccessKeyId != "" && _config.BaseConfig.Aws.SecretAccessKey == "" {
+	if _config.CommonConfig.Aws.AccessKeyId != "" && _config.CommonConfig.Aws.SecretAccessKey == "" {
 		panic("AWS secret access key is required")
 	}
-	if _config.BaseConfig.Aws.AccessKeyId == "" && _config.BaseConfig.Aws.SecretAccessKey != "" {
+	if _config.CommonConfig.Aws.AccessKeyId == "" && _config.CommonConfig.Aws.SecretAccessKey != "" {
 		panic("AWS access key ID is required")
+	}
+
+	if _config.TrinoConfig.DatabaseUrl == "" {
+		panic("Trino database URL is required")
+	}
+	if _config.TrinoConfig.CatalogName == "" {
+		panic("Trino catalog name is required")
+	}
+	if _config.DestinationSchemaName == "" {
+		panic("Destination schema name is required")
 	}
 
 	if _configParseValues.IncludeSchemas != "" {

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const (
@@ -44,7 +44,7 @@ func (c *Amplitude) Export(startTime, endTime time.Time) ([]Event, error) {
 	req.URL.RawQuery = q.Encode()
 	req.SetBasicAuth(c.Config.ApiKey, c.Config.SecretKey)
 
-	common.LogInfo(c.Config.BaseConfig, "Fetching data from Amplitude from", startString, "to", endString)
+	common.LogInfo(c.Config.CommonConfig, "Fetching data from Amplitude from", startString, "to", endString)
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (c *Amplitude) Export(startTime, endTime time.Time) ([]Event, error) {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("amplitude API returned status %d: %s", resp.StatusCode, string(body))
 	}
-	common.LogDebug(c.Config.BaseConfig, "Received response from Amplitude:", resp.Status)
+	common.LogDebug(c.Config.CommonConfig, "Received response from Amplitude:", resp.Status)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -69,7 +69,7 @@ func (c *Amplitude) Export(startTime, endTime time.Time) ([]Event, error) {
 
 	var events []Event
 	for _, zipFile := range zipReader.File {
-		common.LogInfo(c.Config.BaseConfig, "Processing file:", zipFile.Name)
+		common.LogInfo(c.Config.CommonConfig, "Processing file:", zipFile.Name)
 		unzippedFile, err := zipFile.Open()
 		if err != nil {
 			return nil, err
@@ -90,7 +90,7 @@ func (c *Amplitude) Export(startTime, endTime time.Time) ([]Event, error) {
 				if err == io.EOF {
 					break // We're done
 				}
-				common.PanicIfError(c.Config.BaseConfig, err)
+				common.PanicIfError(c.Config.CommonConfig, err)
 			}
 			events = append(events, event)
 		}

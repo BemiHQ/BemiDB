@@ -5,6 +5,8 @@ import (
 	"net"
 
 	"github.com/jackc/pgx/v5/pgproto3"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const (
@@ -32,7 +34,7 @@ func NewPostgresServer(config *Config, conn *net.Conn) *PostgresServer {
 func NewTcpListener(config *Config) net.Listener {
 	parsedIp := net.ParseIP(config.Host)
 	if parsedIp == nil {
-		PrintErrorAndExit(config, "Invalid host: "+config.Host+".")
+		common.PrintErrorAndExit(config.CommonConfig, "Invalid host: "+config.Host+".")
 	}
 
 	var network, host string
@@ -45,20 +47,20 @@ func NewTcpListener(config *Config) net.Listener {
 	}
 
 	tcpListener, err := net.Listen(network, host+":"+config.Port)
-	PanicIfError(config, err)
+	common.PanicIfError(config.CommonConfig, err)
 	return tcpListener
 }
 
 func AcceptConnection(config *Config, listener net.Listener) net.Conn {
 	conn, err := listener.Accept()
-	PanicIfError(config, err)
+	common.PanicIfError(config.CommonConfig, err)
 	return conn
 }
 
 func (server *PostgresServer) Run(queryHandler *QueryHandler) {
 	err := server.handleStartup()
 	if err != nil {
-		LogError(server.config, "Error handling startup:", err)
+		common.LogError(server.config.CommonConfig, "Error handling startup:", err)
 		return // Terminate connection
 	}
 
@@ -77,10 +79,10 @@ func (server *PostgresServer) Run(queryHandler *QueryHandler) {
 				return // Terminate connection
 			}
 		case *pgproto3.Terminate:
-			LogDebug(server.config, "Client terminated connection")
+			common.LogDebug(server.config.CommonConfig, "Client terminated connection")
 			return
 		default:
-			LogError(server.config, "Received message other than Query from client:", message)
+			common.LogError(server.config.CommonConfig, "Received message other than Query from client:", message)
 			return // Terminate connection
 		}
 	}
@@ -91,7 +93,7 @@ func (server *PostgresServer) Close() error {
 }
 
 func (server *PostgresServer) handleSimpleQuery(queryHandler *QueryHandler, queryMessage *pgproto3.Query) {
-	LogDebug(server.config, "Received query:", queryMessage.String)
+	common.LogDebug(server.config.CommonConfig, "Received query:", queryMessage.String)
 	messages, err := queryHandler.HandleSimpleQuery(queryMessage.String)
 	if err != nil {
 		server.writeError(err)
@@ -102,7 +104,7 @@ func (server *PostgresServer) handleSimpleQuery(queryHandler *QueryHandler, quer
 }
 
 func (server *PostgresServer) handleExtendedQuery(queryHandler *QueryHandler, parseMessage *pgproto3.Parse) error {
-	LogDebug(server.config, "Parsing query", parseMessage.Query)
+	common.LogDebug(server.config.CommonConfig, "Parsing query", parseMessage.Query)
 	messages, preparedStatement, err := queryHandler.HandleParseQuery(parseMessage)
 	if err != nil {
 		server.writeError(err)
@@ -123,7 +125,7 @@ func (server *PostgresServer) handleExtendedQuery(queryHandler *QueryHandler, pa
 				continue
 			}
 
-			LogDebug(server.config, "Binding query", message.PreparedStatement)
+			common.LogDebug(server.config.CommonConfig, "Binding query", message.PreparedStatement)
 			messages, preparedStatement, err = queryHandler.HandleBindQuery(message, preparedStatement)
 			if err != nil {
 				server.writeError(err)
@@ -135,7 +137,7 @@ func (server *PostgresServer) handleExtendedQuery(queryHandler *QueryHandler, pa
 				continue
 			}
 
-			LogDebug(server.config, "Describing query", message.Name, "("+string(message.ObjectType)+")")
+			common.LogDebug(server.config.CommonConfig, "Describing query", message.Name, "("+string(message.ObjectType)+")")
 			var messages []pgproto3.Message
 			messages, preparedStatement, err = queryHandler.HandleDescribeQuery(message, preparedStatement)
 			if err != nil {
@@ -148,7 +150,7 @@ func (server *PostgresServer) handleExtendedQuery(queryHandler *QueryHandler, pa
 				continue
 			}
 
-			LogDebug(server.config, "Executing query", message.Portal)
+			common.LogDebug(server.config.CommonConfig, "Executing query", message.Portal)
 			messages, err := queryHandler.HandleExecuteQuery(message, preparedStatement)
 			if err != nil {
 				server.writeError(err)
@@ -156,7 +158,7 @@ func (server *PostgresServer) handleExtendedQuery(queryHandler *QueryHandler, pa
 			}
 			server.writeMessages(messages...)
 		case *pgproto3.Sync:
-			LogDebug(server.config, "Syncing query")
+			common.LogDebug(server.config.CommonConfig, "Syncing query")
 			server.writeMessages(
 				&pgproto3.ReadyForQuery{TxStatus: PG_TX_STATUS_IDLE},
 			)
@@ -181,7 +183,7 @@ func (server *PostgresServer) writeMessages(messages ...pgproto3.Message) {
 }
 
 func (server *PostgresServer) writeError(err error) {
-	LogError(server.config, err.Error())
+	common.LogError(server.config.CommonConfig, err.Error())
 
 	server.writeMessages(
 		&pgproto3.ErrorResponse{
@@ -201,7 +203,7 @@ func (server *PostgresServer) handleStartup() error {
 	switch startupMessage := startupMessage.(type) {
 	case *pgproto3.StartupMessage:
 		params := startupMessage.Parameters
-		LogDebug(server.config, "BemiDB: startup message", params)
+		common.LogDebug(server.config.CommonConfig, "BemiDB: startup message", params)
 
 		if params["database"] != server.config.Database {
 			server.writeError(errors.New("database " + params["database"] + " does not exist"))

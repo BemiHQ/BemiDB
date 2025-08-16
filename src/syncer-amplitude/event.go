@@ -142,7 +142,7 @@ func (e *Event) ToTrinoRow() string {
 				}
 			}
 		}
-		return "TIMESTAMP '" + common.TimeToUtcStringMs(parsedTime) + "'"
+		return "TIMESTAMP '" + syncerCommon.TimeToUtcStringMs(parsedTime) + "'"
 	}
 
 	return fmt.Sprintf("(%s, %s, %s, %d, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s)",

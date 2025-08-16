@@ -3,17 +3,50 @@ package common
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"time"
 )
 
-func PanicIfError(config *BaseConfig, err error) {
+func PanicIfError(config *CommonConfig, err error) {
 	if err != nil {
 		sendAnonymousErrorReport(config, err)
-		panic(err)
+		printUnexpectedError(config, err)
+		os.Exit(1)
 	}
+}
+
+func Panic(config *CommonConfig, message string) {
+	err := errors.New(message)
+	PanicIfError(config, err)
+}
+
+func PrintErrorAndExit(config *CommonConfig, message string) {
+	LogError(config, message+"\n")
+	os.Exit(1)
+}
+
+func HandleUnexpectedPanic(config *CommonConfig) {
+	func() {
+		if r := recover(); r != nil {
+			err, _ := r.(error)
+			sendAnonymousErrorReport(config, err)
+			printUnexpectedError(config, err)
+			os.Exit(1)
+		}
+	}()
+}
+
+func printUnexpectedError(config *CommonConfig, err error) {
+	errorMessage := err.Error()
+	stackTrace := string(debug.Stack())
+
+	fmt.Println("Unexpected error:", errorMessage)
+	fmt.Println(stackTrace)
 }
 
 type AnonymousErrorData struct {
@@ -25,13 +58,13 @@ type AnonymousErrorData struct {
 	S3Bucket   string `json:"s3Bucket"`
 }
 
-func sendAnonymousErrorReport(config *BaseConfig, err error) {
+func sendAnonymousErrorReport(config *CommonConfig, err error) {
 	if config.DisableAnonymousAnalytics {
 		return
 	}
 
 	data := AnonymousErrorData{
-		Command:    "syncer",
+		Command:    "server",
 		OsName:     runtime.GOOS + "-" + runtime.GOARCH,
 		Version:    VERSION,
 		Error:      err.Error(),

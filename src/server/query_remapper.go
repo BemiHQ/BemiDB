@@ -6,13 +6,15 @@ import (
 	"strings"
 
 	pgQuery "github.com/pganalyze/pg_query_go/v6"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
-var SUPPORTED_SET_STATEMENTS = NewSet[string]().AddAll([]string{
+var SUPPORTED_SET_STATEMENTS = common.NewSet[string]().AddAll([]string{
 	"timezone", // SET SESSION timezone TO 'UTC'
 })
 
-var KNOWN_SET_STATEMENTS = NewSet[string]().AddAll([]string{
+var KNOWN_SET_STATEMENTS = common.NewSet[string]().AddAll([]string{
 	"client_encoding",             // SET client_encoding TO 'UTF8'
 	"client_min_messages",         // SET client_min_messages TO 'warning'
 	"standard_conforming_strings", // SET standard_conforming_strings = on
@@ -36,10 +38,10 @@ type QueryRemapper struct {
 	config             *Config
 }
 
-func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdb *Duckdb) *QueryRemapper {
+func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdbClient *common.DuckdbClient) *QueryRemapper {
 	return &QueryRemapper{
 		parserTypeCast:     NewParserTypeCast(config),
-		remapperTable:      NewQueryRemapperTable(config, icebergReader, duckdb),
+		remapperTable:      NewQueryRemapperTable(config, icebergReader, duckdbClient),
 		remapperExpression: NewQueryRemapperExpression(config),
 		remapperFunction:   NewQueryRemapperFunction(config, icebergReader),
 		remapperSelect:     NewQueryRemapperSelect(config),
@@ -56,7 +58,7 @@ func (remapper *QueryRemapper) ParseAndRemapQuery(query string) ([]string, []str
 	}
 
 	if strings.HasSuffix(query, INSPECT_SQL_COMMENT) {
-		LogDebug(remapper.config, queryTree.Stmts)
+		common.LogDebug(remapper.config.CommonConfig, queryTree.Stmts)
 	}
 
 	var originalQueryStatements []string
@@ -94,7 +96,7 @@ func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([
 	}
 
 	for i, stmt := range statements {
-		LogTrace(remapper.config, "Remapping statement #"+IntToString(i+1))
+		common.LogTrace(remapper.config.CommonConfig, "Remapping statement #"+common.IntToString(i+1))
 
 		node := stmt.Stmt
 
@@ -128,7 +130,7 @@ func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([
 
 		// Unsupported query
 		default:
-			LogDebug(remapper.config, "Query tree:", stmt, node)
+			common.LogDebug(remapper.config.CommonConfig, "Query tree:", stmt, node)
 			return nil, errors.New("unsupported query type")
 		}
 	}
@@ -145,7 +147,7 @@ func (remapper *QueryRemapper) remapSetStatement(stmt *pgQuery.RawStmt) *pgQuery
 	}
 
 	if !KNOWN_SET_STATEMENTS.Contains(strings.ToLower(setStatement.Name)) {
-		LogWarn(remapper.config, "Unknown SET ", setStatement.Name, ":", setStatement)
+		common.LogWarn(remapper.config.CommonConfig, "Unknown SET ", setStatement.Name, ":", setStatement)
 	}
 
 	return NOOP_QUERY_TREE.Stmts[0]
@@ -488,5 +490,5 @@ func (remapper *QueryRemapper) removeWhereClause(whereClause *pgQuery.Node) bool
 }
 
 func (remapper *QueryRemapper) traceTreeTraversal(label string, indentLevel int) {
-	LogTrace(remapper.config, strings.Repeat(">", indentLevel), label)
+	common.LogTrace(remapper.config.CommonConfig, strings.Repeat(">", indentLevel), label)
 }

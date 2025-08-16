@@ -1,5 +1,9 @@
 package main
 
+import (
+	"github.com/BemiHQ/BemiDB/src/common"
+)
+
 const (
 	PG_SCHEMA_INFORMATION_SCHEMA = "information_schema"
 	PG_SCHEMA_PG_CATALOG         = "pg_catalog"
@@ -15,7 +19,7 @@ const (
 	PG_VAR_SEARCH_PATH = "search_path"
 )
 
-var PG_SYSTEM_TABLES = NewSet[string]().AddAll([]string{
+var PG_SYSTEM_TABLES = common.NewSet[string]().AddAll([]string{
 	"pg_aggregate",
 	"pg_am",
 	"pg_amop",
@@ -88,7 +92,7 @@ var PG_SYSTEM_TABLES = NewSet[string]().AddAll([]string{
 	"pg_views",
 })
 
-var PG_SYSTEM_VIEWS = NewSet[string]().AddAll([]string{
+var PG_SYSTEM_VIEWS = common.NewSet[string]().AddAll([]string{
 	"pg_stat_activity",
 	"pg_stat_replication",
 	"pg_stat_wal_receiver",

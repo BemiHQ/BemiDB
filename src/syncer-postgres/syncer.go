@@ -3,6 +3,7 @@ package main
 import (
 	"net/url"
 
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
@@ -19,12 +20,12 @@ func NewSyncer(config *Config) *Syncer {
 }
 
 func (syncer *Syncer) Sync() {
-	common.SendAnonymousAnalytics(syncer.Config.BaseConfig, "syncer-postgres-start", syncer.name())
+	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-start", syncer.name())
 
 	postgres := NewPostgres(syncer.Config)
 	defer postgres.Close()
 
-	trino := common.NewTrino(syncer.Config.BaseConfig)
+	trino := syncerCommon.NewTrino(syncer.Config.CommonConfig, syncer.Config.TrinoConfig, syncer.Config.DestinationSchemaName)
 	defer trino.Close()
 
 	trino.CreateSchemaIfNotExists()
@@ -33,20 +34,20 @@ func (syncer *Syncer) Sync() {
 
 	switch syncer.Config.SyncMode {
 	case SyncModeCDC:
-		common.LogInfo(syncer.Config.BaseConfig, "Starting CDC sync...")
+		common.LogInfo(syncer.Config.CommonConfig, "Starting CDC sync...")
 		panic("CDC is not supported")
 	case SyncModeIncremental:
-		common.LogInfo(syncer.Config.BaseConfig, "Starting incremental sync...")
+		common.LogInfo(syncer.Config.CommonConfig, "Starting incremental sync...")
 		panic("Incremental sync is not supported")
 	case SyncModeFullRefresh:
-		common.LogInfo(syncer.Config.BaseConfig, "Starting full-refresh sync...")
+		common.LogInfo(syncer.Config.CommonConfig, "Starting full-refresh sync...")
 		NewSyncerFullRefresh(syncer.Config).Sync(postgres, pgSchemaTables)
 	}
 
-	common.SendAnonymousAnalytics(syncer.Config.BaseConfig, "syncer-postgres-finish", syncer.name())
+	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-finish", syncer.name())
 }
 
-func (syncer *Syncer) pgSchemaTables(postgres *Postgres, trino *common.Trino) []PgSchemaTable {
+func (syncer *Syncer) pgSchemaTables(postgres *Postgres, trino *syncerCommon.Trino) []PgSchemaTable {
 	pgSchemaTables := make([]PgSchemaTable, 0)
 	for _, schema := range postgres.Schemas() {
 		for _, pgSchemaTable := range postgres.SchemaTables(schema) {

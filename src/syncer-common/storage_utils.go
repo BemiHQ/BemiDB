@@ -1,4 +1,4 @@
-package common
+package syncerCommon
 
 import (
 	"bytes"
@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
-	goDuckdb "github.com/marcboeker/go-duckdb/v2"
+	"github.com/marcboeker/go-duckdb/v2"
 	"github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go/source"
 	"golang.org/x/exp/maps"
@@ -67,10 +68,10 @@ type ManifestListSequenceStats struct {
 }
 
 type StorageUtils struct {
-	Config *BaseConfig
+	Config *common.CommonConfig
 }
 
-func NewStorageUtils(config *BaseConfig) *StorageUtils {
+func NewStorageUtils(config *common.CommonConfig) *StorageUtils {
 	return &StorageUtils{
 		Config: config,
 	}
@@ -78,7 +79,7 @@ func NewStorageUtils(config *BaseConfig) *StorageUtils {
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageUtils) WriteParquetFile(duckdb *Duckdb, fileS3Path string, icebergSchemaColumns []*IcebergSchemaColumn, loadRows func(appender *goDuckdb.Appender) (rowCount int, reachedEnd bool)) (rowCount int, reachedEnd bool) {
+func (storage *StorageUtils) WriteParquetFile(duckdbClient *common.DuckdbClient, fileS3Path string, icebergSchemaColumns []*IcebergSchemaColumn, loadRows func(appender *duckdb.Appender) (rowCount int, reachedEnd bool)) (rowCount int, reachedEnd bool) {
 	ctx := context.Background()
 	tableName := "temp_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	columnSchemas := make([]string, len(icebergSchemaColumns))
@@ -86,30 +87,30 @@ func (storage *StorageUtils) WriteParquetFile(duckdb *Duckdb, fileS3Path string,
 	for i, col := range icebergSchemaColumns {
 		columnSchemas[i] = col.QuotedColumnName() + " " + col.DuckdbType()
 		if col.IsList {
-			fieldIds[i] = col.QuotedColumnName() + ":{__duckdb_field_id: " + IntToString(col.Position) + ", element: " + IntToString(PARQUET_NESTED_FIELD_ID_PREFIX+col.Position) + "}"
+			fieldIds[i] = col.QuotedColumnName() + ":{__duckdb_field_id: " + common.IntToString(col.Position) + ", element: " + common.IntToString(PARQUET_NESTED_FIELD_ID_PREFIX+col.Position) + "}"
 		} else {
-			fieldIds[i] = col.QuotedColumnName() + ":" + IntToString(col.Position)
+			fieldIds[i] = col.QuotedColumnName() + ":" + common.IntToString(col.Position)
 		}
 	}
-	_, err := duckdb.ExecContext(ctx, "CREATE TABLE "+tableName+"("+strings.Join(columnSchemas, ",")+")", nil)
-	PanicIfError(storage.Config, err)
+	_, err := duckdbClient.ExecContext(ctx, "CREATE TABLE "+tableName+"("+strings.Join(columnSchemas, ",")+")")
+	common.PanicIfError(storage.Config, err)
 
-	appender, err := duckdb.Appender("", tableName)
-	PanicIfError(storage.Config, err)
+	appender, err := duckdbClient.Appender("", tableName)
+	common.PanicIfError(storage.Config, err)
 
 	rowCount, reachedEnd = loadRows(appender)
 	err = appender.Close()
-	PanicIfError(storage.Config, err)
+	common.PanicIfError(storage.Config, err)
 
 	copyQuery := "COPY " + tableName + " TO '$fileS3Path' (FORMAT PARQUET, COMPRESSION 'ZSTD', FIELD_IDS {$fieldIds})"
-	_, err = duckdb.ExecContext(ctx, copyQuery, map[string]string{
+	_, err = duckdbClient.ExecContext(ctx, copyQuery, map[string]string{
 		"fileS3Path": fileS3Path,
 		"fieldIds":   strings.Join(fieldIds, ","),
 	})
-	PanicIfError(storage.Config, err)
+	common.PanicIfError(storage.Config, err)
 
-	_, err = duckdb.ExecContext(ctx, "DROP TABLE "+tableName, nil)
-	PanicIfError(storage.Config, err)
+	_, err = duckdbClient.ExecContext(ctx, "DROP TABLE "+tableName)
+	common.PanicIfError(storage.Config, err)
 
 	return rowCount, reachedEnd
 }
@@ -118,7 +119,7 @@ func (storage *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, ice
 	defer fileReader.Close()
 
 	pr, err := reader.NewParquetReader(fileReader, nil, 1)
-	PanicIfError(storage.Config, err)
+	common.PanicIfError(storage.Config, err)
 	defer pr.ReadStop()
 
 	parquetStats = ParquetFileStats{
@@ -310,7 +311,7 @@ func (storage *StorageUtils) WriteManifestListFile(filePath string, manifestList
 
 	for _, manifestListItem := range manifestListItemsSortedDesc {
 		sequenceNumber := manifestListItem.SequenceNumber
-		sequenceStats := statsBySequenceNumber[IntToString(sequenceNumber)]
+		sequenceStats := statsBySequenceNumber[common.IntToString(sequenceNumber)]
 		manifestFile := manifestListItem.ManifestFile
 
 		manifestListRecord := map[string]interface{}{
@@ -347,7 +348,7 @@ func (storage *StorageUtils) WriteManifestListFile(filePath string, manifestList
 			sequenceStats.AddedRecords += manifestFile.RecordCount
 		}
 
-		statsBySequenceNumber[IntToString(sequenceNumber)] = sequenceStats
+		statsBySequenceNumber[common.IntToString(sequenceNumber)] = sequenceStats
 		manifestListRecords = append(manifestListRecords, manifestListRecord)
 	}
 
@@ -373,7 +374,7 @@ func (storage *StorageUtils) WriteManifestListFile(filePath string, manifestList
 
 	sequenceNumbers := maps.Keys(statsBySequenceNumber)
 	lastManifestListItem := manifestListItemsSortedDesc[0]
-	lastSequenceStats := statsBySequenceNumber[IntToString(lastManifestListItem.SequenceNumber)]
+	lastSequenceStats := statsBySequenceNumber[common.IntToString(lastManifestListItem.SequenceNumber)]
 
 	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
 	if len(sequenceNumbers) == 1 && len(manifestListRecords) == 2 && lastSequenceStats.AddedDataFiles == 1 && lastSequenceStats.DeletedDataFiles == 1 {

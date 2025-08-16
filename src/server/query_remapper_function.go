@@ -4,10 +4,12 @@ import (
 	"regexp"
 
 	pgQuery "github.com/pganalyze/pg_query_go/v6"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
-var PG_CATALOG_MACRO_FUNCTION_NAMES = Set[string]{}
-var PG_INFORMATION_SCHEMA_MACRO_FUNCTION_NAMES = Set[string]{}
+var PG_CATALOG_MACRO_FUNCTION_NAMES = common.Set[string]{}
+var PG_INFORMATION_SCHEMA_MACRO_FUNCTION_NAMES = common.Set[string]{}
 
 func CreatePgCatalogMacroQueries(config *Config) []string {
 	result := []string{
@@ -89,7 +91,7 @@ func CreateInformationSchemaMacroQueries(config *Config) []string {
 	return result
 }
 
-var BUILTIN_DUCKDB_PG_FUNCTION_NAMES = NewSet[string]().AddAll([]string{
+var BUILTIN_DUCKDB_PG_FUNCTION_NAMES = common.NewSet[string]().AddAll([]string{
 	"array_to_string",
 	"generate_series",
 })
@@ -170,8 +172,8 @@ func (remapper *QueryRemapperFunction) RemapNestedFunctionCalls(functionCall *pg
 	}
 }
 
-func extractMacroNames(macros []string) Set[string] {
-	names := make(Set[string])
+func extractMacroNames(macros []string) common.Set[string] {
+	names := make(common.Set[string])
 	re := regexp.MustCompile(`CREATE MACRO (\w+)\(`)
 
 	for _, macro := range macros {

@@ -2,12 +2,9 @@ package main
 
 import (
 	"context"
-	"net/url"
-	"strings"
 	"time"
 
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
-	"github.com/jackc/pgx/v5"
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const (
@@ -19,45 +16,40 @@ const (
 )
 
 type Postgres struct {
-	Conn   *pgx.Conn
-	Config *Config
+	PostgresClient *common.PostgresClient
+	Config         *Config
 }
 
 func NewPostgres(config *Config) *Postgres {
-	ctx, cancel := context.WithTimeout(context.Background(), PG_CONNECTION_TIMEOUT)
-	defer cancel()
+	postgresClient := common.NewPostgresClient(config.CommonConfig, config.DatabaseUrl)
 
-	conn, err := pgx.Connect(ctx, urlEncodePassword(config.DatabaseUrl))
-	common.PanicIfError(config.BaseConfig, err)
-
-	_, err = conn.Exec(ctx, "SET SESSION statement_timeout = '"+PG_SESSION_TIMEOUT+"'")
-	common.PanicIfError(config.BaseConfig, err)
+	_, err := postgresClient.Exec(context.Background(), "SET SESSION statement_timeout = '"+PG_SESSION_TIMEOUT+"'")
+	common.PanicIfError(config.CommonConfig, err)
 
 	return &Postgres{
-		Config: config,
-		Conn:   conn,
+		Config:         config,
+		PostgresClient: postgresClient,
 	}
 }
 
 func (postgres *Postgres) Close() {
-	err := postgres.Conn.Close(context.Background())
-	common.PanicIfError(postgres.Config.BaseConfig, err)
+	postgres.PostgresClient.Close()
 }
 
 func (postgres *Postgres) Schemas() []string {
 	var schemas []string
 
-	schemasRows, err := postgres.query(
+	schemasRows, err := postgres.PostgresClient.Query(
 		context.Background(),
 		"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'pg_toast', 'information_schema')",
 	)
-	common.PanicIfError(postgres.Config.BaseConfig, err)
+	common.PanicIfError(postgres.Config.CommonConfig, err)
 	defer schemasRows.Close()
 
 	for schemasRows.Next() {
 		var schema string
 		err = schemasRows.Scan(&schema)
-		common.PanicIfError(postgres.Config.BaseConfig, err)
+		common.PanicIfError(postgres.Config.CommonConfig, err)
 		schemas = append(schemas, schema)
 	}
 
@@ -67,7 +59,7 @@ func (postgres *Postgres) Schemas() []string {
 func (postgres *Postgres) SchemaTables(schema string) []PgSchemaTable {
 	var pgSchemaTables []PgSchemaTable
 
-	tablesRows, err := postgres.query(
+	tablesRows, err := postgres.PostgresClient.Query(
 		context.Background(),
 		`
 		SELECT pg_class.relname AS table, COALESCE(parent.relname, '') AS parent_partitioned_table
@@ -79,13 +71,13 @@ func (postgres *Postgres) SchemaTables(schema string) []PgSchemaTable {
 		`,
 		schema,
 	)
-	common.PanicIfError(postgres.Config.BaseConfig, err)
+	common.PanicIfError(postgres.Config.CommonConfig, err)
 	defer tablesRows.Close()
 
 	for tablesRows.Next() {
 		pgSchemaTable := PgSchemaTable{Schema: schema}
 		err = tablesRows.Scan(&pgSchemaTable.Table, &pgSchemaTable.ParentPartitionedTable)
-		common.PanicIfError(postgres.Config.BaseConfig, err)
+		common.PanicIfError(postgres.Config.CommonConfig, err)
 		pgSchemaTables = append(pgSchemaTables, pgSchemaTable)
 	}
 
@@ -95,7 +87,7 @@ func (postgres *Postgres) SchemaTables(schema string) []PgSchemaTable {
 func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchemaColumn {
 	var pgSchemaColumns []PgSchemaColumn
 
-	rows, err := postgres.query(
+	rows, err := postgres.PostgresClient.Query(
 		context.Background(),
 		`SELECT
 			columns.column_name,
@@ -129,7 +121,7 @@ func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchem
 		pgSchemaTable.Schema,
 		pgSchemaTable.Table,
 	)
-	common.PanicIfError(postgres.Config.BaseConfig, err)
+	common.PanicIfError(postgres.Config.CommonConfig, err)
 	defer rows.Close()
 
 	for rows.Next() {
@@ -146,47 +138,9 @@ func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchem
 			&pgSchemaColumn.Namespace,
 			&pgSchemaColumn.PartOfPrimaryKey,
 		)
-		common.PanicIfError(postgres.Config.BaseConfig, err)
+		common.PanicIfError(postgres.Config.CommonConfig, err)
 		pgSchemaColumns = append(pgSchemaColumns, *pgSchemaColumn)
 	}
 
 	return pgSchemaColumns
-}
-
-// Example:
-// - From postgres://username:pas$:wor^d@host:port/database
-// - To postgres://username:pas%24%3Awor%5Ed@host:port/database
-func urlEncodePassword(pgDatabaseUrl string) string {
-	// No credentials
-	if !strings.Contains(pgDatabaseUrl, "@") {
-		return pgDatabaseUrl
-	}
-
-	password := strings.TrimPrefix(pgDatabaseUrl, "postgresql://")
-	password = strings.TrimPrefix(password, "postgres://")
-	passwordEndIndex := strings.LastIndex(password, "@")
-	password = password[:passwordEndIndex]
-
-	// Credentials without password
-	if !strings.Contains(password, ":") {
-		return pgDatabaseUrl
-	}
-
-	_, password, _ = strings.Cut(password, ":")
-	decodedPassword, err := url.QueryUnescape(password)
-	if err != nil {
-		return pgDatabaseUrl
-	}
-
-	// Password is already encoded
-	if decodedPassword != password {
-		return pgDatabaseUrl
-	}
-
-	return strings.Replace(pgDatabaseUrl, ":"+password+"@", ":"+url.QueryEscape(password)+"@", 1)
-}
-
-func (postgres *Postgres) query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
-	common.LogDebug(postgres.Config.BaseConfig, "Postgres query:", query)
-	return postgres.Conn.Query(ctx, query, args...)
 }

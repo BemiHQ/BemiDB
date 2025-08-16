@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 
+	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
@@ -344,45 +345,45 @@ var CSV_ROWS_TEST_TABLE = [][]string{
 	},
 	{
 		"2",                                // id
-		common.BEMIDB_NULL_STRING,          // bit_column
+		syncerCommon.BEMIDB_NULL_STRING,    // bit_column
 		"f",                                // bool_column
 		"",                                 // bpchar_column
-		common.BEMIDB_NULL_STRING,          // varchar_column
+		syncerCommon.BEMIDB_NULL_STRING,    // varchar_column
 		"",                                 // text_column
 		"-32767",                           // int2_column
-		common.BEMIDB_NULL_STRING,          // int4_column
+		syncerCommon.BEMIDB_NULL_STRING,    // int4_column
 		"-9223372036854775807",             // int8_column
-		common.BEMIDB_NULL_STRING,          // hugeint_column
-		common.BEMIDB_NULL_STRING,          // xid_column
-		common.BEMIDB_NULL_STRING,          // xid8_column
+		syncerCommon.BEMIDB_NULL_STRING,    // hugeint_column
+		syncerCommon.BEMIDB_NULL_STRING,    // xid_column
+		syncerCommon.BEMIDB_NULL_STRING,    // xid8_column
 		"NaN",                              // float4_column
 		"-3.141592653589793",               // float8_column
 		"-12345.00",                        // numeric_column
-		common.BEMIDB_NULL_STRING,          // numeric_column_without_precision
+		syncerCommon.BEMIDB_NULL_STRING,    // numeric_column_without_precision
 		"20025-11-12",                      // date_column
 		"12:00:00.123",                     // time_column
-		common.BEMIDB_NULL_STRING,          // timeMsColumn
+		syncerCommon.BEMIDB_NULL_STRING,    // timeMsColumn
 		"12:00:00.12300+05",                // timetz_column
 		"12:00:00.1+05",                    // timetz_ms_column
 		"2024-01-01 12:00:00",              // timestamp_column
-		common.BEMIDB_NULL_STRING,          // timestamp_ms_column
+		syncerCommon.BEMIDB_NULL_STRING,    // timestamp_ms_column
 		"2024-01-01 12:00:00.000123+05:30", // timestamptz_column
 		"2024-01-01 12:00:00.12+05",        // timestamptz_ms_column
-		common.BEMIDB_NULL_STRING,          // uuid_column
-		common.BEMIDB_NULL_STRING,          // bytea_column
-		common.BEMIDB_NULL_STRING,          // interval_column
-		common.BEMIDB_NULL_STRING,          // tsvector_column
-		common.BEMIDB_NULL_STRING,          // xml_column
-		common.BEMIDB_NULL_STRING,          // pg_snapshot_column
-		common.BEMIDB_NULL_STRING,          // point_column
-		common.BEMIDB_NULL_STRING,          // inet_column
-		common.BEMIDB_NULL_STRING,          // json_column
+		syncerCommon.BEMIDB_NULL_STRING,    // uuid_column
+		syncerCommon.BEMIDB_NULL_STRING,    // bytea_column
+		syncerCommon.BEMIDB_NULL_STRING,    // interval_column
+		syncerCommon.BEMIDB_NULL_STRING,    // tsvector_column
+		syncerCommon.BEMIDB_NULL_STRING,    // xml_column
+		syncerCommon.BEMIDB_NULL_STRING,    // pg_snapshot_column
+		syncerCommon.BEMIDB_NULL_STRING,    // point_column
+		syncerCommon.BEMIDB_NULL_STRING,    // inet_column
+		syncerCommon.BEMIDB_NULL_STRING,    // json_column
 		"{}",                               // jsonb_column
-		common.BEMIDB_NULL_STRING,          // array_text_column
+		syncerCommon.BEMIDB_NULL_STRING,    // array_text_column
 		"{}",                               // array_int_column
-		common.BEMIDB_NULL_STRING,          // array_jsonb_column
-		common.BEMIDB_NULL_STRING,          // array_ltree_column
-		common.BEMIDB_NULL_STRING,          // user_defined_column
+		syncerCommon.BEMIDB_NULL_STRING,    // array_jsonb_column
+		syncerCommon.BEMIDB_NULL_STRING,    // array_ltree_column
+		syncerCommon.BEMIDB_NULL_STRING,    // user_defined_column
 	},
 }
 var CSV_ROWS_PARTITIONED_TABLE1 = [][]string{{"2024-01-01 01:02:03.123456"}}
@@ -634,7 +635,7 @@ var JSON_ROWS_PARTITIONED_TABLE3 = []string{
 
 func init() {
 	config := loadTestConfig()
-	trino := common.NewTrino(config.BaseConfig)
+	trino := syncerCommon.NewTrino(config.CommonConfig, config.TrinoConfig, config.DestinationSchemaName)
 	defer trino.Close()
 
 	utils := NewSyncerUtils(config)
@@ -663,7 +664,7 @@ func init() {
 
 	switch config.SyncMode {
 	case SyncModeFullRefresh:
-		storageS3 := common.NewStorageS3(config.BaseConfig)
+		storageS3 := syncerCommon.NewStorageS3(config.CommonConfig)
 		utils.DeleteOldTables(storageS3, common.NewSet[string]())
 		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "test_table"}, PG_SCHEMA_COLUMNS_TEST_TABLE, CSV_ROWS_TEST_TABLE)
 		createTestTableViaFullRefresh(config, PgSchemaTable{Schema: "public", Table: "partitioned_table1"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE1)
@@ -694,12 +695,12 @@ func setTestArgs(args []string) {
 	registerFlags()
 }
 
-func createTestTableViaCdc(config *Config, trino *common.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, messagesStrings []string) {
+func createTestTableViaCdc(config *Config, trino *syncerCommon.Trino, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, messagesStrings []string) {
 	panic("CDC is not supported")
 }
 
 func createTestTableViaFullRefresh(config *Config, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) {
-	cappedBuffer := common.NewCappedBuffer(config.BaseConfig, MAX_IN_MEMORY_BUFFER_SIZE)
+	cappedBuffer := syncerCommon.NewCappedBuffer(config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
 	writer := csv.NewWriter(cappedBuffer)
 
 	headerRow := []string{}
@@ -707,11 +708,11 @@ func createTestTableViaFullRefresh(config *Config, pgSchemaTable PgSchemaTable, 
 		headerRow = append(headerRow, pgSchemaColumn.ColumnName)
 	}
 	err := writer.Write(headerRow)
-	common.PanicIfError(config.BaseConfig, err)
+	common.PanicIfError(config.CommonConfig, err)
 
 	for _, row := range rows {
 		err := writer.Write(row)
-		common.PanicIfError(config.BaseConfig, err)
+		common.PanicIfError(config.CommonConfig, err)
 	}
 
 	writer.Flush()

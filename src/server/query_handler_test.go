@@ -12,11 +12,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 func TestHandleQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.duckdb.Close()
+	defer queryHandler.DuckdbClient.Close()
 
 	t.Run("PG functions", func(t *testing.T) {
 		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
@@ -1256,7 +1258,7 @@ func TestHandleQuery(t *testing.T) {
 
 func TestHandleParseQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.duckdb.Close()
+	defer queryHandler.DuckdbClient.Close()
 
 	t.Run("Handles PARSE extended query step", func(t *testing.T) {
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
@@ -1299,7 +1301,7 @@ func TestHandleParseQuery(t *testing.T) {
 
 func TestHandleBindQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.duckdb.Close()
+	defer queryHandler.DuckdbClient.Close()
 
 	t.Run("Handles BIND extended query step with text format parameter", func(t *testing.T) {
 		parseMessage := &pgproto3.Parse{Query: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"}
@@ -1407,7 +1409,7 @@ func TestHandleBindQuery(t *testing.T) {
 
 func TestHandleDescribeQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.duckdb.Close()
+	defer queryHandler.DuckdbClient.Close()
 
 	t.Run("Handles DESCRIBE extended query step", func(t *testing.T) {
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
@@ -1461,7 +1463,7 @@ func TestHandleDescribeQuery(t *testing.T) {
 
 func TestHandleExecuteQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.duckdb.Close()
+	defer queryHandler.DuckdbClient.Close()
 
 	t.Run("Handles EXECUTE extended query step", func(t *testing.T) {
 		query := "SELECT usename, split_part(passwd, ':', 1) FROM pg_shadow WHERE usename=$1"
@@ -1503,7 +1505,7 @@ func TestHandleExecuteQuery(t *testing.T) {
 
 func TestHandleMultipleQueries(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.duckdb.Close()
+	defer queryHandler.DuckdbClient.Close()
 
 	t.Run("Handles multiple SET statements", func(t *testing.T) {
 		query := `SET client_encoding TO 'UTF8';
@@ -1582,16 +1584,16 @@ SET standard_conforming_strings = on;`
 
 func initQueryHandler() *QueryHandler {
 	config := loadTestConfig()
-	duckdb := NewDuckdb(config, true)
+	duckdbClient := common.NewDuckdbClient(config.CommonConfig, duckdbBootQueris(config))
 	catalog := NewIcebergCatalog(config)
 	icebergReader := NewIcebergReader(config, catalog)
-	return NewQueryHandler(config, duckdb, icebergReader)
+	return NewQueryHandler(config, duckdbClient, icebergReader)
 }
 
 func loadTestConfig() *Config {
 	setTestArgs([]string{})
 
-	_config.DisableAnonymousAnalytics = true
+	_config.CommonConfig.DisableAnonymousAnalytics = true
 
 	return LoadConfig()
 }

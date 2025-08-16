@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const (
@@ -18,10 +20,10 @@ const (
 )
 
 type QueryHandler struct {
-	duckdb          *Duckdb
-	icebergReader   *IcebergReader
-	queryRemapper   *QueryRemapper
-	config          *Config
+	Config          *Config
+	DuckdbClient    *common.DuckdbClient
+	IcebergReader   *IcebergReader
+	QueryRemapper   *QueryRemapper
 	ResponseHandler *ResponseHandler
 }
 
@@ -45,12 +47,12 @@ type PreparedStatement struct {
 	Rows *sql.Rows
 }
 
-func NewQueryHandler(config *Config, duckdb *Duckdb, icebergReader *IcebergReader) *QueryHandler {
+func NewQueryHandler(config *Config, duckdbClient *common.DuckdbClient, icebergReader *IcebergReader) *QueryHandler {
 	queryHandler := &QueryHandler{
-		duckdb:          duckdb,
-		icebergReader:   icebergReader,
-		queryRemapper:   NewQueryRemapper(config, icebergReader, duckdb),
-		config:          config,
+		Config:          config,
+		DuckdbClient:    duckdbClient,
+		IcebergReader:   icebergReader,
+		QueryRemapper:   NewQueryRemapper(config, icebergReader, duckdbClient),
 		ResponseHandler: NewResponseHandler(config),
 	}
 
@@ -60,7 +62,7 @@ func NewQueryHandler(config *Config, duckdb *Duckdb, icebergReader *IcebergReade
 }
 
 func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgproto3.Message, error) {
-	queryStatements, originalQueryStatements, err := queryHandler.queryRemapper.ParseAndRemapQuery(originalQuery)
+	queryStatements, originalQueryStatements, err := queryHandler.QueryRemapper.ParseAndRemapQuery(originalQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -71,12 +73,12 @@ func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgp
 	var queriesMessages []pgproto3.Message
 
 	for i, queryStatement := range queryStatements {
-		rows, err := queryHandler.duckdb.QueryContext(context.Background(), queryStatement)
+		rows, err := queryHandler.DuckdbClient.QueryContext(context.Background(), queryStatement)
 		if err != nil {
 			errorMessage := err.Error()
 			if errorMessage == "Binder Error: UNNEST requires a single list as input" {
-				// https://github.com/duckdb/duckdb/issues/11693
-				LogWarn(queryHandler.config, "Couldn't handle query via DuckDB:", queryStatement+"\n"+err.Error())
+				// https://github.com/duckdbClient/duckdb/issues/11693
+				common.LogWarn(queryHandler.Config.CommonConfig, "Couldn't handle query via DuckDB:", queryStatement+"\n"+err.Error())
 				queriesMsgs, err := queryHandler.HandleSimpleQuery(FALLBACK_SQL_QUERY) // self-recursion
 				if err != nil {
 					return nil, err
@@ -110,7 +112,7 @@ func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgp
 func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]pgproto3.Message, *PreparedStatement, error) {
 	ctx := context.Background()
 	originalQuery := string(message.Query)
-	queryStatements, _, err := queryHandler.queryRemapper.ParseAndRemapQuery(originalQuery)
+	queryStatements, _, err := queryHandler.QueryRemapper.ParseAndRemapQuery(originalQuery)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -129,7 +131,7 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 
 	query := queryStatements[0]
 	preparedStatement.Query = query
-	statement, err := queryHandler.duckdb.PrepareContext(ctx, query)
+	statement, err := queryHandler.DuckdbClient.PrepareContext(ctx, query)
 	preparedStatement.Statement = statement
 	if err != nil {
 		return nil, nil, err
@@ -171,7 +173,7 @@ func (queryHandler *QueryHandler) HandleBindQuery(message *pgproto3.Bind, prepar
 		}
 	}
 
-	LogDebug(queryHandler.config, "Bound variables:", variables)
+	common.LogDebug(queryHandler.Config.CommonConfig, "Bound variables:", variables)
 	preparedStatement.Bound = true
 	preparedStatement.Variables = variables
 	preparedStatement.Portal = message.DestinationPortal
@@ -235,16 +237,16 @@ func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, 
 
 func (queryHandler *QueryHandler) createSchemas() {
 	ctx := context.Background()
-	schemas, err := queryHandler.icebergReader.Schemas()
-	PanicIfError(queryHandler.config, err)
+	schemas, err := queryHandler.IcebergReader.Schemas()
+	common.PanicIfError(queryHandler.Config.CommonConfig, err)
 
 	for _, schema := range schemas {
-		_, err := queryHandler.duckdb.ExecContext(
+		_, err := queryHandler.DuckdbClient.ExecContext(
 			ctx,
 			"CREATE SCHEMA IF NOT EXISTS \"$schema\"",
 			map[string]string{"schema": schema},
 		)
-		PanicIfError(queryHandler.config, err)
+		common.PanicIfError(queryHandler.Config.CommonConfig, err)
 	}
 }
 
@@ -303,7 +305,7 @@ func (queryHandler *QueryHandler) generateRowDescription(cols []*sql.ColumnType)
 		typeIod := queryHandler.ResponseHandler.ColumnDescriptionTypeOid(col)
 
 		if col.Name() == "Success" && typeIod == pgtype.BoolOID && len(cols) == 1 {
-			// Skip the "Success" DuckDB column returned from SET ... commands
+			// Skip the "Success" DuckDBClient column returned from SET ... commands
 			return nil
 		}
 

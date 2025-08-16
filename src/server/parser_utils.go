@@ -2,6 +2,8 @@ package main
 
 import (
 	pgQuery "github.com/pganalyze/pg_query_go/v6"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 type ParserUtils struct {
@@ -25,7 +27,7 @@ func (utils *ParserUtils) SchemaFunction(functionCall *pgQuery.FuncCall) *QueryS
 			Function: functionCall.Funcname[1].GetString_().Sval,
 		}
 	default:
-		Panic(utils.config, "Invalid function call")
+		common.Panic(utils.config.CommonConfig, "Invalid function call")
 		return nil
 	}
 }

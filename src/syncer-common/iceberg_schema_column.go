@@ -1,4 +1,4 @@
-package common
+package syncerCommon
 
 import (
 	"encoding/csv"
@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	goDuckdb "github.com/marcboeker/go-duckdb/v2"
+	"github.com/BemiHQ/BemiDB/src/common"
+	"github.com/marcboeker/go-duckdb/v2"
 )
 
 type IcebergColumnType string
@@ -34,7 +35,7 @@ const (
 )
 
 type IcebergSchemaColumn struct {
-	Config           *BaseConfig
+	Config           *common.CommonConfig
 	ColumnName       string
 	ColumnType       IcebergColumnType
 	Position         int
@@ -102,7 +103,7 @@ func (col *IcebergSchemaColumn) IcebergSchemaFieldMap() IcebergSchemaField {
 	case IcebergColumnTypeInteger:
 		icebergSchemaField.Type = "int"
 	case IcebergColumnTypeDecimal:
-		icebergSchemaField.Type = "decimal(" + IntToString(col.NormalizedPrecision()) + ", " + IntToString(col.NormalizedScale()) + ")"
+		icebergSchemaField.Type = "decimal(" + common.IntToString(col.NormalizedPrecision()) + ", " + common.IntToString(col.NormalizedScale()) + ")"
 	case IcebergColumnTypeLong:
 		icebergSchemaField.Type = "long"
 	case IcebergColumnTypeFloat:
@@ -153,7 +154,7 @@ func (col *IcebergSchemaColumn) DuckdbType() string {
 	case IcebergColumnTypeLong:
 		duckdbType = "BIGINT"
 	case IcebergColumnTypeDecimal:
-		duckdbType = "DECIMAL(" + IntToString(col.NormalizedPrecision()) + ", " + IntToString(col.NormalizedScale()) + ")"
+		duckdbType = "DECIMAL(" + common.IntToString(col.NormalizedPrecision()) + ", " + common.IntToString(col.NormalizedScale()) + ")"
 	case IcebergColumnTypeFloat:
 		duckdbType = "FLOAT"
 	case IcebergColumnTypeDouble:
@@ -195,7 +196,7 @@ func (col *IcebergSchemaColumn) DuckdbValueFromCsv(value string) interface{} {
 		csvString = strings.ReplaceAll(csvString, "\\\"", "\"\"") // Replace escaped double quotes with double quotes according to CSV format rules
 		csvReader := csv.NewReader(strings.NewReader(csvString))
 		stringValues, err := csvReader.Read()
-		PanicIfError(col.Config, err)
+		common.PanicIfError(col.Config, err)
 
 		for _, stringValue := range stringValues {
 			primitiveValue := col.duckdbPrimitiveValueFromCsv(stringValue)
@@ -249,7 +250,7 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromCsv(value string) interf
 		decimalValue := new(big.Int)
 		decimalValue.SetString(integerPart+fractionalPart, 10)
 
-		return goDuckdb.Decimal{
+		return duckdb.Decimal{
 			Width: uint8(col.NormalizedPrecision()),
 			Scale: uint8(scale),
 			Value: decimalValue,
@@ -258,21 +259,21 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromCsv(value string) interf
 		return StringDateToTime(value)
 	case IcebergColumnTypeTime:
 		parsedTime, err := time.Parse("15:04:05.999999", value)
-		PanicIfError(col.Config, err)
+		common.PanicIfError(col.Config, err)
 		return parsedTime
 	case IcebergColumnTypeTimeTz:
 		parsedTime, err := time.Parse("15:04:05.999999-07", value)
-		PanicIfError(col.Config, err)
+		common.PanicIfError(col.Config, err)
 		return parsedTime
 	case IcebergColumnTypeTimestamp:
 		parsedTimestamp, err := time.Parse("2006-01-02 15:04:05.999999", value)
-		PanicIfError(col.Config, err)
+		common.PanicIfError(col.Config, err)
 		return parsedTimestamp
 	case IcebergColumnTypeTimestampTz:
 		parsedTimestamp, err := time.Parse("2006-01-02 15:04:05.999999-07:00", value)
 		if err != nil {
 			parsedTimestamp, err = time.Parse("2006-01-02 15:04:05.999999-07", value)
-			PanicIfError(col.Config, err)
+			common.PanicIfError(col.Config, err)
 		}
 		return parsedTimestamp
 	}
