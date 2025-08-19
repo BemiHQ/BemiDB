@@ -59,7 +59,7 @@ func (trino *Trino) QueryRowContext(ctx context.Context, query string, args ...i
 }
 
 func (trino *Trino) CompactTable(quotedTrinoTablePath string) {
-	ctx := context.Background()
+	// ctx := context.Background()
 
 	// _, err := trino.ExecContext(ctx, "ALTER TABLE "+quotedTrinoTablePath+" EXECUTE optimize")
 	// PanicIfError(trino.Config, err)
@@ -67,11 +67,11 @@ func (trino *Trino) CompactTable(quotedTrinoTablePath string) {
 	// _, err = trino.ExecContext(ctx, "ALTER TABLE "+quotedTrinoTablePath+" EXECUTE remove_orphan_files(retention_threshold => '0m')")
 	// PanicIfError(trino.Config, err)
 
-	_, err := trino.ExecContext(ctx, "ALTER TABLE "+quotedTrinoTablePath+" EXECUTE optimize_manifests")
-	PanicIfError(trino.Config, err)
-
-	_, err = trino.ExecContext(ctx, "ALTER TABLE "+quotedTrinoTablePath+" EXECUTE expire_snapshots(retention_threshold => '0m')")
-	PanicIfError(trino.Config, err)
+	// _, err := trino.ExecContext(ctx, "ALTER TABLE "+quotedTrinoTablePath+" EXECUTE optimize_manifests")
+	// PanicIfError(trino.Config, err)
+	//
+	// _, err = trino.ExecContext(ctx, "ALTER TABLE "+quotedTrinoTablePath+" EXECUTE expire_snapshots(retention_threshold => '0m')")
+	// PanicIfError(trino.Config, err)
 }
 
 func (trino *Trino) CreateSchemaIfNotExists() {
