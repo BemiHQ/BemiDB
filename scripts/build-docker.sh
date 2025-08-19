@@ -6,8 +6,5 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-echo "Building bemidb version $VERSION for linux/amd64"
-docker buildx build --build-arg PLATFORM=linux/amd64 -t ghcr.io/bemihq/bemidb:$VERSION-amd64 .
-
 echo "Building bemidb version $VERSION for linux/arm64"
 docker buildx build --build-arg PLATFORM=linux/arm64 -t ghcr.io/bemihq/bemidb:$VERSION-arm64 .

@@ -35,4 +35,4 @@ sed -i \
 
 echo "[Trino] Starting server..."
 CATALOG_MANAGEMENT=static \
-  ./trino/bin/run.sh >/dev/null 2> >(sed 's/^/[Trino] /')
+  ./trino/bin/run.sh 2>&1 | sed 's/^/[Trino] /'

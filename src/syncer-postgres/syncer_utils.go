@@ -109,7 +109,7 @@ func (utils *SyncerUtils) InsertFromCappedBuffer(trino *common.Trino, quotedTrin
 		rowValuesStatement := "(" + strings.Join(rowValues, ",") + ")"
 
 		currentRowCount++
-		if len(currentSql)+len(rowValuesStatement)+1 < common.TRINO_MAX_QUERY_LENGTH { // +1 for the comma
+		if currentRowCount == 1 {
 			if currentSql != insertSqlPrefix {
 				currentSql += ","
 			}
