@@ -14,13 +14,14 @@ import (
 	"github.com/linkedin/goavro"
 	"github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go/source"
-	"golang.org/x/exp/maps"
 )
 
 const (
-	ICEBERG_MANIFEST_STATUS_ADDED   = 1
-	ICEBERG_MANIFEST_STATUS_DELETED = 2
+	ICEBERG_MANIFEST_STATUS_EXISTING = 0
+	ICEBERG_MANIFEST_STATUS_ADDED    = 1
+	ICEBERG_MANIFEST_STATUS_DELETED  = 2
 
+	ICEBERG_MANIFEST_LIST_OPERATION_REPLACE   = "replace"
 	ICEBERG_MANIFEST_LIST_OPERATION_APPEND    = "append"
 	ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE = "overwrite"
 	ICEBERG_MANIFEST_LIST_OPERATION_DELETE    = "delete"
@@ -46,24 +47,18 @@ type ManifestListsJson struct {
 		TimestampMs    int64  `json:"timestamp-ms"`
 		Path           string `json:"manifest-list"`
 		Summary        struct {
-			Operation        string `json:"operation"`
-			AddedFilesSize   string `json:"added-files-size"`
-			AddedDataFiles   string `json:"added-data-files"`
-			AddedRecords     string `json:"added-records"`
-			RemovedFilesSize string `json:"removed-files-size"`
-			DeletedDataFiles string `json:"deleted-data-files"`
-			DeletedRecords   string `json:"deleted-records"`
+			Operation      string `json:"operation"`
+			TotalDataFiles string `json:"total-data-files"`
+			TotalFilesSize string `json:"total-files-size"`
+			TotalRecords   string `json:"total-records"`
 		} `json:"summary"`
 	} `json:"snapshots"`
 }
 
 type ManifestListSequenceStats struct {
-	AddedFilesSize   int64
-	AddedDataFiles   int64
-	AddedRecords     int64
-	RemovedFilesSize int64
-	DeletedDataFiles int64
-	DeletedRecords   int64
+	TotalFilesSize int64
+	TotalDataFiles int64
+	TotalRecords   int64
 }
 
 type StorageUtils struct {
@@ -112,12 +107,19 @@ func (utils *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, icebe
 		SplitOffsets:    []int64{},
 	}
 
+	stringColumnNames := common.NewSet[string]()
 	fieldIdByColumnName := make(map[string]int)
 	for _, column := range icebergSchemaColumns {
+		columnName := strings.ToLower(column.NormalizedColumnName())
+
 		if column.IsList {
-			fieldIdByColumnName[strings.ToLower(column.NormalizedColumnName())] = PARQUET_NESTED_FIELD_ID_PREFIX + column.Position
+			fieldIdByColumnName[columnName] = PARQUET_NESTED_FIELD_ID_PREFIX + column.Position
 		} else {
-			fieldIdByColumnName[strings.ToLower(column.NormalizedColumnName())] = column.Position
+			fieldIdByColumnName[columnName] = column.Position
+		}
+
+		if column.ColumnType == IcebergColumnTypeString {
+			stringColumnNames.Add(columnName)
 		}
 	}
 
@@ -128,26 +130,28 @@ func (utils *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, icebe
 
 		for _, columnChunk := range rowGroup.Columns {
 			columnMetaData := columnChunk.MetaData
-			columnName := columnMetaData.PathInSchema[0]
-			fieldId, ok := fieldIdByColumnName[strings.ToLower(columnName)]
+			columnName := strings.ToLower(columnMetaData.PathInSchema[0]) // Parquet column names look like Timemscolumn instead of timeMsColumn
+			fieldId, ok := fieldIdByColumnName[columnName]
 			if !ok {
 				continue
 			}
 			parquetStats.ColumnSizes[fieldId] += columnMetaData.TotalCompressedSize
 			parquetStats.ValueCounts[fieldId] += int64(columnMetaData.NumValues)
+			if columnMetaData.Statistics != nil && columnMetaData.Statistics.NullCount != nil {
+				parquetStats.NullValueCounts[fieldId] += *columnMetaData.Statistics.NullCount
+			} else {
+				parquetStats.NullValueCounts[fieldId] += 0
+			}
 
-			if columnMetaData.Statistics != nil {
-				if columnMetaData.Statistics.NullCount != nil {
-					parquetStats.NullValueCounts[fieldId] += *columnMetaData.Statistics.NullCount
-				}
-
+			if columnMetaData.Statistics != nil && fieldId <= PARQUET_NESTED_FIELD_ID_PREFIX { // Not a nested field
 				minValue := columnMetaData.Statistics.Min
 				maxValue := columnMetaData.Statistics.Max
 
-				if parquetStats.LowerBounds[fieldId] == nil || bytes.Compare(parquetStats.LowerBounds[fieldId], minValue) > 0 {
+				// Ignore empty values for non-string columns
+				if (stringColumnNames.Contains(columnName) || len(minValue) > 0) && (parquetStats.LowerBounds[fieldId] == nil || bytes.Compare(parquetStats.LowerBounds[fieldId], minValue) > 0) {
 					parquetStats.LowerBounds[fieldId] = minValue
 				}
-				if parquetStats.UpperBounds[fieldId] == nil || bytes.Compare(parquetStats.UpperBounds[fieldId], maxValue) < 0 {
+				if (stringColumnNames.Contains(columnName) || len(maxValue) > 0) && (parquetStats.UpperBounds[fieldId] == nil || bytes.Compare(parquetStats.UpperBounds[fieldId], maxValue) < 0) {
 					parquetStats.UpperBounds[fieldId] = maxValue
 				}
 			}
@@ -156,101 +160,106 @@ func (utils *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, icebe
 
 	return parquetStats
 }
-func (utils *StorageUtils) WriteManifestFile(filePath string, parquetFile ParquetFile) (manifestFile ManifestFile, err error) {
-	snapshotId := time.Now().UnixNano()
-	codec, err := goavro.NewCodec(MANIFEST_SCHEMA)
-	if err != nil {
-		return ManifestFile{}, fmt.Errorf("failed to create Avro codec: %v", err)
-	}
+func (utils *StorageUtils) WriteManifestFile(filePath string, parquetFilesSortedAsc []ParquetFile) (int64, error) {
+	manifestEntries := make([]map[string]interface{}, len(parquetFilesSortedAsc))
 
-	columnSizesArr := []interface{}{}
-	for fieldId, size := range parquetFile.Stats.ColumnSizes {
-		columnSizesArr = append(columnSizesArr, map[string]interface{}{
-			"key":   fieldId,
-			"value": size,
-		})
-	}
+	for i, parquetFile := range parquetFilesSortedAsc {
+		snapshotId := time.Now().UnixNano()
 
-	valueCountsArr := []interface{}{}
-	for fieldId, count := range parquetFile.Stats.ValueCounts {
-		valueCountsArr = append(valueCountsArr, map[string]interface{}{
-			"key":   fieldId,
-			"value": count,
-		})
-	}
+		columnSizesArr := []interface{}{}
+		for fieldId, size := range parquetFile.Stats.ColumnSizes {
+			columnSizesArr = append(columnSizesArr, map[string]interface{}{
+				"key":   fieldId,
+				"value": size,
+			})
+		}
 
-	nullValueCountsArr := []interface{}{}
-	for fieldId, count := range parquetFile.Stats.NullValueCounts {
-		nullValueCountsArr = append(nullValueCountsArr, map[string]interface{}{
-			"key":   fieldId,
-			"value": count,
-		})
-	}
+		valueCountsArr := []interface{}{}
+		for fieldId, count := range parquetFile.Stats.ValueCounts {
+			valueCountsArr = append(valueCountsArr, map[string]interface{}{
+				"key":   fieldId,
+				"value": count,
+			})
+		}
 
-	lowerBoundsArr := []interface{}{}
-	for fieldId, value := range parquetFile.Stats.LowerBounds {
-		lowerBoundsArr = append(lowerBoundsArr, map[string]interface{}{
-			"key":   fieldId,
-			"value": value,
-		})
-	}
+		nullValueCountsArr := []interface{}{}
+		for fieldId, count := range parquetFile.Stats.NullValueCounts {
+			nullValueCountsArr = append(nullValueCountsArr, map[string]interface{}{
+				"key":   fieldId,
+				"value": count,
+			})
+		}
 
-	upperBoundsArr := []interface{}{}
-	for fieldId, value := range parquetFile.Stats.UpperBounds {
-		upperBoundsArr = append(upperBoundsArr, map[string]interface{}{
-			"key":   fieldId,
-			"value": value,
-		})
-	}
+		lowerBoundsArr := []interface{}{}
+		for fieldId, value := range parquetFile.Stats.LowerBounds {
+			lowerBoundsArr = append(lowerBoundsArr, map[string]interface{}{
+				"key":   fieldId,
+				"value": value,
+			})
+		}
 
-	dataFile := map[string]interface{}{
-		"content":            0, // 0: DATA, 1: POSITION DELETES, 2: EQUALITY DELETES
-		"file_path":          parquetFile.Path,
-		"file_format":        "PARQUET",
-		"partition":          map[string]interface{}{},
-		"record_count":       parquetFile.RecordCount,
-		"file_size_in_bytes": parquetFile.Size,
-		"column_sizes": map[string]interface{}{
-			"array": columnSizesArr,
-		},
-		"value_counts": map[string]interface{}{
-			"array": valueCountsArr,
-		},
-		"null_value_counts": map[string]interface{}{
-			"array": nullValueCountsArr,
-		},
-		"nan_value_counts": map[string]interface{}{
-			"array": []interface{}{},
-		},
-		"lower_bounds": map[string]interface{}{
-			"array": lowerBoundsArr,
-		},
-		"upper_bounds": map[string]interface{}{
-			"array": upperBoundsArr,
-		},
-		"key_metadata": nil,
-		"split_offsets": map[string]interface{}{
-			"array": parquetFile.Stats.SplitOffsets,
-		},
-		"equality_ids": nil,
-		"sort_order_id": map[string]interface{}{
-			"int": 0,
-		},
-	}
+		upperBoundsArr := []interface{}{}
+		for fieldId, value := range parquetFile.Stats.UpperBounds {
+			upperBoundsArr = append(upperBoundsArr, map[string]interface{}{
+				"key":   fieldId,
+				"value": value,
+			})
+		}
 
-	manifestEntry := map[string]interface{}{
-		"status":               ICEBERG_MANIFEST_STATUS_ADDED,
-		"snapshot_id":          map[string]interface{}{"long": snapshotId},
-		"sequence_number":      nil,
-		"file_sequence_number": nil,
-		"data_file":            dataFile,
+		dataFile := map[string]interface{}{
+			"content":            0, // 0: DATA, 1: POSITION DELETES, 2: EQUALITY DELETES
+			"file_path":          parquetFile.Path,
+			"file_format":        "PARQUET",
+			"partition":          map[string]interface{}{},
+			"record_count":       parquetFile.RecordCount,
+			"file_size_in_bytes": parquetFile.Size,
+			"column_sizes": map[string]interface{}{
+				"array": columnSizesArr,
+			},
+			"value_counts": map[string]interface{}{
+				"array": valueCountsArr,
+			},
+			"null_value_counts": map[string]interface{}{
+				"array": nullValueCountsArr,
+			},
+			"nan_value_counts": map[string]interface{}{
+				"array": []interface{}{},
+			},
+			"lower_bounds": map[string]interface{}{
+				"array": lowerBoundsArr,
+			},
+			"upper_bounds": map[string]interface{}{
+				"array": upperBoundsArr,
+			},
+			"key_metadata": nil,
+			"split_offsets": map[string]interface{}{
+				"array": parquetFile.Stats.SplitOffsets,
+			},
+			"equality_ids": nil,
+			"sort_order_id": map[string]interface{}{
+				"int": 0,
+			},
+		}
+
+		manifestEntries[i] = map[string]interface{}{
+			"status":               ICEBERG_MANIFEST_STATUS_EXISTING,
+			"snapshot_id":          map[string]interface{}{"long": snapshotId},
+			"sequence_number":      map[string]interface{}{"long": i + 1},
+			"file_sequence_number": map[string]interface{}{"long": i + 1},
+			"data_file":            dataFile,
+		}
 	}
 
 	avroFile, err := os.Create(filePath)
 	if err != nil {
-		return ManifestFile{}, fmt.Errorf("failed to create manifest file: %v", err)
+		return 0, fmt.Errorf("failed to create manifest file: %v", err)
 	}
 	defer avroFile.Close()
+
+	codec, err := goavro.NewCodec(MANIFEST_SCHEMA)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create Avro codec: %v", err)
+	}
 
 	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
 		W:      avroFile,
@@ -258,54 +267,44 @@ func (utils *StorageUtils) WriteManifestFile(filePath string, parquetFile Parque
 		Schema: MANIFEST_SCHEMA,
 	})
 	if err != nil {
-		return ManifestFile{}, fmt.Errorf("failed to create Avro OCF writer: %v", err)
+		return 0, fmt.Errorf("failed to create Avro OCF writer: %v", err)
 	}
 
-	err = ocfWriter.Append([]interface{}{manifestEntry})
+	err = ocfWriter.Append(manifestEntries)
 	if err != nil {
-		return ManifestFile{}, fmt.Errorf("failed to write to manifest file: %v", err)
+		return 0, fmt.Errorf("failed to write to manifest file: %v", err)
 	}
 
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return ManifestFile{}, fmt.Errorf("failed to get manifest file info: %v", err)
+		return 0, fmt.Errorf("failed to get manifest file info: %v", err)
 	}
 	fileSize := fileInfo.Size()
 
-	return ManifestFile{
-		SnapshotId:   snapshotId,
-		Size:         fileSize,
-		RecordCount:  parquetFile.RecordCount,
-		DataFileSize: parquetFile.Size,
-	}, nil
+	return fileSize, nil
 }
 
-func (utils *StorageUtils) WriteManifestListFile(filePath string, manifestListItemsSortedDesc []ManifestListItem) (ManifestListFile, error) {
-	codec, err := goavro.NewCodec(MANIFEST_LIST_SCHEMA)
-	if err != nil {
-		return ManifestListFile{}, fmt.Errorf("failed to create Avro codec for manifest list: %v", err)
-	}
-
-	var manifestListRecords []interface{}
-
+func (utils *StorageUtils) WriteManifestListFile(filePath string, totalDataFileSize int64, manifestListItemsSortedDesc []ManifestListItem) (ManifestListFile, error) {
+	snapshotId := time.Now().UnixNano()
+	manifestListEntries := make([]map[string]interface{}, len(manifestListItemsSortedDesc))
 	statsBySequenceNumber := make(map[string]ManifestListSequenceStats)
 
-	for _, manifestListItem := range manifestListItemsSortedDesc {
+	for i, manifestListItem := range manifestListItemsSortedDesc {
 		sequenceNumber := manifestListItem.SequenceNumber
 		sequenceStats := statsBySequenceNumber[common.IntToString(sequenceNumber)]
 		manifestFile := manifestListItem.ManifestFile
 
 		manifestListRecord := map[string]interface{}{
-			"added_snapshot_id":    manifestFile.SnapshotId,
+			"added_snapshot_id":    snapshotId,
 			"manifest_length":      manifestFile.Size,
 			"manifest_path":        manifestFile.Path,
-			"min_sequence_number":  sequenceNumber,
+			"min_sequence_number":  1,
 			"sequence_number":      sequenceNumber,
 			"content":              0,
 			"deleted_files_count":  0,
 			"deleted_rows_count":   0,
-			"existing_files_count": 0,
-			"existing_rows_count":  0,
+			"existing_files_count": manifestFile.TotalDataFileCount,
+			"existing_rows_count":  manifestFile.TotalRecordCount,
 			"key_metadata":         nil,
 			"partition_spec_id":    0,
 			"partitions":           map[string]interface{}{"array": []string{}},
@@ -315,22 +314,24 @@ func (utils *StorageUtils) WriteManifestListFile(filePath string, manifestListIt
 			manifestListRecord["added_files_count"] = 0
 			manifestListRecord["added_rows_count"] = 0
 			manifestListRecord["deleted_files_count"] = 1
-			manifestListRecord["deleted_rows_count"] = manifestFile.RecordCount
-			sequenceStats.RemovedFilesSize += manifestFile.DataFileSize
-			sequenceStats.DeletedDataFiles += 1
-			sequenceStats.DeletedRecords += manifestFile.RecordCount
+			manifestListRecord["deleted_rows_count"] = manifestFile.TotalRecordCount
 		} else {
-			manifestListRecord["added_files_count"] = 1
-			manifestListRecord["added_rows_count"] = manifestFile.RecordCount
+			manifestListRecord["added_files_count"] = 0
+			manifestListRecord["added_rows_count"] = 0
 			manifestListRecord["deleted_files_count"] = 0
 			manifestListRecord["deleted_rows_count"] = 0
-			sequenceStats.AddedFilesSize += manifestFile.DataFileSize
-			sequenceStats.AddedDataFiles += 1
-			sequenceStats.AddedRecords += manifestFile.RecordCount
+			sequenceStats.TotalFilesSize += totalDataFileSize
+			sequenceStats.TotalDataFiles += int64(manifestFile.TotalDataFileCount)
+			sequenceStats.TotalRecords += manifestFile.TotalRecordCount
 		}
 
 		statsBySequenceNumber[common.IntToString(sequenceNumber)] = sequenceStats
-		manifestListRecords = append(manifestListRecords, manifestListRecord)
+		manifestListEntries[i] = manifestListRecord
+	}
+
+	codec, err := goavro.NewCodec(MANIFEST_LIST_SCHEMA)
+	if err != nil {
+		return ManifestListFile{}, fmt.Errorf("failed to create Avro codec for manifest list: %v", err)
 	}
 
 	avroFile, err := os.Create(filePath)
@@ -348,39 +349,29 @@ func (utils *StorageUtils) WriteManifestListFile(filePath string, manifestListIt
 		return ManifestListFile{}, fmt.Errorf("failed to create OCF writer for manifest list: %v", err)
 	}
 
-	err = ocfWriter.Append(manifestListRecords)
+	err = ocfWriter.Append(manifestListEntries)
 	if err != nil {
 		return ManifestListFile{}, fmt.Errorf("failed to write manifest list record: %v", err)
 	}
 
-	sequenceNumbers := maps.Keys(statsBySequenceNumber)
 	lastManifestListItem := manifestListItemsSortedDesc[0]
 	lastSequenceStats := statsBySequenceNumber[common.IntToString(lastManifestListItem.SequenceNumber)]
 
-	operation := ICEBERG_MANIFEST_LIST_OPERATION_APPEND
-	if len(sequenceNumbers) == 1 && len(manifestListRecords) == 2 && lastSequenceStats.AddedDataFiles == 1 && lastSequenceStats.DeletedDataFiles == 1 {
-		operation = ICEBERG_MANIFEST_LIST_OPERATION_OVERWRITE
-	} else if lastSequenceStats.AddedDataFiles == 0 && lastSequenceStats.DeletedDataFiles > 0 {
-		operation = ICEBERG_MANIFEST_LIST_OPERATION_DELETE
-	}
-
 	manifestListFile := ManifestListFile{
-		SequenceNumber:   lastManifestListItem.SequenceNumber,
-		SnapshotId:       lastManifestListItem.ManifestFile.SnapshotId,
-		TimestampMs:      time.Now().UnixNano() / int64(time.Millisecond),
-		Operation:        operation,
-		AddedFilesSize:   lastSequenceStats.AddedFilesSize,
-		AddedDataFiles:   lastSequenceStats.AddedDataFiles,
-		AddedRecords:     lastSequenceStats.AddedRecords,
-		RemovedFilesSize: lastSequenceStats.RemovedFilesSize,
-		DeletedDataFiles: lastSequenceStats.DeletedDataFiles,
-		DeletedRecords:   lastSequenceStats.DeletedRecords,
+		SequenceNumber: lastManifestListItem.SequenceNumber,
+		SnapshotId:     snapshotId,
+		TimestampMs:    time.Now().UnixNano() / int64(time.Millisecond),
+		Operation:      ICEBERG_MANIFEST_LIST_OPERATION_REPLACE,
+		TotalFilesSize: lastSequenceStats.TotalFilesSize,
+		TotalDataFiles: lastSequenceStats.TotalDataFiles,
+		TotalRecords:   lastSequenceStats.TotalRecords,
 	}
 	return manifestListFile, nil
 }
 
 func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string, icebergSchemaColumns []*IcebergSchemaColumn, manifestListFilesSortedAsc []ManifestListFile) (err error) {
 	tableUuid := uuid.New().String()
+	snapshotId := time.Now().UnixNano()
 
 	lastColumnId := 0
 	for _, col := range icebergSchemaColumns {
@@ -405,30 +396,29 @@ func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string
 	var totalDataFiles, totalFilesSize, totalRecords int64
 
 	for i, manifestListFile := range manifestListFilesSortedAsc {
-		totalDataFiles += manifestListFile.AddedDataFiles - manifestListFile.DeletedDataFiles
-		totalFilesSize += manifestListFile.AddedFilesSize - manifestListFile.RemovedFilesSize
-		totalRecords += manifestListFile.AddedRecords - manifestListFile.DeletedRecords
+		totalDataFiles += manifestListFile.TotalDataFiles
+		totalFilesSize += manifestListFile.TotalFilesSize
+		totalRecords += manifestListFile.TotalRecords
 
 		snapshot := map[string]interface{}{
 			"schema-id":       0,
-			"snapshot-id":     manifestListFile.SnapshotId,
+			"snapshot-id":     snapshotId,
 			"sequence-number": manifestListFile.SequenceNumber,
 			"timestamp-ms":    manifestListFile.TimestampMs,
 			"manifest-list":   manifestListFile.Path,
 			"summary": map[string]interface{}{
-				"operation":              manifestListFile.Operation,
-				"added-data-files":       Int64ToString(manifestListFile.AddedDataFiles),
-				"added-files-size":       Int64ToString(manifestListFile.AddedFilesSize),
-				"added-records":          Int64ToString(manifestListFile.AddedRecords),
-				"deleted-data-files":     Int64ToString(manifestListFile.DeletedDataFiles),
-				"deleted-records":        Int64ToString(manifestListFile.DeletedRecords),
-				"removed-files-size":     Int64ToString(manifestListFile.RemovedFilesSize),
-				"total-data-files":       Int64ToString(totalDataFiles),
-				"total-files-size":       Int64ToString(totalFilesSize),
-				"total-records":          Int64ToString(totalRecords),
-				"total-delete-files":     "0",
-				"total-equality-deletes": "0",
-				"total-position-deletes": "0",
+				"changed-partition-count": "0",
+				"manifests-kept":          "0",
+				"manifests-replaced":      "0",
+				"manifests-created":       "1",
+				"entries-processed":       Int64ToString(totalDataFiles),
+				"operation":               manifestListFile.Operation,
+				"total-data-files":        Int64ToString(totalDataFiles),
+				"total-files-size":        Int64ToString(totalFilesSize),
+				"total-records":           Int64ToString(totalRecords),
+				"total-delete-files":      "0",
+				"total-equality-deletes":  "0",
+				"total-position-deletes":  "0",
 			},
 		}
 		if i != 0 {
@@ -437,7 +427,7 @@ func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string
 		snapshots[i] = snapshot
 
 		snapshotLog[i] = map[string]interface{}{
-			"snapshot-id":  manifestListFile.SnapshotId,
+			"snapshot-id":  snapshotId,
 			"timestamp-ms": manifestListFile.TimestampMs,
 		}
 	}
@@ -470,10 +460,10 @@ func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string
 		"default-sort-order-id": 0,
 		"last-partition-id":     999, // Assuming no partitions; set to a placeholder
 		"properties":            map[string]string{},
-		"current-snapshot-id":   lastManifestListFile.SnapshotId,
+		"current-snapshot-id":   snapshotId,
 		"refs": map[string]interface{}{
 			"main": map[string]interface{}{
-				"snapshot-id": lastManifestListFile.SnapshotId,
+				"snapshot-id": snapshotId,
 				"type":        "branch",
 			},
 		},
@@ -514,18 +504,15 @@ func (utils *StorageUtils) ParseLastManifestListFile(bucketS3Prefix string, meta
 	snapshot := manifestListsJson.Snapshots[len(manifestListsJson.Snapshots)-1]
 
 	return ManifestListFile{
-		SequenceNumber:   snapshot.SequenceNumber,
-		SnapshotId:       snapshot.SnapshotId,
-		TimestampMs:      snapshot.TimestampMs,
-		Key:              strings.TrimPrefix(snapshot.Path, bucketS3Prefix),
-		Path:             snapshot.Path,
-		Operation:        snapshot.Summary.Operation,
-		AddedFilesSize:   StringToInt64(snapshot.Summary.AddedFilesSize),
-		AddedDataFiles:   StringToInt64(snapshot.Summary.AddedDataFiles),
-		AddedRecords:     StringToInt64(snapshot.Summary.AddedRecords),
-		RemovedFilesSize: StringToInt64(snapshot.Summary.RemovedFilesSize),
-		DeletedDataFiles: StringToInt64(snapshot.Summary.DeletedDataFiles),
-		DeletedRecords:   StringToInt64(snapshot.Summary.DeletedRecords),
+		SequenceNumber: snapshot.SequenceNumber,
+		SnapshotId:     snapshot.SnapshotId,
+		TimestampMs:    snapshot.TimestampMs,
+		Key:            strings.TrimPrefix(snapshot.Path, bucketS3Prefix),
+		Path:           snapshot.Path,
+		Operation:      snapshot.Summary.Operation,
+		TotalFilesSize: StringToInt64(snapshot.Summary.TotalFilesSize),
+		TotalDataFiles: StringToInt64(snapshot.Summary.TotalDataFiles),
+		TotalRecords:   StringToInt64(snapshot.Summary.TotalRecords),
 	}
 }
 
@@ -543,11 +530,12 @@ func (utils *StorageUtils) ParseManifestListItems(bucketS3Prefix string, manifes
 
 		manifestListItemsSortedDesc = append(manifestListItemsSortedDesc, ManifestListItem{
 			ManifestFile: ManifestFile{
-				SnapshotId:  recordMap["added_snapshot_id"].(int64),
-				Key:         strings.TrimPrefix(recordMap["manifest_path"].(string), bucketS3Prefix),
-				Path:        recordMap["manifest_path"].(string),
-				Size:        recordMap["manifest_length"].(int64),
-				RecordCount: recordMap["added_rows_count"].(int64),
+				Key:                strings.TrimPrefix(recordMap["manifest_path"].(string), bucketS3Prefix),
+				Path:               recordMap["manifest_path"].(string),
+				Size:               recordMap["manifest_length"].(int64),
+				TotalRecordCount:   recordMap["added_rows_count"].(int64),
+				TotalDataFileCount: recordMap["existing_files_count"].(int32),
+				RecordsDeleted:     false,
 			},
 			SequenceNumber: int(recordMap["sequence_number"].(int64)),
 		})
@@ -556,18 +544,27 @@ func (utils *StorageUtils) ParseManifestListItems(bucketS3Prefix string, manifes
 	return manifestListItemsSortedDesc
 }
 
-func (utils *StorageUtils) ParseParquetFileS3Path(manifestContent []byte) string {
+func (utils *StorageUtils) ParseParquetFiles(manifestContent []byte) []ParquetFile {
 	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestContent)))
 	common.PanicIfError(utils.Config, err)
 
-	ocfReader.Scan()
-	record, err := ocfReader.Read()
-	common.PanicIfError(utils.Config, err)
+	parquetFilesSortedAsc := []ParquetFile{}
 
-	recordMap := record.(map[string]interface{})
-	dataFile := recordMap["data_file"].(map[string]interface{})
+	for ocfReader.Scan() {
+		record, err := ocfReader.Read()
+		common.PanicIfError(utils.Config, err)
 
-	return dataFile["file_path"].(string)
+		recordMap := record.(map[string]interface{})
+		dataFile := recordMap["data_file"].(map[string]interface{})
+
+		parquetFilesSortedAsc = append(parquetFilesSortedAsc, ParquetFile{
+			Path:        dataFile["file_path"].(string),
+			Size:        dataFile["file_size_in_bytes"].(int64),
+			RecordCount: dataFile["record_count"].(int64),
+		})
+	}
+
+	return parquetFilesSortedAsc
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

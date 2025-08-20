@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	MAX_ICEBERG_WRITER_BATCH_SIZE = 1024 * 1024 * 1024 // 1 GB
-	MAX_PARQUET_FILE_SIZE         = 100 * 1024 * 1024  // 100 MB
+	MAX_LOAD_BATCH_SIZE   = 1024 * 1024 * 1024 // 1 GB
+	MAX_PARQUET_FILE_SIZE = 100 * 1024 * 1024  // 100 MB
 )
 
 type IcebergWriter struct {
@@ -47,7 +47,7 @@ func (writer *IcebergWriter) InsertFromCsvCappedBuffer(icebergTable *IcebergTabl
 	_, err := csvReader.Read() // Read the header row
 	common.PanicIfError(writer.Config, err)
 
-	writer.insertRows(icebergTable, func(duckdbTableName string, loadedSize int64) (int, bool) {
+	writer.insertRows(icebergTable, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadCsvRows(duckdbTableName, csvReader, loadedSize)
 	})
 }
@@ -63,7 +63,7 @@ func (writer *IcebergWriter) AppendFromCsvCappedBuffer(icebergTable *IcebergTabl
 	_, err := csvReader.Read() // Read the header row
 	common.PanicIfError(writer.Config, err)
 
-	writer.appendRows(metadataFileS3Path, cursorValue, func(duckdbTableName string, loadedSize int64) (int, bool) {
+	writer.appendRows(metadataFileS3Path, cursorValue, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadCsvRows(duckdbTableName, csvReader, loadedSize)
 	})
 }
@@ -71,7 +71,7 @@ func (writer *IcebergWriter) AppendFromCsvCappedBuffer(icebergTable *IcebergTabl
 func (writer *IcebergWriter) InsertFromJsonCappedBuffer(icebergTable *IcebergTable, cappedBuffer *CappedBuffer) {
 	jsonQueueReader := NewJsonQueueReader(cappedBuffer)
 
-	writer.insertRows(icebergTable, func(duckdbTableName string, loadedSize int64) (int, bool) {
+	writer.insertRows(icebergTable, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadJsonRows(duckdbTableName, jsonQueueReader, loadedSize)
 	})
 }
@@ -85,7 +85,7 @@ func (writer *IcebergWriter) AppendFromJsonCappedBuffer(icebergTable *IcebergTab
 
 	jsonQueueReader := NewJsonQueueReader(cappedBuffer)
 
-	writer.appendRows(metadataFileS3Path, cursorValue, func(duckdbTableName string, loadedSize int64) (int, bool) {
+	writer.appendRows(metadataFileS3Path, cursorValue, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadJsonRows(duckdbTableName, jsonQueueReader, loadedSize)
 	})
 }
@@ -100,7 +100,7 @@ func (writer *IcebergWriter) UpdateFromJsonCappedBuffer(icebergTable *IcebergTab
 	jsonQueueReader := NewJsonQueueReader(cappedBuffer)
 
 	uniqueIndexColumnNames := writer.UniqueIndexColumnNames(icebergTable)
-	writer.updateRows(metadataFileS3Path, uniqueIndexColumnNames, func(duckdbTableName string, loadedSize int64) (int, bool) {
+	writer.updateRows(metadataFileS3Path, uniqueIndexColumnNames, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadJsonRows(duckdbTableName, jsonQueueReader, loadedSize)
 	})
 }
@@ -114,7 +114,7 @@ func (writer *IcebergWriter) DeleteFromJsonCappedBuffer(icebergTable *IcebergTab
 	jsonQueueReader := NewJsonQueueReader(cappedBuffer)
 
 	uniqueIndexColumnNames := writer.UniqueIndexColumnNames(icebergTable)
-	writer.deleteRows(metadataFileS3Path, uniqueIndexColumnNames, func(duckdbTableName string, loadedSize int64) (int, bool) {
+	writer.deleteRows(metadataFileS3Path, uniqueIndexColumnNames, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadJsonRows(duckdbTableName, jsonQueueReader, loadedSize)
 	})
 }
@@ -132,58 +132,58 @@ func (writer *IcebergWriter) UniqueIndexColumnNames(icebergTable *IcebergTable) 
 	return uniqueIndexColumnNames
 }
 
-func (writer *IcebergWriter) insertRows(icebergTable *IcebergTable, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int, reachedEnd bool)) {
+func (writer *IcebergWriter) insertRows(icebergTable *IcebergTable, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
 	tableS3Path := icebergTable.GenerateTableS3Path()
 	dataS3Path := tableS3Path + "/data"
 	metadataS3Path := tableS3Path + "/metadata"
 
-	var newParquetCount int
-	var lastSequenceNumber int
-	var firstNewParquetFileUuid string
-	newManifestListItemsSortedDesc := []ManifestListItem{}
-	var newManifestListFile ManifestListFile
+	var totalDataFileSize int64
+	parquetFilesSortedAsc := []ParquetFile{}
+	objectsToDeleteKeys := []string{}
 
+	var manifestFile ManifestFile
+	var manifestListFile ManifestListFile
 	for {
 		tempDuckdbTableName := writer.createTempDuckdbTable()
 		defer writer.deleteTempDuckdbTable(tempDuckdbTableName)
 
 		loadedRowCount, reachedEnd := loadRowsToDuckdbTableFunc(tempDuckdbTableName, 0)
-		if loadedRowCount == 0 && newParquetCount > 0 {
+		if loadedRowCount == 0 && len(parquetFilesSortedAsc) > 0 {
 			break
 		}
 
 		// Create parquet
-		newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, loadedRowCount)
-		common.LogDebug(writer.Config, "Parquet file with", newParquetFile.RecordCount, "record(s) created at:", newParquetFile.Key)
-		if firstNewParquetFileUuid == "" {
-			firstNewParquetFileUuid = newParquetFile.Uuid
+		parquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, loadedRowCount)
+		parquetFilesSortedAsc = append(parquetFilesSortedAsc, parquetFile)
+		totalDataFileSize += parquetFile.Size
+
+		// Replace manifest
+		if manifestFile.Key != "" {
+			objectsToDeleteKeys = append(objectsToDeleteKeys, manifestFile.Key)
 		}
+		manifestFile = writer.StorageS3.CreateManifest(metadataS3Path, parquetFilesSortedAsc)
 
-		// Create manifest
-		lastSequenceNumber++
-		newManifestFile := writer.StorageS3.CreateManifest(metadataS3Path, newParquetFile)
-		newManifestListItem := ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: newManifestFile}
-		newManifestListItemsSortedDesc = append([]ManifestListItem{newManifestListItem}, newManifestListItemsSortedDesc...)
-
-		// Create manifest list
-		previousManifestListFile := newManifestListFile
-		newManifestListFile = writer.StorageS3.CreateManifestList(metadataS3Path, firstNewParquetFileUuid, newManifestListItemsSortedDesc)
+		// Replace manifest list
+		if manifestListFile.Key != "" {
+			objectsToDeleteKeys = append(objectsToDeleteKeys, manifestListFile.Key)
+		}
+		manifestListItem := ManifestListItem{SequenceNumber: len(parquetFilesSortedAsc) + 1, ManifestFile: manifestFile}
+		manifestListFile = writer.StorageS3.CreateManifestList(metadataS3Path, totalDataFileSize, []ManifestListItem{manifestListItem})
 
 		// Create metadata
-		writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{newManifestListFile})
-
-		newParquetCount++
-		common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in Parquet file #"+common.IntToString(newParquetCount), "("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
+		writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{manifestListFile})
+		common.LogInfo(writer.Config, "Written", parquetFile.RecordCount, "records in Parquet file #"+common.IntToString(len(parquetFilesSortedAsc)), "("+writer.formattedParquetFileSize(parquetFile.Size)+")")
 
 		// Create table
-		if newParquetCount == 1 {
+		if len(parquetFilesSortedAsc) == 1 {
 			icebergTable.Create(tableS3Path)
 		}
 
-		// Delete previous manifest list file
-		if previousManifestListFile.Key != "" {
-			writer.deleteObject(previousManifestListFile.Key)
+		// Delete old files
+		for _, key := range objectsToDeleteKeys {
+			writer.deleteObject(key)
 		}
+		objectsToDeleteKeys = []string{}
 
 		if reachedEnd {
 			break
@@ -191,42 +191,43 @@ func (writer *IcebergWriter) insertRows(icebergTable *IcebergTable, loadRowsToDu
 	}
 }
 
-func (writer *IcebergWriter) appendRows(metadataFileS3Path string, cursorValue CursorValue, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int, reachedEnd bool)) {
+func (writer *IcebergWriter) appendRows(metadataFileS3Path string, cursorValue CursorValue, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
 	tableS3Path := strings.Split(metadataFileS3Path, "/metadata/")[0]
 	metadataS3Path := tableS3Path + "/metadata"
 	dataS3Path := tableS3Path + "/data"
 
 	existingManifestListFile := writer.StorageS3.LastManifestListFile(metadataFileS3Path)
-	existingManifestListItemsSortedDesc := writer.StorageS3.ManifestListItems(existingManifestListFile)
-	existingLastManifestListItem := existingManifestListItemsSortedDesc[0]
-	existingLastParquetFileS3Path, lastParquetFileSize := writer.StorageS3.ParquetFileInfo(existingLastManifestListItem.ManifestFile)
-
-	var newParquetCount int
-	lastSequenceNumber := existingLastManifestListItem.SequenceNumber
-	firstNewParquetFileUuid := existingManifestListFile.Uuid()
-	newManifestListItemsSortedDesc := existingManifestListItemsSortedDesc
+	existingManifestListItem := writer.StorageS3.ManifestListItems(existingManifestListFile)[0]
+	existingParquetFilesSortedAsc := writer.StorageS3.ParquetFiles(existingManifestListItem.ManifestFile, writer.IcebergSchemaColumns)
+	lastParquetFile := existingParquetFilesSortedAsc[len(existingParquetFilesSortedAsc)-1]
+	replaceLastExistingParquetFile := lastParquetFile.Size < MAX_PARQUET_FILE_SIZE
 
 	objectsToDeleteKeys := []string{}
-	replaceLastExistingParquetFile := lastParquetFileSize < MAX_PARQUET_FILE_SIZE
+	parquetFilesSortedAsc := existingParquetFilesSortedAsc
 	if replaceLastExistingParquetFile {
-		objectsToDeleteKeys = append(objectsToDeleteKeys, existingLastManifestListItem.ManifestFile.Key)
-		objectsToDeleteKeys = append(objectsToDeleteKeys, writer.StorageS3.S3Client.ObjectKey(existingLastParquetFileS3Path))
-		newManifestListItemsSortedDesc = newManifestListItemsSortedDesc[1:] // Remove the last item to replace it
+		objectsToDeleteKeys = append(objectsToDeleteKeys, lastParquetFile.Key)
+		parquetFilesSortedAsc = existingParquetFilesSortedAsc[:len(existingParquetFilesSortedAsc)-1] // Remove last file from the list
 	}
+	var totalDataFileSize int64
+	for _, parquetFile := range parquetFilesSortedAsc {
+		totalDataFileSize += parquetFile.Size
+	}
+	var newParquetFileCount int
 
 	for {
 		tempDuckdbTableName := writer.createTempDuckdbTable()
 		defer writer.deleteTempDuckdbTable(tempDuckdbTableName)
 
+		var initialLoadedSize int64
 		var initialLoadedRowCount int64
-		if newParquetCount == 0 && replaceLastExistingParquetFile {
-			writer.insertToDuckdbTableFromParquet(tempDuckdbTableName, existingLastParquetFileS3Path, cursorValue)
-			initialLoadedRowCount = lastParquetFileSize * (MAX_ICEBERG_WRITER_BATCH_SIZE * writer.CompressionFactor / MAX_PARQUET_FILE_SIZE)
+		if newParquetFileCount == 0 && replaceLastExistingParquetFile {
+			initialLoadedRowCount = writer.insertToDuckdbTableFromParquet(tempDuckdbTableName, lastParquetFile.Path, cursorValue)
+			initialLoadedSize = lastParquetFile.Size * (MAX_LOAD_BATCH_SIZE * writer.CompressionFactor / MAX_PARQUET_FILE_SIZE)
 		}
 
-		loadedRowCount, reachedEnd := loadRowsToDuckdbTableFunc(tempDuckdbTableName, initialLoadedRowCount)
+		loadedRowCount, reachedEnd := loadRowsToDuckdbTableFunc(tempDuckdbTableName, initialLoadedSize)
 		if loadedRowCount == 0 {
-			if newParquetCount == 0 {
+			if newParquetFileCount == 0 {
 				return // no rows to append in the first batch
 			} else {
 				break // no more rows to append
@@ -234,49 +235,46 @@ func (writer *IcebergWriter) appendRows(metadataFileS3Path string, cursorValue C
 		}
 
 		// Create parquet
-		newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, loadedRowCount)
-		common.LogDebug(writer.Config, "Parquet file with", newParquetFile.RecordCount, "record(s) created at:", newParquetFile.Key)
-		if firstNewParquetFileUuid == "" {
-			firstNewParquetFileUuid = newParquetFile.Uuid
-		}
-
-		// Create manifest
-		lastSequenceNumber++
-		newManifestFile := writer.StorageS3.CreateManifest(metadataS3Path, newParquetFile)
-		newManifestListItem := ManifestListItem{SequenceNumber: lastSequenceNumber, ManifestFile: newManifestFile}
-		newManifestListItemsSortedDesc = append([]ManifestListItem{newManifestListItem}, newManifestListItemsSortedDesc...)
-
-		newParquetCount++
-		common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in Parquet file #"+common.IntToString(newParquetCount), "("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
+		newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, initialLoadedRowCount+loadedRowCount)
+		parquetFilesSortedAsc = append(parquetFilesSortedAsc, newParquetFile)
+		newParquetFileCount++
+		totalDataFileSize += newParquetFile.Size
+		common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in Parquet file #"+common.IntToString(newParquetFileCount), "("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
 
 		if reachedEnd {
 			break
 		}
 	}
 
-	// Create manifest list
-	newManifestListFile := writer.StorageS3.CreateManifestList(metadataS3Path, firstNewParquetFileUuid, newManifestListItemsSortedDesc)
+	// Replace manifest
+	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListItem.ManifestFile.Key)
+	manifestFile := writer.StorageS3.CreateManifest(metadataS3Path, parquetFilesSortedAsc)
+
+	// Replace manifest list
+	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListFile.Key)
+	manifestListItem := ManifestListItem{SequenceNumber: len(parquetFilesSortedAsc) + 1, ManifestFile: manifestFile}
+	manifestListFile := writer.StorageS3.CreateManifestList(metadataS3Path, totalDataFileSize, []ManifestListItem{manifestListItem})
 
 	// Create metadata
-	writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{newManifestListFile})
+	writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{manifestListFile})
 
 	// Delete old files
-	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListFile.Key)
 	for _, key := range objectsToDeleteKeys {
 		writer.deleteObject(key)
 	}
 }
 
-func (writer *IcebergWriter) updateRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int, reachedEnd bool)) {
+func (writer *IcebergWriter) updateRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
 	tableS3Path := strings.Split(metadataFileS3Path, "/metadata/")[0]
 	metadataS3Path := tableS3Path + "/metadata"
 	dataS3Path := tableS3Path + "/data"
 
 	existingManifestListFile := writer.StorageS3.LastManifestListFile(metadataFileS3Path)
-	manifestListItemsSortedDesc := writer.StorageS3.ManifestListItems(existingManifestListFile)
-	firstNewParquetFileUuid := existingManifestListFile.Uuid()
+	existingManifestListItem := writer.StorageS3.ManifestListItems(existingManifestListFile)[0]
+	existingParquetFilesSortedAsc := writer.StorageS3.ParquetFiles(existingManifestListItem.ManifestFile, writer.IcebergSchemaColumns)
 
 	objectsToDeleteKeys := []string{}
+	parquetFilesSortedAsc := existingParquetFilesSortedAsc
 	for {
 		tempUpdatedRowsDuckdbTableName := writer.createTempDuckdbTable()
 		defer writer.deleteTempDuckdbTable(tempUpdatedRowsDuckdbTableName)
@@ -290,28 +288,25 @@ func (writer *IcebergWriter) updateRows(metadataFileS3Path string, uniqueIndexCo
 			}
 		}
 
-		for i, manifestListItem := range manifestListItemsSortedDesc {
-			parquetFileS3Path, _ := writer.StorageS3.ParquetFileInfo(manifestListItem.ManifestFile)
-			if !writer.hasOverlappingRowsInParquet(tempUpdatedRowsDuckdbTableName, parquetFileS3Path, uniqueIndexColumnNames) {
+		for i, parquetFile := range parquetFilesSortedAsc {
+			if !writer.hasOverlappingRowsInParquet(tempUpdatedRowsDuckdbTableName, parquetFile.Path, uniqueIndexColumnNames) {
 				continue
 			}
-
-			objectsToDeleteKeys = append(objectsToDeleteKeys, writer.StorageS3.S3Client.ObjectKey(parquetFileS3Path))
-			objectsToDeleteKeys = append(objectsToDeleteKeys, manifestListItem.ManifestFile.Key)
 
 			tempDuckdbTableName := writer.createTempDuckdbTable()
 			defer writer.deleteTempDuckdbTable(tempDuckdbTableName)
 
-			writer.insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(tempDuckdbTableName, tempUpdatedRowsDuckdbTableName, parquetFileS3Path, uniqueIndexColumnNames)
-			writer.insertToDuckdbTableFromDuckdbTableThatOverlapWithParquetRows(tempDuckdbTableName, tempUpdatedRowsDuckdbTableName, parquetFileS3Path, uniqueIndexColumnNames)
+			var loadedRowCount int64
+			loadedRowCount += writer.insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(tempDuckdbTableName, tempUpdatedRowsDuckdbTableName, parquetFile.Path, uniqueIndexColumnNames)
+			loadedRowCount += writer.insertToDuckdbTableFromDuckdbTableThatOverlapWithParquetRows(tempDuckdbTableName, tempUpdatedRowsDuckdbTableName, parquetFile.Path, uniqueIndexColumnNames)
 
 			// Create parquet
 			newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, loadedRowCount)
-			common.LogDebug(writer.Config, "Parquet file with", newParquetFile.RecordCount, "record(s) created at:", newParquetFile.Key)
+			common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in 'updated' Parquet file ("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
 
-			// Create manifest
-			newManifestFile := writer.StorageS3.CreateManifest(metadataS3Path, newParquetFile)
-			manifestListItemsSortedDesc[i].ManifestFile = newManifestFile
+			// Replace the old Parquet file with the new one
+			parquetFilesSortedAsc[i] = newParquetFile
+			objectsToDeleteKeys = append(objectsToDeleteKeys, parquetFile.Key)
 		}
 
 		if reachedEnd {
@@ -323,29 +318,39 @@ func (writer *IcebergWriter) updateRows(metadataFileS3Path string, uniqueIndexCo
 		return // no overlapping rows found
 	}
 
-	// Create manifest list
-	newManifestListFile := writer.StorageS3.CreateManifestList(metadataS3Path, firstNewParquetFileUuid, manifestListItemsSortedDesc)
+	// Replace manifest
+	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListItem.ManifestFile.Key)
+	manifestFile := writer.StorageS3.CreateManifest(metadataS3Path, parquetFilesSortedAsc)
+
+	// Replace manifest list
+	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListFile.Key)
+	var totalDataFileSize int64
+	for _, parquetFile := range parquetFilesSortedAsc {
+		totalDataFileSize += parquetFile.Size
+	}
+	manifestListItem := ManifestListItem{SequenceNumber: len(parquetFilesSortedAsc) + 1, ManifestFile: manifestFile}
+	manifestListFile := writer.StorageS3.CreateManifestList(metadataS3Path, totalDataFileSize, []ManifestListItem{manifestListItem})
 
 	// Create metadata
-	writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{newManifestListFile})
+	writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{manifestListFile})
 
 	// Delete old files
-	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListFile.Key)
 	for _, key := range objectsToDeleteKeys {
 		writer.deleteObject(key)
 	}
 }
 
-func (writer *IcebergWriter) deleteRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int, reachedEnd bool)) {
+func (writer *IcebergWriter) deleteRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
 	tableS3Path := strings.Split(metadataFileS3Path, "/metadata/")[0]
 	metadataS3Path := tableS3Path + "/metadata"
 	dataS3Path := tableS3Path + "/data"
 
 	existingManifestListFile := writer.StorageS3.LastManifestListFile(metadataFileS3Path)
-	manifestListItemsSortedDesc := writer.StorageS3.ManifestListItems(existingManifestListFile)
-	firstNewParquetFileUuid := existingManifestListFile.Uuid()
+	existingManifestListItem := writer.StorageS3.ManifestListItems(existingManifestListFile)[0]
+	existingParquetFilesSortedAsc := writer.StorageS3.ParquetFiles(existingManifestListItem.ManifestFile, writer.IcebergSchemaColumns)
 
 	objectsToDeleteKeys := []string{}
+	parquetFilesSortedAsc := existingParquetFilesSortedAsc
 	for {
 		tempDeletedRowsDuckdbTableName := writer.createTempDuckdbTable()
 		defer writer.deleteTempDuckdbTable(tempDeletedRowsDuckdbTableName)
@@ -359,27 +364,23 @@ func (writer *IcebergWriter) deleteRows(metadataFileS3Path string, uniqueIndexCo
 			}
 		}
 
-		for i, manifestListItem := range manifestListItemsSortedDesc {
-			parquetFileS3Path, _ := writer.StorageS3.ParquetFileInfo(manifestListItem.ManifestFile)
-			if !writer.hasOverlappingRowsInParquet(tempDeletedRowsDuckdbTableName, parquetFileS3Path, uniqueIndexColumnNames) {
+		for i, parquetFile := range parquetFilesSortedAsc {
+			if !writer.hasOverlappingRowsInParquet(tempDeletedRowsDuckdbTableName, parquetFile.Path, uniqueIndexColumnNames) {
 				continue
 			}
-
-			objectsToDeleteKeys = append(objectsToDeleteKeys, writer.StorageS3.S3Client.ObjectKey(parquetFileS3Path))
-			objectsToDeleteKeys = append(objectsToDeleteKeys, manifestListItem.ManifestFile.Key)
 
 			tempDuckdbTableName := writer.createTempDuckdbTable()
 			defer writer.deleteTempDuckdbTable(tempDuckdbTableName)
 
-			writer.insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(tempDuckdbTableName, tempDeletedRowsDuckdbTableName, parquetFileS3Path, uniqueIndexColumnNames)
+			rowCount := writer.insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(tempDuckdbTableName, tempDeletedRowsDuckdbTableName, parquetFile.Path, uniqueIndexColumnNames)
 
 			// Create parquet
-			newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, loadedRowCount)
-			common.LogDebug(writer.Config, "Parquet file with", newParquetFile.RecordCount, "record(s) created at:", newParquetFile.Key)
+			newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, rowCount)
+			common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in 'deleted' Parquet file ("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
 
-			// Create manifest
-			newManifestFile := writer.StorageS3.CreateManifest(metadataS3Path, newParquetFile)
-			manifestListItemsSortedDesc[i].ManifestFile = newManifestFile
+			// Replace the old Parquet file with the new one
+			parquetFilesSortedAsc[i] = newParquetFile
+			objectsToDeleteKeys = append(objectsToDeleteKeys, parquetFile.Key)
 		}
 
 		if reachedEnd {
@@ -391,14 +392,23 @@ func (writer *IcebergWriter) deleteRows(metadataFileS3Path string, uniqueIndexCo
 		return // no overlapping rows found
 	}
 
-	// Create manifest list
-	newManifestListFile := writer.StorageS3.CreateManifestList(metadataS3Path, firstNewParquetFileUuid, manifestListItemsSortedDesc)
+	// Replace manifest
+	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListItem.ManifestFile.Key)
+	manifestFile := writer.StorageS3.CreateManifest(metadataS3Path, parquetFilesSortedAsc)
+
+	// Replace manifest list
+	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListFile.Key)
+	var totalDataFileSize int64
+	for _, parquetFile := range parquetFilesSortedAsc {
+		totalDataFileSize += parquetFile.Size
+	}
+	manifestListItem := ManifestListItem{SequenceNumber: len(parquetFilesSortedAsc) + 1, ManifestFile: manifestFile}
+	manifestListFile := writer.StorageS3.CreateManifestList(metadataS3Path, totalDataFileSize, []ManifestListItem{manifestListItem})
 
 	// Create metadata
-	writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{newManifestListFile})
+	writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{manifestListFile})
 
 	// Delete old files
-	objectsToDeleteKeys = append(objectsToDeleteKeys, existingManifestListFile.Key)
 	for _, key := range objectsToDeleteKeys {
 		writer.deleteObject(key)
 	}
@@ -430,7 +440,7 @@ func (writer *IcebergWriter) hasOverlappingRowsInParquet(duckdbTableName string,
 	return count > 0
 }
 
-func (writer *IcebergWriter) insertToDuckdbTableFromParquet(duckdbTableName string, parquetFileS3Path string, cursorValue CursorValue) {
+func (writer *IcebergWriter) insertToDuckdbTableFromParquet(duckdbTableName string, parquetFileS3Path string, cursorValue CursorValue) int64 {
 	sql := "INSERT INTO " + duckdbTableName + " SELECT * FROM read_parquet('" + parquetFileS3Path + "')"
 	if cursorValue.OverrideRows {
 		// Exclude rows with the cursor value
@@ -440,28 +450,43 @@ func (writer *IcebergWriter) insertToDuckdbTableFromParquet(duckdbTableName stri
 		common.LogInfo(writer.Config, "Replacing last existing Parquet file:", strings.Split(parquetFileS3Path, "/data/")[1])
 	}
 
-	_, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
+	result, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
 	common.PanicIfError(writer.Config, err)
+
+	rowsAffected, err := result.RowsAffected()
+	common.PanicIfError(writer.Config, err)
+
+	return rowsAffected
 }
 
-func (writer *IcebergWriter) insertToDuckdbTableFromDuckdbTableThatOverlapWithParquetRows(insertDuckdbTableName string, sourceDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) {
+func (writer *IcebergWriter) insertToDuckdbTableFromDuckdbTableThatOverlapWithParquetRows(insertDuckdbTableName string, sourceDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) int64 {
 	uniqueIndexConditions := make([]string, len(uniqueIndexColumnNames))
 	for i, uniqueIndexColumnName := range uniqueIndexColumnNames {
 		uniqueIndexConditions[i] = `"` + uniqueIndexColumnName + `" IN (SELECT "` + uniqueIndexColumnName + `" FROM read_parquet('` + parquetFileS3Path + "'))"
 	}
 	sql := "INSERT INTO " + insertDuckdbTableName + " SELECT * FROM " + sourceDuckdbTableName + " WHERE " + strings.Join(uniqueIndexConditions, " AND ")
-	_, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
+	result, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
 	common.PanicIfError(writer.Config, err)
+
+	rowsAffected, err := result.RowsAffected()
+	common.PanicIfError(writer.Config, err)
+
+	return rowsAffected
 }
 
-func (writer *IcebergWriter) insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(insertDuckdbTableName string, overlappingDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) {
+func (writer *IcebergWriter) insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(insertDuckdbTableName string, overlappingDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) int64 {
 	uniqueIndexConditions := make([]string, len(uniqueIndexColumnNames))
 	for i, uniqueIndexColumnName := range uniqueIndexColumnNames {
 		uniqueIndexConditions[i] = `"` + uniqueIndexColumnName + `" NOT IN (SELECT "` + uniqueIndexColumnName + `" FROM ` + overlappingDuckdbTableName + ")"
 	}
 	sql := "INSERT INTO " + insertDuckdbTableName + " SELECT * FROM read_parquet('" + parquetFileS3Path + "') WHERE " + strings.Join(uniqueIndexConditions, " AND ")
-	_, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
+	result, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
 	common.PanicIfError(writer.Config, err)
+
+	rowsAffected, err := result.RowsAffected()
+	common.PanicIfError(writer.Config, err)
+
+	return rowsAffected
 }
 
 func (writer *IcebergWriter) deleteTempDuckdbTable(duckdbTableName string) {
@@ -481,7 +506,7 @@ func (writer *IcebergWriter) deleteObject(key string) {
 	writer.StorageS3.S3Client.DeleteObject(key)
 }
 
-func (writer *IcebergWriter) loadCsvRows(duckdbTableName string, csvReader *csv.Reader, loadedSize int64) (loadedRowCount int, reachedEnd bool) {
+func (writer *IcebergWriter) loadCsvRows(duckdbTableName string, csvReader *csv.Reader, loadedSize int64) (loadedRowCount int64, reachedEnd bool) {
 	appender, err := writer.DuckdbClient.Appender("", duckdbTableName)
 	common.PanicIfError(writer.Config, err)
 	defer appender.Close()
@@ -505,7 +530,7 @@ func (writer *IcebergWriter) loadCsvRows(duckdbTableName string, csvReader *csv.
 		common.PanicIfError(writer.Config, err)
 
 		loadedRowCount++
-		if loadedSize >= (MAX_ICEBERG_WRITER_BATCH_SIZE * writer.CompressionFactor) {
+		if loadedSize >= (MAX_LOAD_BATCH_SIZE * writer.CompressionFactor) {
 			common.LogDebug(writer.Config, "Reached batch size limit")
 			break
 		}
@@ -515,7 +540,7 @@ func (writer *IcebergWriter) loadCsvRows(duckdbTableName string, csvReader *csv.
 	return loadedRowCount, reachedEnd
 }
 
-func (writer *IcebergWriter) loadJsonRows(duckdbTableName string, jsonQueueReader *JsonQueueReader, loadedSize int64) (loadedRowCount int, reachedEnd bool) {
+func (writer *IcebergWriter) loadJsonRows(duckdbTableName string, jsonQueueReader *JsonQueueReader, loadedSize int64) (loadedRowCount int64, reachedEnd bool) {
 	appender, err := writer.DuckdbClient.Appender("", duckdbTableName)
 	common.PanicIfError(writer.Config, err)
 	defer appender.Close()
@@ -537,7 +562,7 @@ func (writer *IcebergWriter) loadJsonRows(duckdbTableName string, jsonQueueReade
 		common.PanicIfError(writer.Config, err)
 
 		loadedRowCount++
-		if loadedSize >= (MAX_ICEBERG_WRITER_BATCH_SIZE * writer.CompressionFactor) {
+		if loadedSize >= (MAX_LOAD_BATCH_SIZE * writer.CompressionFactor) {
 			common.LogDebug(writer.Config, "Reached batch size limit")
 			break
 		}

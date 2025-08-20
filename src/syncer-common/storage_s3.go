@@ -33,7 +33,6 @@ type ParquetFileStats struct {
 }
 
 type ParquetFile struct {
-	Uuid        string
 	Key         string
 	Path        string // With s3://bucket/ prefix
 	Size        int64
@@ -42,13 +41,12 @@ type ParquetFile struct {
 }
 
 type ManifestFile struct {
-	RecordsDeleted bool
-	SnapshotId     int64
-	Key            string
-	Path           string // With s3://bucket/ prefix
-	Size           int64
-	RecordCount    int64
-	DataFileSize   int64
+	Key                string
+	Path               string // With s3://bucket/ prefix
+	Size               int64
+	TotalRecordCount   int64
+	TotalDataFileCount int32
+	RecordsDeleted     bool
 }
 
 type ManifestListItem struct {
@@ -57,22 +55,15 @@ type ManifestListItem struct {
 }
 
 type ManifestListFile struct {
-	SequenceNumber   int
-	SnapshotId       int64
-	TimestampMs      int64
-	Key              string
-	Path             string // With s3://bucket/ prefix
-	Operation        string
-	AddedFilesSize   int64
-	AddedDataFiles   int64
-	AddedRecords     int64
-	RemovedFilesSize int64
-	DeletedDataFiles int64
-	DeletedRecords   int64
-}
-
-func (manifestListFile ManifestListFile) Uuid() string {
-	return strings.TrimSuffix(manifestListFile.Key[len(manifestListFile.Key)-UUID_LENGTH-5:], ".avro")
+	SequenceNumber int
+	SnapshotId     int64
+	TimestampMs    int64
+	Key            string
+	Path           string // With s3://bucket/ prefix
+	Operation      string
+	TotalFilesSize int64
+	TotalDataFiles int64
+	TotalRecords   int64
 }
 
 type MetadataFile struct {
@@ -90,10 +81,9 @@ func NewStorageS3(Config *common.CommonConfig) *StorageS3 {
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageS3) CreateParquet(dataS3Path string, duckdbClient *common.DuckdbClient, tempDuckdbTableName string, icebergSchemaColumns []*IcebergSchemaColumn, rowCount int) ParquetFile {
+func (storage *StorageS3) CreateParquet(dataS3Path string, duckdbClient *common.DuckdbClient, tempDuckdbTableName string, icebergSchemaColumns []*IcebergSchemaColumn, rowCount int64) ParquetFile {
 	ctx := context.Background()
-	uuid := uuid.New().String()
-	fileName := storage.generateTimestampString() + "_" + uuid + ".parquet"
+	fileName := storage.generateTimestampString() + "_" + uuid.New().String() + ".parquet"
 	fileS3Path := dataS3Path + "/" + fileName
 	fileS3Key := storage.S3Client.ObjectKey(fileS3Path)
 
@@ -107,38 +97,48 @@ func (storage *StorageS3) CreateParquet(dataS3Path string, duckdbClient *common.
 	parquetStats := storage.StorageUtils.ReadParquetStats(fileReader, icebergSchemaColumns)
 
 	return ParquetFile{
-		Uuid:        uuid,
 		Key:         fileS3Key,
 		Path:        dataS3Path + "/" + fileName,
 		Size:        fileSize,
-		RecordCount: int64(rowCount),
+		RecordCount: rowCount,
 		Stats:       parquetStats,
 	}
 }
 
-func (storage *StorageS3) CreateManifest(metadataS3Path string, parquetFile ParquetFile) (manifestFile ManifestFile) {
-	fileName := storage.generateTimestampString() + "_" + parquetFile.Uuid + "-m0.avro"
+func (storage *StorageS3) CreateManifest(metadataS3Path string, parquetFilesSortedAsc []ParquetFile) (manifestFile ManifestFile) {
+	fileName := storage.generateTimestampString() + "_" + uuid.New().String() + "-m0.avro"
 	fileS3Key := storage.S3Client.ObjectKey(metadataS3Path) + "/" + fileName
 
+	var fileSize int64
 	storage.uploadTemporaryFile("manifest", fileS3Key, func(tempFile *os.File) {
 		var err error
-		manifestFile, err = storage.StorageUtils.WriteManifestFile(tempFile.Name(), parquetFile)
+		fileSize, err = storage.StorageUtils.WriteManifestFile(tempFile.Name(), parquetFilesSortedAsc)
 		common.PanicIfError(storage.Config, err)
 	})
-
 	common.LogDebug(storage.Config, "Manifest file created at:", fileS3Key)
-	manifestFile.Key = fileS3Key
-	manifestFile.Path = metadataS3Path + "/" + fileName
-	return manifestFile
+
+	var totalRecordCount int64
+	for _, parquetFile := range parquetFilesSortedAsc {
+		totalRecordCount += parquetFile.RecordCount
+	}
+
+	return ManifestFile{
+		Key:                fileS3Key,
+		Path:               metadataS3Path + "/" + fileName,
+		Size:               fileSize,
+		TotalDataFileCount: int32(len(parquetFilesSortedAsc)),
+		TotalRecordCount:   totalRecordCount,
+		RecordsDeleted:     false,
+	}
 }
 
-func (storage *StorageS3) CreateManifestList(metadataS3Path string, parquetFileUuid string, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile) {
-	fileName := "snap-" + storage.generateTimestampString() + "_" + parquetFileUuid + ".avro"
+func (storage *StorageS3) CreateManifestList(metadataS3Path string, totalDataFileSize int64, manifestListItemsSortedDesc []ManifestListItem) (manifestListFile ManifestListFile) {
+	fileName := "snap-" + storage.generateTimestampString() + "_" + uuid.New().String() + ".avro"
 	fileS3Key := storage.S3Client.ObjectKey(metadataS3Path) + "/" + fileName
 
 	storage.uploadTemporaryFile("manifest-list", fileS3Key, func(tempFile *os.File) {
 		var err error
-		manifestListFile, err = storage.StorageUtils.WriteManifestListFile(tempFile.Name(), manifestListItemsSortedDesc)
+		manifestListFile, err = storage.StorageUtils.WriteManifestListFile(tempFile.Name(), totalDataFileSize, manifestListItemsSortedDesc)
 		common.PanicIfError(storage.Config, err)
 	})
 
@@ -178,15 +178,23 @@ func (storage *StorageS3) ManifestListItems(manifestListFile ManifestListFile) [
 	return storage.StorageUtils.ParseManifestListItems(storage.S3Client.BucketS3Prefix(), manifestListContent)
 }
 
-func (storage *StorageS3) ParquetFileInfo(manifestFile ManifestFile) (fileS3Path string, fileSize int64) {
+func (storage *StorageS3) ParquetFiles(manifestFile ManifestFile, icebergSchemaColumns []*IcebergSchemaColumn) []ParquetFile {
+	ctx := context.Background()
 	manifestContent := storage.readObjectContent(manifestFile.Path)
-	fileS3Path = storage.StorageUtils.ParseParquetFileS3Path(manifestContent)
+	parquetFilesSortedAsc := storage.StorageUtils.ParseParquetFiles(manifestContent)
 
-	fileS3Key := storage.S3Client.ObjectKey(fileS3Path)
-	headObjectOutput := storage.S3Client.HeadObject(fileS3Key)
-	fileSize = *headObjectOutput.ContentLength
+	for i, parquetFile := range parquetFilesSortedAsc {
+		fileS3Key := storage.S3Client.ObjectKey(parquetFile.Path)
 
-	return fileS3Path, fileSize
+		fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.S3Client.S3, storage.Config.Aws.S3Bucket, fileS3Key)
+		common.PanicIfError(storage.Config, err)
+		parquetStats := storage.StorageUtils.ReadParquetStats(fileReader, icebergSchemaColumns)
+
+		parquetFilesSortedAsc[i].Key = fileS3Key
+		parquetFilesSortedAsc[i].Stats = parquetStats
+	}
+
+	return parquetFilesSortedAsc
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
