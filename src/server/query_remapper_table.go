@@ -75,8 +75,12 @@ func CreateInformationSchemaTableQueries(config *Config) []string {
 				WHEN 'BOOLEAN[]' THEN '_bool'
 				WHEN 'DATE' THEN 'date'
 				WHEN 'DATE[]' THEN '_date'
-				WHEN 'FLOAT' THEN 'float8'
-				WHEN 'FLOAT[]' THEN '_float8'
+				WHEN 'FLOAT' THEN 'float4'
+				WHEN 'FLOAT[]' THEN '_float4'
+				WHEN 'DOUBLE' THEN 'float8'
+				WHEN 'DOUBLE[]' THEN '_float8'
+				WHEN 'DECIMAL' THEN 'numeric'
+				WHEN 'DECIMAL[]' THEN '_numeric'
 				WHEN 'INTEGER' THEN 'int4'
 				WHEN 'INTEGER[]' THEN '_int4'
 				WHEN 'VARCHAR' THEN 'text'
@@ -87,10 +91,11 @@ func CreateInformationSchemaTableQueries(config *Config) []string {
 				WHEN 'TIMESTAMP[]' THEN '_timestamp'
 				WHEN 'UUID' THEN 'uuid'
 				WHEN 'UUID[]' THEN '_uuid'
-				ELSE
-					CASE
+			ELSE
+				CASE
 					WHEN starts_with(data_type, 'DECIMAL') THEN 'numeric'
-					END
+		        ELSE 'unknown'
+				END
 			END AS udt_name,
 			scope_catalog, scope_schema, scope_name, maximum_cardinality, dtd_identifier, is_self_referencing, is_identity, identity_generation, identity_start, identity_increment, identity_maximum, identity_minimum, identity_cycle, is_generated, generation_expression, is_updatable
 		FROM information_schema.columns`,

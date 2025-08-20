@@ -138,17 +138,17 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"Hello World, Earth, World"},
 			},
-			"SELECT format('%s', \"postgres\".\"test_table\".\"varchar_column\") AS str FROM postgres.test_table LIMIT 1": {
+			"SELECT format('%s', \"postgres\".\"test_table\".\"varchar_column\") AS str FROM postgres.test_table WHERE varchar_column IS NOT NULL": {
 				"description": {"str"},
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"varchar"},
 			},
-			"SELECT jsonb_extract_path_text(json_column, 'key') AS jsonb_extract_path_text FROM postgres.test_table LIMIT 1": {
+			"SELECT jsonb_extract_path_text(json_column, 'key') AS jsonb_extract_path_text FROM postgres.test_table WHERE json_column IS NOT NULL": {
 				"description": {"jsonb_extract_path_text"},
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"value"},
 			},
-			"SELECT jsonb_extract_path_text(json_column, VARIADIC ARRAY['key']) AS jsonb_extract_path_text FROM postgres.test_table LIMIT 1": {
+			"SELECT jsonb_extract_path_text(json_column, VARIADIC ARRAY['key']) AS jsonb_extract_path_text FROM postgres.test_table WHERE json_column IS NOT NULL": {
 				"description": {"jsonb_extract_path_text"},
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"value"},
@@ -371,10 +371,206 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"memory", "postgres", "test_table", "BASE TABLE", "", "", "", "", "", "YES", "NO", "", ""},
 			},
-			"SELECT column_name, udt_schema, udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' ORDER BY ordinal_position LIMIT 1": {
-				"description": {"column_name", "udt_schema", "udt_name"},
-				"types":       {uint32ToString(pgtype.TextOID), uint32ToString(pgtype.TextOID), uint32ToString(pgtype.TextOID)},
-				"values":      {"id", "pg_catalog", "int4"},
+			// information_schema.columns
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'id'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"int4"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'bit_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"int4"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'bool_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"bool"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'bpchar_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'varchar_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'text_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'int2_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"int4"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'int4_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"int4"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'int8_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"numeric"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'hugeint_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"numeric"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'xid_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"int8"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'xid8_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"numeric"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'float4_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"float4"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'float8_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"float8"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'numeric_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"numeric"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'numeric_column_without_precision'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"numeric"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'date_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"date"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'time_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"time"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'timeMsColumn'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"time"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'timetz_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"time"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'timetz_ms_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"time"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'timestamp_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"timestamp"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'timestamp_ms_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"timestamp"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'timestamptz_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"timestamp"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'timestamptz_ms_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"timestamp"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'uuid_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'bytea_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"bytea"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'interval_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"numeric"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'point_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'inet_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'json_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'jsonb_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'tsvector_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'xml_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'pg_snapshot_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'array_text_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"_text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'array_int_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"_int4"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'array_jsonb_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"_text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'array_ltree_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"_text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'user_defined_column'": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"text"},
 			},
 		})
 	})
@@ -586,12 +782,12 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.NumericOID)},
 				"values":      {""},
 			},
-			"SELECT date_column FROM postgres.test_table LIMIT 1": {
+			"SELECT date_column FROM postgres.test_table ORDER BY date_column LIMIT 1": {
 				"description": {"date_column"},
 				"types":       {uint32ToString(pgtype.DateOID)},
 				"values":      {"2024-01-01"},
 			},
-			"SELECT date_column FROM postgres.test_table LIMIT 1 OFFSET 1": {
+			"SELECT date_column FROM postgres.test_table ORDER BY date_column LIMIT 1 OFFSET 1": {
 				"description": {"date_column"},
 				"types":       {uint32ToString(pgtype.DateOID)},
 				"values":      {"20025-11-12"},
@@ -648,23 +844,23 @@ func TestHandleQuery(t *testing.T) {
 			},
 			"SELECT timestamptz_column FROM postgres.test_table WHERE bool_column = TRUE": {
 				"description": {"timestamptz_column"},
-				"types":       {uint32ToString(pgtype.TimestamptzOID)},
-				"values":      {"2024-01-01 17:00:00.123456+00:00"},
+				"types":       {uint32ToString(pgtype.TimestampOID)},
+				"values":      {"2024-01-01 17:00:00.123456"},
 			},
 			"SELECT timestamptz_column FROM postgres.test_table WHERE bool_column = FALSE": {
 				"description": {"timestamptz_column"},
-				"types":       {uint32ToString(pgtype.TimestamptzOID)},
-				"values":      {"2024-01-01 06:30:00.000123+00:00"},
+				"types":       {uint32ToString(pgtype.TimestampOID)},
+				"values":      {"2024-01-01 06:30:00.000123"},
 			},
 			"SELECT timestamptz_ms_column FROM postgres.test_table WHERE bool_column = TRUE": {
 				"description": {"timestamptz_ms_column"},
-				"types":       {uint32ToString(pgtype.TimestamptzOID)},
-				"values":      {"2024-01-01 17:00:00.123+00:00"},
+				"types":       {uint32ToString(pgtype.TimestampOID)},
+				"values":      {"2024-01-01 17:00:00.123"},
 			},
 			"SELECT timestamptz_ms_column FROM postgres.test_table WHERE bool_column = FALSE": {
 				"description": {"timestamptz_ms_column"},
-				"types":       {uint32ToString(pgtype.TimestamptzOID)},
-				"values":      {"2024-01-01 07:00:00.12+00:00"},
+				"types":       {uint32ToString(pgtype.TimestampOID)},
+				"values":      {"2024-01-01 07:00:00.12"},
 			},
 			"SELECT uuid_column FROM postgres.test_table WHERE uuid_column = '58a7c845-af77-44b2-8664-7ca613d92f04'": {
 				"description": {"uuid_column"},
@@ -1045,7 +1241,7 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.BoolOID)},
 				"values":      {"t"},
 			},
-			"SELECT CASE WHEN FORMAT('%s', postgres.test_table.varchar_column) = 'varchar' THEN 1 ELSE 2 END AS test_case FROM postgres.test_table LIMIT 1": {
+			"SELECT CASE WHEN FORMAT('%s', postgres.test_table.varchar_column) = 'varchar' THEN 1 ELSE 2 END AS test_case FROM postgres.test_table WHERE varchar_column = 'varchar'": {
 				"description": {"test_case"},
 				"types":       {uint32ToString(pgtype.Int4OID)},
 				"values":      {"1"},

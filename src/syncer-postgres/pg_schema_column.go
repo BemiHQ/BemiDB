@@ -66,10 +66,8 @@ func (pgSchemaColumn *PgSchemaColumn) ToIcebergSchemaColumn() *syncerCommon.Iceb
 		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeTime
 	case "timetz":
 		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeTimeTz
-	case "timestamp":
+	case "timestamp", "timestamptz":
 		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeTimestamp
-	case "timestamptz":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeTimestampTz
 	case "varchar", "char", "text", "jsonb", "json", "bpchar", "uuid",
 		"point", "line", "lseg", "box", "path", "polygon", "circle",
 		"cidr", "inet", "macaddr", "macaddr8",

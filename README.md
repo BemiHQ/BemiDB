@@ -273,19 +273,19 @@ Primitive data types are mapped as follows:
 | PostgreSQL                                                  | Parquet                                                         | Iceberg                          |
 |-------------------------------------------------------------|-----------------------------------------------------------------|----------------------------------|
 | `bool`                                                      | `BOOLEAN`                                                       | `boolean`                        |
-| `varchar`, `text`, `bpchar`                                 | `BYTE_ARRAY` (`STRING` / `UTF8`)                                | `string`                         |
 | `bit`, `int2`, `int4`                                       | `INT32`                                                         | `int`                            |
-| `int8`, `xid8`                                              | `FIXED_LEN_BYTE_ARRAY(9)` (`DECIMAL(20, 0)` / `DECIMAL(20, 0)`) | `decimal(20, 0)`                 |
+| `int8`,                                                     | `FIXED_LEN_BYTE_ARRAY(9)` (`DECIMAL(38, 0)` / `DECIMAL(38, 0)`) | `decimal(38, 0)`                 |
 | `xid`                                                       | `INT64`                                                         | `long`                           |
+| `xid8`, `interval`                                          | `FIXED_LEN_BYTE_ARRAY(9)` (`DECIMAL(38, 6)` / `DECIMAL(38, 6)`) | `decimal(38, 6)`                 |
 | `float4`                                                    | `FLOAT`                                                         | `float`                          |
 | `float8`                                                    | `DOUBLE`                                                        | `double`                         |
 | `numeric`                                                   | `FIXED_LEN_BYTE_ARRAY(16)` (`DECIMAL(P, S)` / `DECIMAL(P, S)`)  | `decimal(P, S)`                  |
 | `date`                                                      | `INT32` (`DATE` / `DATE`)                                       | `date`                           |
 | `time`, `timetz`                                            | `INT64` (`TIME_MICROS`)                                         | `time`                           |
-| `timestamp`                                                 | `INT64` (`TIMESTAMP_MICROS`)                                    | `timestamp`                      |
-| `timestamptz`                                               | `INT64` (`TIMESTAMP_MICROS`)                                    | `timestamptz`                    |
+| `timestamp`, `timestamptz`                                  | `INT64` (`TIMESTAMP_MICROS`)                                    | `timestamp`                      |
+| `varchar`, `text`, `bpchar`                                 | `BYTE_ARRAY` (`STRING` / `UTF8`)                                | `string`                         |
+| `uuid`                                                      | `BYTE_ARRAY` (`STRING` / `UTF8`)                                | `string`                         |
 | `bytea`                                                     | `BYTE_ARRAY`                                                    | `binary`                         |
-| `uuid`, `interval`                                          | `BYTE_ARRAY` (`STRING` / `UTF8`)                                | `string`                         |
 | `point`, `line`, `lseg`, `box`, `path`, `polygon`, `circle` | `BYTE_ARRAY` (`STRING` / `UTF8`)                                | `string`                         |
 | `cidr`, `inet`, `macaddr`, `macaddr8`                       | `BYTE_ARRAY` (`STRING` / `UTF8`)                                | `string`                         |
 | `tsvector`, `xml`, `pg_snapshot`                            | `BYTE_ARRAY` (`STRING` / `UTF8`)                                | `string`                         |

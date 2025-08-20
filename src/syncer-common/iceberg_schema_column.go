@@ -17,19 +17,18 @@ import (
 type IcebergColumnType string
 
 const (
-	IcebergColumnTypeBoolean     IcebergColumnType = "boolean"
-	IcebergColumnTypeString      IcebergColumnType = "string"
-	IcebergColumnTypeInteger     IcebergColumnType = "int"
-	IcebergColumnTypeDecimal     IcebergColumnType = "decimal"
-	IcebergColumnTypeLong        IcebergColumnType = "long"
-	IcebergColumnTypeFloat       IcebergColumnType = "float"
-	IcebergColumnTypeDouble      IcebergColumnType = "double"
-	IcebergColumnTypeDate        IcebergColumnType = "date"
-	IcebergColumnTypeTime        IcebergColumnType = "time"
-	IcebergColumnTypeTimeTz      IcebergColumnType = "timetz"
-	IcebergColumnTypeTimestamp   IcebergColumnType = "timestamp"
-	IcebergColumnTypeTimestampTz IcebergColumnType = "timestamptz"
-	IcebergColumnTypeBinary      IcebergColumnType = "binary"
+	IcebergColumnTypeBoolean   IcebergColumnType = "boolean"
+	IcebergColumnTypeString    IcebergColumnType = "string"
+	IcebergColumnTypeInteger   IcebergColumnType = "int"
+	IcebergColumnTypeDecimal   IcebergColumnType = "decimal"
+	IcebergColumnTypeLong      IcebergColumnType = "long"
+	IcebergColumnTypeFloat     IcebergColumnType = "float"
+	IcebergColumnTypeDouble    IcebergColumnType = "double"
+	IcebergColumnTypeDate      IcebergColumnType = "date"
+	IcebergColumnTypeTime      IcebergColumnType = "time"
+	IcebergColumnTypeTimeTz    IcebergColumnType = "timetz"
+	IcebergColumnTypeTimestamp IcebergColumnType = "timestamp"
+	IcebergColumnTypeBinary    IcebergColumnType = "binary"
 
 	BEMIDB_NULL_STRING = "BEMIDB_NULL"
 
@@ -126,8 +125,6 @@ func (col *IcebergSchemaColumn) IcebergSchemaFieldMap() IcebergSchemaField {
 		icebergSchemaField.Type = "time"
 	case IcebergColumnTypeTimestamp:
 		icebergSchemaField.Type = "timestamp"
-	case IcebergColumnTypeTimestampTz:
-		icebergSchemaField.Type = "timestamptz"
 	case IcebergColumnTypeBinary:
 		icebergSchemaField.Type = "binary"
 	default:
@@ -171,8 +168,6 @@ func (col *IcebergSchemaColumn) DuckdbType() string {
 		duckdbType = "TIME"
 	case IcebergColumnTypeTimestamp:
 		duckdbType = "TIMESTAMP"
-	case IcebergColumnTypeTimestampTz:
-		duckdbType = "TIMESTAMP WITH TIME ZONE"
 	case IcebergColumnTypeBinary:
 		duckdbType = "BLOB"
 	default:
@@ -299,13 +294,12 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromCsv(value string) interf
 		return parsedTime
 	case IcebergColumnTypeTimestamp:
 		parsedTimestamp, err := time.Parse("2006-01-02 15:04:05.999999", value)
-		common.PanicIfError(col.Config, err)
-		return parsedTimestamp
-	case IcebergColumnTypeTimestampTz:
-		parsedTimestamp, err := time.Parse("2006-01-02 15:04:05.999999-07:00", value)
 		if err != nil {
-			parsedTimestamp, err = time.Parse("2006-01-02 15:04:05.999999-07", value)
-			common.PanicIfError(col.Config, err)
+			parsedTimestamp, err = time.Parse("2006-01-02 15:04:05.999999-07:00", value)
+			if err != nil {
+				parsedTimestamp, err = time.Parse("2006-01-02 15:04:05.999999-07", value)
+				common.PanicIfError(col.Config, err)
+			}
 		}
 		return parsedTimestamp
 	}
@@ -404,8 +398,15 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromJson(value any) interfac
 			if valueString == "" {
 				return nil
 			}
+			valueString = strings.TrimSuffix(valueString, "Z")
 			parsedTimestamp, err := time.Parse("2006-01-02 15:04:05.999999", valueString)
-			common.PanicIfError(col.Config, err)
+			if err != nil {
+				parsedTimestamp, err = time.Parse("2006-01-02T15:04:05.999999-07:00", valueString)
+				if err != nil {
+					parsedTimestamp, err = time.Parse("2006-01-02T15:04:05.999999-07", valueString)
+					common.PanicIfError(col.Config, err)
+				}
+			}
 			return parsedTimestamp
 		case reflect.Float64:
 			valueFloat := value.(float64)
@@ -417,21 +418,6 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromJson(value any) interfac
 			milliseconds := int64(valueFloat)
 			return epoch.Add(time.Duration(milliseconds) * time.Millisecond)
 		}
-	case IcebergColumnTypeTimestampTz:
-		valueString := value.(string)
-		if valueString == "" {
-			return nil
-		}
-		if strings.HasSuffix(valueString, "Z") {
-			valueString = strings.TrimSuffix(valueString, "Z") + "-00"
-		}
-
-		parsedTimestamp, err := time.Parse("2006-01-02T15:04:05.999999-07:00", valueString)
-		if err != nil {
-			parsedTimestamp, err = time.Parse("2006-01-02T15:04:05.999999-07", valueString)
-			common.PanicIfError(col.Config, err)
-		}
-		return parsedTimestamp
 	}
 
 	panic(fmt.Sprintf("Unsupported value: %v for column type: %s", value, col.ColumnType))
