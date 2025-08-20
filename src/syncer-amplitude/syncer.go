@@ -61,9 +61,11 @@ func (syncer *Syncer) Sync() {
 			endTime := t.Add(PAGINATION_TIME_INTERVAL - time.Hour) // -1 hour to ensure we don't overlap (Amplitude uses an inclusive end time)
 
 			err := syncer.Amplitude.Export(jsonQueueWriter, startTime, endTime)
-			if err != nil && strings.Contains(err.Error(), "Raw data files were not found.") {
-				common.LogInfo(syncer.Config.CommonConfig, "No data found for the time range", startTime, "to", endTime, "- will retry later.")
-				break
+			if err != nil {
+				if strings.Contains(err.Error(), "Raw data files were not found.") || strings.Contains(err.Error(), "404: Not Found") {
+					common.LogInfo(syncer.Config.CommonConfig, "No data found for the time range", startTime, "to", endTime, "- will retry later.")
+					break
+				}
 			}
 			common.PanicIfError(syncer.Config.CommonConfig, err)
 		}
