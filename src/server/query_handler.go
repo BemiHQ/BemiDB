@@ -20,11 +20,10 @@ const (
 )
 
 type QueryHandler struct {
-	Config          *Config
-	DuckdbClient    *common.DuckdbClient
-	IcebergReader   *IcebergReader
-	QueryRemapper   *QueryRemapper
-	ResponseHandler *ResponseHandler
+	Config             *Config
+	ServerDuckdbClient *common.DuckdbClient
+	QueryRemapper      *QueryRemapper
+	ResponseHandler    *ResponseHandler
 }
 
 type PreparedStatement struct {
@@ -47,16 +46,20 @@ type PreparedStatement struct {
 	Rows *sql.Rows
 }
 
-func NewQueryHandler(config *Config, duckdbClient *common.DuckdbClient, icebergReader *IcebergReader) *QueryHandler {
+func NewQueryHandler(config *Config, serverDuckdbClient *common.DuckdbClient) *QueryHandler {
+	storageS3 := common.NewStorageS3(config.CommonConfig)
+	icebergCatalog := common.NewIcebergCatalog(config.CommonConfig)
+	icebergReader := NewIcebergReader(config, storageS3, icebergCatalog)
+	icebergWriter := NewIcebergWriter(config, storageS3, serverDuckdbClient, icebergCatalog)
+
 	queryHandler := &QueryHandler{
-		Config:          config,
-		DuckdbClient:    duckdbClient,
-		IcebergReader:   icebergReader,
-		QueryRemapper:   NewQueryRemapper(config, icebergReader, duckdbClient),
-		ResponseHandler: NewResponseHandler(config),
+		Config:             config,
+		ServerDuckdbClient: serverDuckdbClient,
+		QueryRemapper:      NewQueryRemapper(config, icebergReader, icebergWriter, serverDuckdbClient),
+		ResponseHandler:    NewResponseHandler(config),
 	}
 
-	queryHandler.createSchemas()
+	queryHandler.createSchemas(icebergReader)
 
 	return queryHandler
 }
@@ -73,7 +76,7 @@ func (queryHandler *QueryHandler) HandleSimpleQuery(originalQuery string) ([]pgp
 	var queriesMessages []pgproto3.Message
 
 	for i, queryStatement := range queryStatements {
-		rows, err := queryHandler.DuckdbClient.QueryContext(context.Background(), queryStatement)
+		rows, err := queryHandler.ServerDuckdbClient.QueryContext(context.Background(), queryStatement)
 		if err != nil {
 			errorMessage := err.Error()
 			if errorMessage == "Binder Error: UNNEST requires a single list as input" {
@@ -131,7 +134,7 @@ func (queryHandler *QueryHandler) HandleParseQuery(message *pgproto3.Parse) ([]p
 
 	query := queryStatements[0]
 	preparedStatement.Query = query
-	statement, err := queryHandler.DuckdbClient.PrepareContext(ctx, query)
+	statement, err := queryHandler.ServerDuckdbClient.PrepareContext(ctx, query)
 	preparedStatement.Statement = statement
 	if err != nil {
 		return nil, nil, err
@@ -235,13 +238,13 @@ func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, 
 	return queryHandler.rowsToDataMessages(preparedStatement.Rows, preparedStatement.OriginalQuery)
 }
 
-func (queryHandler *QueryHandler) createSchemas() {
+func (queryHandler *QueryHandler) createSchemas(icebergReader *IcebergReader) {
 	ctx := context.Background()
-	schemas, err := queryHandler.IcebergReader.Schemas()
+	schemas, err := icebergReader.Schemas()
 	common.PanicIfError(queryHandler.Config.CommonConfig, err)
 
 	for _, schema := range schemas {
-		_, err := queryHandler.DuckdbClient.ExecContext(
+		_, err := queryHandler.ServerDuckdbClient.ExecContext(
 			ctx,
 			"CREATE SCHEMA IF NOT EXISTS \"$schema\"",
 			map[string]string{"schema": schema},
@@ -292,6 +295,12 @@ func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQue
 		commandTag = "DISCARD ALL"
 	case strings.HasPrefix(upperOriginalQueryStatement, "BEGIN"):
 		commandTag = "BEGIN"
+	case strings.HasPrefix(upperOriginalQueryStatement, "CREATE MATERIALIZED VIEW "):
+		commandTag = "CREATE MATERIALIZED VIEW"
+	case strings.HasPrefix(upperOriginalQueryStatement, "DROP MATERIALIZED VIEW "):
+		commandTag = "DROP MATERIALIZED VIEW"
+	case strings.HasPrefix(upperOriginalQueryStatement, "REFRESH MATERIALIZED VIEW "):
+		commandTag = "REFRESH MATERIALIZED VIEW"
 	}
 
 	messages = append(messages, &pgproto3.CommandComplete{CommandTag: []byte(commandTag)})

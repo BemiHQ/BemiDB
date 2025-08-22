@@ -1,4 +1,4 @@
-package syncerCommon
+package common
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-
-	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const (
@@ -18,68 +16,73 @@ const (
 	MAX_PARQUET_FILE_SIZE = 100 * 1024 * 1024  // 100 MB
 )
 
-type IcebergWriter struct {
-	Config               *common.CommonConfig
-	IcebergSchemaColumns []*IcebergSchemaColumn
+type IcebergTableWriter struct {
+	Config               *CommonConfig
 	StorageS3            *StorageS3
-	DuckdbClient         *common.DuckdbClient
+	DuckdbClient         *DuckdbClient
+	IcebergTable         *IcebergTable
+	IcebergSchemaColumns []*IcebergSchemaColumn
 	CompressionFactor    int64
 }
 
-func NewIcebergWriter(
-	config *common.CommonConfig,
+func NewIcebergTableWriter(
+	config *CommonConfig,
 	storageS3 *StorageS3,
-	duckdbClient *common.DuckdbClient,
+	duckdbClient *DuckdbClient,
+	icebergTable *IcebergTable,
 	icebergSchemaColumns []*IcebergSchemaColumn,
 	compressionFactor int64,
-) *IcebergWriter {
-	return &IcebergWriter{
+) *IcebergTableWriter {
+	return &IcebergTableWriter{
 		Config:               config,
-		IcebergSchemaColumns: icebergSchemaColumns,
 		StorageS3:            storageS3,
 		DuckdbClient:         duckdbClient,
+		IcebergTable:         icebergTable,
+		IcebergSchemaColumns: icebergSchemaColumns,
 		CompressionFactor:    compressionFactor,
 	}
 }
 
-func (writer *IcebergWriter) InsertFromCsvCappedBuffer(icebergTable *IcebergTable, cappedBuffer *CappedBuffer) {
+// Public functions ----------------------------------------------------------------------------------------------------
+
+func (writer *IcebergTableWriter) InsertFromCsvCappedBuffer(cappedBuffer *CappedBuffer) {
 	csvReader := csv.NewReader(cappedBuffer)
 	_, err := csvReader.Read() // Read the header row
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
-	writer.insertRows(icebergTable, func(duckdbTableName string, loadedSize int64) (int64, bool) {
+	writer.insertRows(func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadCsvRows(duckdbTableName, csvReader, loadedSize)
 	})
 }
 
-func (writer *IcebergWriter) AppendFromCsvCappedBuffer(icebergTable *IcebergTable, cursorValue CursorValue, cappedBuffer *CappedBuffer) {
-	metadataFileS3Path := icebergTable.MetadataFileS3Path()
+func (writer *IcebergTableWriter) AppendFromCsvCappedBuffer(cursorValue CursorValue, cappedBuffer *CappedBuffer) {
+	metadataFileS3Path := writer.IcebergTable.MetadataFileS3Path()
 	if metadataFileS3Path == "" { // If the table does not exist, insert for the first time
-		writer.InsertFromCsvCappedBuffer(icebergTable, cappedBuffer)
+		writer.InsertFromCsvCappedBuffer(cappedBuffer)
 		return
 	}
 
 	csvReader := csv.NewReader(cappedBuffer)
 	_, err := csvReader.Read() // Read the header row
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	writer.appendRows(metadataFileS3Path, cursorValue, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadCsvRows(duckdbTableName, csvReader, loadedSize)
 	})
 }
 
-func (writer *IcebergWriter) InsertFromJsonCappedBuffer(icebergTable *IcebergTable, cappedBuffer *CappedBuffer) {
+func (writer *IcebergTableWriter) InsertFromJsonCappedBuffer(cappedBuffer *CappedBuffer) {
 	jsonQueueReader := NewJsonQueueReader(cappedBuffer)
 
-	writer.insertRows(icebergTable, func(duckdbTableName string, loadedSize int64) (int64, bool) {
+	writer.insertRows(func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadJsonRows(duckdbTableName, jsonQueueReader, loadedSize)
 	})
 }
 
-func (writer *IcebergWriter) AppendFromJsonCappedBuffer(icebergTable *IcebergTable, cursorValue CursorValue, cappedBuffer *CappedBuffer) {
-	metadataFileS3Path := icebergTable.MetadataFileS3Path()
+func (writer *IcebergTableWriter) AppendFromJsonCappedBuffer(cursorValue CursorValue, cappedBuffer *CappedBuffer) {
+	metadataFileS3Path := writer.IcebergTable.MetadataFileS3Path()
 	if metadataFileS3Path == "" { // If the table does not exist, insert for the first time
-		writer.InsertFromJsonCappedBuffer(icebergTable, cappedBuffer)
+		writer.InsertFromJsonCappedBuffer(cappedBuffer)
 		return
 	}
 
@@ -90,36 +93,36 @@ func (writer *IcebergWriter) AppendFromJsonCappedBuffer(icebergTable *IcebergTab
 	})
 }
 
-func (writer *IcebergWriter) UpdateFromJsonCappedBuffer(icebergTable *IcebergTable, cappedBuffer *CappedBuffer) {
-	metadataFileS3Path := icebergTable.MetadataFileS3Path()
+func (writer *IcebergTableWriter) UpdateFromJsonCappedBuffer(cappedBuffer *CappedBuffer) {
+	metadataFileS3Path := writer.IcebergTable.MetadataFileS3Path()
 	if metadataFileS3Path == "" { // If the table does not exist, insert for the first time
-		writer.InsertFromJsonCappedBuffer(icebergTable, cappedBuffer)
+		writer.InsertFromJsonCappedBuffer(cappedBuffer)
 		return
 	}
 
 	jsonQueueReader := NewJsonQueueReader(cappedBuffer)
 
-	uniqueIndexColumnNames := writer.UniqueIndexColumnNames(icebergTable)
+	uniqueIndexColumnNames := writer.UniqueIndexColumnNames()
 	writer.updateRows(metadataFileS3Path, uniqueIndexColumnNames, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadJsonRows(duckdbTableName, jsonQueueReader, loadedSize)
 	})
 }
 
-func (writer *IcebergWriter) DeleteFromJsonCappedBuffer(icebergTable *IcebergTable, cappedBuffer *CappedBuffer) {
-	metadataFileS3Path := icebergTable.MetadataFileS3Path()
+func (writer *IcebergTableWriter) DeleteFromJsonCappedBuffer(cappedBuffer *CappedBuffer) {
+	metadataFileS3Path := writer.IcebergTable.MetadataFileS3Path()
 	if metadataFileS3Path == "" { // If the table does not exist, do nothing
 		return
 	}
 
 	jsonQueueReader := NewJsonQueueReader(cappedBuffer)
 
-	uniqueIndexColumnNames := writer.UniqueIndexColumnNames(icebergTable)
+	uniqueIndexColumnNames := writer.UniqueIndexColumnNames()
 	writer.deleteRows(metadataFileS3Path, uniqueIndexColumnNames, func(duckdbTableName string, loadedSize int64) (int64, bool) {
 		return writer.loadJsonRows(duckdbTableName, jsonQueueReader, loadedSize)
 	})
 }
 
-func (writer *IcebergWriter) UniqueIndexColumnNames(icebergTable *IcebergTable) []string {
+func (writer *IcebergTableWriter) UniqueIndexColumnNames() []string {
 	uniqueIndexColumnNames := []string{}
 	for _, icebergSchemaColumn := range writer.IcebergSchemaColumns {
 		if icebergSchemaColumn.IsPartOfUniqueIndex {
@@ -127,13 +130,50 @@ func (writer *IcebergWriter) UniqueIndexColumnNames(icebergTable *IcebergTable) 
 		}
 	}
 	if len(uniqueIndexColumnNames) == 0 {
-		common.Panic(writer.Config, "Cannot update Iceberg table without unique index columns: "+icebergTable.String())
+		Panic(writer.Config, "Cannot update Iceberg table without unique index columns: "+writer.IcebergTable.String())
 	}
 	return uniqueIndexColumnNames
 }
 
-func (writer *IcebergWriter) insertRows(icebergTable *IcebergTable, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
-	tableS3Path := icebergTable.GenerateTableS3Path()
+func (writer *IcebergTableWriter) InsertFromQuery(query string) error {
+	tableS3Path := writer.IcebergTable.GenerateTableS3Path()
+	dataS3Path := tableS3Path + "/data"
+	metadataS3Path := tableS3Path + "/metadata"
+
+	tempDuckdbTableName := "temp_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+
+	loadedRowCount, icebergSchemaColumns, err := writer.insertToDuckdbTableFromQuery(tempDuckdbTableName, query)
+	defer writer.deleteTempDuckdbTable(tempDuckdbTableName)
+	if err != nil {
+		return err
+	}
+
+	// Create parquet
+	parquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, icebergSchemaColumns, loadedRowCount)
+	parquetFilesSortedAsc := []ParquetFile{parquetFile}
+	totalDataFileSize := parquetFile.Size
+
+	// Create manifest
+	manifestFile := writer.StorageS3.CreateManifest(metadataS3Path, parquetFilesSortedAsc)
+
+	// Create manifest list
+	manifestListItem := ManifestListItem{SequenceNumber: len(parquetFilesSortedAsc) + 1, ManifestFile: manifestFile}
+	manifestListFile := writer.StorageS3.CreateManifestList(metadataS3Path, totalDataFileSize, []ManifestListItem{manifestListItem})
+
+	// Create metadata
+	writer.StorageS3.CreateMetadata(metadataS3Path, icebergSchemaColumns, []ManifestListFile{manifestListFile})
+	LogInfo(writer.Config, "Written", parquetFile.RecordCount, "records in Parquet file #"+IntToString(len(parquetFilesSortedAsc)), "("+writer.formattedParquetFileSize(parquetFile.Size)+")")
+
+	// Create as table
+	writer.IcebergTable.Create(tableS3Path)
+
+	return nil
+}
+
+// Iceberg logic -------------------------------------------------------------------------------------------------------
+
+func (writer *IcebergTableWriter) insertRows(loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
+	tableS3Path := writer.IcebergTable.GenerateTableS3Path()
 	dataS3Path := tableS3Path + "/data"
 	metadataS3Path := tableS3Path + "/metadata"
 
@@ -172,11 +212,11 @@ func (writer *IcebergWriter) insertRows(icebergTable *IcebergTable, loadRowsToDu
 
 		// Create metadata
 		writer.StorageS3.CreateMetadata(metadataS3Path, writer.IcebergSchemaColumns, []ManifestListFile{manifestListFile})
-		common.LogInfo(writer.Config, "Written", parquetFile.RecordCount, "records in Parquet file #"+common.IntToString(len(parquetFilesSortedAsc)), "("+writer.formattedParquetFileSize(parquetFile.Size)+")")
+		LogInfo(writer.Config, "Written", parquetFile.RecordCount, "records in Parquet file #"+IntToString(len(parquetFilesSortedAsc)), "("+writer.formattedParquetFileSize(parquetFile.Size)+")")
 
 		// Create table
 		if len(parquetFilesSortedAsc) == 1 {
-			icebergTable.Create(tableS3Path)
+			writer.IcebergTable.Create(tableS3Path)
 		}
 
 		// Delete old files
@@ -191,7 +231,7 @@ func (writer *IcebergWriter) insertRows(icebergTable *IcebergTable, loadRowsToDu
 	}
 }
 
-func (writer *IcebergWriter) appendRows(metadataFileS3Path string, cursorValue CursorValue, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
+func (writer *IcebergTableWriter) appendRows(metadataFileS3Path string, cursorValue CursorValue, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
 	tableS3Path := strings.Split(metadataFileS3Path, "/metadata/")[0]
 	metadataS3Path := tableS3Path + "/metadata"
 	dataS3Path := tableS3Path + "/data"
@@ -239,7 +279,7 @@ func (writer *IcebergWriter) appendRows(metadataFileS3Path string, cursorValue C
 		parquetFilesSortedAsc = append(parquetFilesSortedAsc, newParquetFile)
 		newParquetFileCount++
 		totalDataFileSize += newParquetFile.Size
-		common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in Parquet file #"+common.IntToString(newParquetFileCount), "("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
+		LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in Parquet file #"+IntToString(newParquetFileCount), "("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
 
 		if reachedEnd {
 			break
@@ -264,7 +304,7 @@ func (writer *IcebergWriter) appendRows(metadataFileS3Path string, cursorValue C
 	}
 }
 
-func (writer *IcebergWriter) updateRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
+func (writer *IcebergTableWriter) updateRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
 	tableS3Path := strings.Split(metadataFileS3Path, "/metadata/")[0]
 	metadataS3Path := tableS3Path + "/metadata"
 	dataS3Path := tableS3Path + "/data"
@@ -302,7 +342,7 @@ func (writer *IcebergWriter) updateRows(metadataFileS3Path string, uniqueIndexCo
 
 			// Create parquet
 			newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, loadedRowCount)
-			common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in 'updated' Parquet file ("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
+			LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in 'updated' Parquet file ("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
 
 			// Replace the old Parquet file with the new one
 			parquetFilesSortedAsc[i] = newParquetFile
@@ -340,7 +380,7 @@ func (writer *IcebergWriter) updateRows(metadataFileS3Path string, uniqueIndexCo
 	}
 }
 
-func (writer *IcebergWriter) deleteRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
+func (writer *IcebergTableWriter) deleteRows(metadataFileS3Path string, uniqueIndexColumnNames []string, loadRowsToDuckdbTableFunc func(duckdbTableName string, loadedSize int64) (loadedRowCount int64, reachedEnd bool)) {
 	tableS3Path := strings.Split(metadataFileS3Path, "/metadata/")[0]
 	metadataS3Path := tableS3Path + "/metadata"
 	dataS3Path := tableS3Path + "/data"
@@ -376,7 +416,7 @@ func (writer *IcebergWriter) deleteRows(metadataFileS3Path string, uniqueIndexCo
 
 			// Create parquet
 			newParquetFile := writer.StorageS3.CreateParquet(dataS3Path, writer.DuckdbClient, tempDuckdbTableName, writer.IcebergSchemaColumns, rowCount)
-			common.LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in 'deleted' Parquet file ("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
+			LogInfo(writer.Config, "Written", newParquetFile.RecordCount, "records in 'deleted' Parquet file ("+writer.formattedParquetFileSize(newParquetFile.Size)+")")
 
 			// Replace the old Parquet file with the new one
 			parquetFilesSortedAsc[i] = newParquetFile
@@ -414,7 +454,9 @@ func (writer *IcebergWriter) deleteRows(metadataFileS3Path string, uniqueIndexCo
 	}
 }
 
-func (writer *IcebergWriter) createTempDuckdbTable() string {
+// DuckDB --------------------------------------------------------------------------------------------------------------
+
+func (writer *IcebergTableWriter) createTempDuckdbTable() string {
 	tableName := "temp_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	columnSchemas := make([]string, len(writer.IcebergSchemaColumns))
 	for i, col := range writer.IcebergSchemaColumns {
@@ -422,12 +464,12 @@ func (writer *IcebergWriter) createTempDuckdbTable() string {
 	}
 
 	_, err := writer.DuckdbClient.ExecContext(context.Background(), "CREATE TABLE "+tableName+"("+strings.Join(columnSchemas, ",")+")")
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	return tableName
 }
 
-func (writer *IcebergWriter) hasOverlappingRowsInParquet(duckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) bool {
+func (writer *IcebergTableWriter) hasOverlappingRowsInParquet(duckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) bool {
 	uniqueIndexConditions := make([]string, len(uniqueIndexColumnNames))
 	for i, uniqueIndexColumnName := range uniqueIndexColumnNames {
 		uniqueIndexConditions[i] = `"` + uniqueIndexColumnName + `" IN (SELECT "` + uniqueIndexColumnName + `" FROM ` + duckdbTableName + ")"
@@ -436,65 +478,118 @@ func (writer *IcebergWriter) hasOverlappingRowsInParquet(duckdbTableName string,
 
 	var count int
 	err := writer.DuckdbClient.QueryRowContext(context.Background(), countSql).Scan(&count)
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 	return count > 0
 }
 
-func (writer *IcebergWriter) insertToDuckdbTableFromParquet(duckdbTableName string, parquetFileS3Path string, cursorValue CursorValue) int64 {
+func (writer *IcebergTableWriter) insertToDuckdbTableFromParquet(duckdbTableName string, parquetFileS3Path string, cursorValue CursorValue) int64 {
 	sql := "INSERT INTO " + duckdbTableName + " SELECT * FROM read_parquet('" + parquetFileS3Path + "')"
 	if cursorValue.OverrideRows {
 		// Exclude rows with the cursor value
 		sql += ` WHERE "` + cursorValue.ColumnName + `" != '` + cursorValue.StringValue + `'`
-		common.LogInfo(writer.Config, "Replacing last existing Parquet file excluding cursor value:", strings.Split(parquetFileS3Path, "/data/")[1])
+		LogInfo(writer.Config, "Replacing last existing Parquet file excluding cursor value:", strings.Split(parquetFileS3Path, "/data/")[1])
 	} else {
-		common.LogInfo(writer.Config, "Replacing last existing Parquet file:", strings.Split(parquetFileS3Path, "/data/")[1])
+		LogInfo(writer.Config, "Replacing last existing Parquet file:", strings.Split(parquetFileS3Path, "/data/")[1])
 	}
 
 	result, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	rowsAffected, err := result.RowsAffected()
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	return rowsAffected
 }
 
-func (writer *IcebergWriter) insertToDuckdbTableFromDuckdbTableThatOverlapWithParquetRows(insertDuckdbTableName string, sourceDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) int64 {
+func (writer *IcebergTableWriter) insertToDuckdbTableFromDuckdbTableThatOverlapWithParquetRows(insertDuckdbTableName string, sourceDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) int64 {
 	uniqueIndexConditions := make([]string, len(uniqueIndexColumnNames))
 	for i, uniqueIndexColumnName := range uniqueIndexColumnNames {
 		uniqueIndexConditions[i] = `"` + uniqueIndexColumnName + `" IN (SELECT "` + uniqueIndexColumnName + `" FROM read_parquet('` + parquetFileS3Path + "'))"
 	}
 	sql := "INSERT INTO " + insertDuckdbTableName + " SELECT * FROM " + sourceDuckdbTableName + " WHERE " + strings.Join(uniqueIndexConditions, " AND ")
 	result, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	rowsAffected, err := result.RowsAffected()
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	return rowsAffected
 }
 
-func (writer *IcebergWriter) insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(insertDuckdbTableName string, overlappingDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) int64 {
+func (writer *IcebergTableWriter) insertToDuckdbTableFromParquetWithoutOverlappingDuckdbTableRows(insertDuckdbTableName string, overlappingDuckdbTableName string, parquetFileS3Path string, uniqueIndexColumnNames []string) int64 {
 	uniqueIndexConditions := make([]string, len(uniqueIndexColumnNames))
 	for i, uniqueIndexColumnName := range uniqueIndexColumnNames {
 		uniqueIndexConditions[i] = `"` + uniqueIndexColumnName + `" NOT IN (SELECT "` + uniqueIndexColumnName + `" FROM ` + overlappingDuckdbTableName + ")"
 	}
 	sql := "INSERT INTO " + insertDuckdbTableName + " SELECT * FROM read_parquet('" + parquetFileS3Path + "') WHERE " + strings.Join(uniqueIndexConditions, " AND ")
 	result, err := writer.DuckdbClient.ExecContext(context.Background(), sql)
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	rowsAffected, err := result.RowsAffected()
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 
 	return rowsAffected
 }
 
-func (writer *IcebergWriter) deleteTempDuckdbTable(duckdbTableName string) {
-	_, err := writer.DuckdbClient.ExecContext(context.Background(), "DROP TABLE "+duckdbTableName)
-	common.PanicIfError(writer.Config, err)
+func (writer *IcebergTableWriter) insertToDuckdbTableFromQuery(duckdbTableName string, query string) (int64, []*IcebergSchemaColumn, error) {
+	ctx := context.Background()
+
+	result, err := writer.DuckdbClient.ExecContext(ctx, "CREATE TABLE "+duckdbTableName+" AS "+query)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	var icebergSchemaColumns []*IcebergSchemaColumn
+	rows, err := writer.DuckdbClient.QueryContext(
+		ctx,
+		`SELECT
+			columns.column_name,
+			columns.data_type,
+			columns.is_nullable,
+			columns.ordinal_position,
+			COALESCE(columns.numeric_precision, 0),
+			COALESCE(columns.numeric_scale, 0),
+			COALESCE(columns.datetime_precision, 0),
+		FROM information_schema.columns
+		WHERE columns.table_name = '`+duckdbTableName+`'`,
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		duckdbSchemaColumn := &DuckdbSchemaColumn{Config: writer.Config}
+		err := rows.Scan(
+			&duckdbSchemaColumn.ColumnName,
+			&duckdbSchemaColumn.DataType,
+			&duckdbSchemaColumn.IsNullable,
+			&duckdbSchemaColumn.OrdinalPosition,
+			&duckdbSchemaColumn.NumericPrecision,
+			&duckdbSchemaColumn.NumericScale,
+			&duckdbSchemaColumn.DatetimePrecision,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		icebergSchemaColumns = append(icebergSchemaColumns, duckdbSchemaColumn.ToIcebergSchemaColumn())
+	}
+
+	return rowsAffected, icebergSchemaColumns, nil
 }
 
-func (writer *IcebergWriter) deleteObject(key string) {
+func (writer *IcebergTableWriter) deleteTempDuckdbTable(duckdbTableName string) {
+	_, err := writer.DuckdbClient.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+duckdbTableName)
+	PanicIfError(writer.Config, err)
+}
+
+func (writer *IcebergTableWriter) deleteObject(key string) {
 	var fileName string
 	if strings.Contains(key, "/data/") {
 		fileName = strings.Split(key, "/data/")[1]
@@ -502,13 +597,13 @@ func (writer *IcebergWriter) deleteObject(key string) {
 		fileName = strings.Split(key, "/metadata/")[1]
 	}
 
-	common.LogInfo(writer.Config, "Deleting object:", fileName)
+	LogInfo(writer.Config, "Deleting object:", fileName)
 	writer.StorageS3.S3Client.DeleteObject(key)
 }
 
-func (writer *IcebergWriter) loadCsvRows(duckdbTableName string, csvReader *csv.Reader, loadedSize int64) (loadedRowCount int64, reachedEnd bool) {
+func (writer *IcebergTableWriter) loadCsvRows(duckdbTableName string, csvReader *csv.Reader, loadedSize int64) (loadedRowCount int64, reachedEnd bool) {
 	appender, err := writer.DuckdbClient.Appender("", duckdbTableName)
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 	defer appender.Close()
 
 	for {
@@ -517,7 +612,7 @@ func (writer *IcebergWriter) loadCsvRows(duckdbTableName string, csvReader *csv.
 			reachedEnd = true
 			break
 		}
-		common.PanicIfError(writer.Config, err)
+		PanicIfError(writer.Config, err)
 
 		duckdbRowValues := make([]driver.Value, len(writer.IcebergSchemaColumns))
 		for i, icebergSchemaColumn := range writer.IcebergSchemaColumns {
@@ -525,24 +620,24 @@ func (writer *IcebergWriter) loadCsvRows(duckdbTableName string, csvReader *csv.
 			loadedSize += int64(len(row[i]))
 		}
 
-		common.LogTrace(writer.Config, "DuckDB appending row values:", duckdbRowValues)
+		LogTrace(writer.Config, "DuckDB appending row values:", duckdbRowValues)
 		err = appender.AppendRow(duckdbRowValues...)
-		common.PanicIfError(writer.Config, err)
+		PanicIfError(writer.Config, err)
 
 		loadedRowCount++
 		if loadedSize >= (MAX_LOAD_BATCH_SIZE * writer.CompressionFactor) {
-			common.LogDebug(writer.Config, "Reached batch size limit")
+			LogDebug(writer.Config, "Reached batch size limit")
 			break
 		}
 	}
 
-	common.LogInfo(writer.Config, "Loaded", loadedRowCount, "rows")
+	LogInfo(writer.Config, "Loaded", loadedRowCount, "rows")
 	return loadedRowCount, reachedEnd
 }
 
-func (writer *IcebergWriter) loadJsonRows(duckdbTableName string, jsonQueueReader *JsonQueueReader, loadedSize int64) (loadedRowCount int64, reachedEnd bool) {
+func (writer *IcebergTableWriter) loadJsonRows(duckdbTableName string, jsonQueueReader *JsonQueueReader, loadedSize int64) (loadedRowCount int64, reachedEnd bool) {
 	appender, err := writer.DuckdbClient.Appender("", duckdbTableName)
-	common.PanicIfError(writer.Config, err)
+	PanicIfError(writer.Config, err)
 	defer appender.Close()
 
 	for {
@@ -552,27 +647,27 @@ func (writer *IcebergWriter) loadJsonRows(duckdbTableName string, jsonQueueReade
 			reachedEnd = true
 			break
 		}
-		common.PanicIfError(writer.Config, err)
+		PanicIfError(writer.Config, err)
 		loadedSize += int64(valueSize)
 
 		duckdbRowValues := writer.jsonToDuckdbRowValues(rowValues)
 
-		common.LogTrace(writer.Config, "DuckDB appending row values:", rowValues)
+		LogTrace(writer.Config, "DuckDB appending row values:", rowValues)
 		err = appender.AppendRow(duckdbRowValues...)
-		common.PanicIfError(writer.Config, err)
+		PanicIfError(writer.Config, err)
 
 		loadedRowCount++
 		if loadedSize >= (MAX_LOAD_BATCH_SIZE * writer.CompressionFactor) {
-			common.LogDebug(writer.Config, "Reached batch size limit")
+			LogDebug(writer.Config, "Reached batch size limit")
 			break
 		}
 	}
 
-	common.LogInfo(writer.Config, "Loaded", loadedRowCount, "rows")
+	LogInfo(writer.Config, "Loaded", loadedRowCount, "rows")
 	return loadedRowCount, reachedEnd
 }
 
-func (writer *IcebergWriter) jsonToDuckdbRowValues(rowValues map[string]interface{}) []driver.Value {
+func (writer *IcebergTableWriter) jsonToDuckdbRowValues(rowValues map[string]interface{}) []driver.Value {
 	// Detect row column drift
 	rowColumnNames := []string{}
 	for columnName := range rowValues {
@@ -583,13 +678,13 @@ func (writer *IcebergWriter) jsonToDuckdbRowValues(rowValues map[string]interfac
 		tableColumnNames[i] = strings.ToLower(icebergSchemaColumn.ColumnName) // Debezium JSON keys are lowercase
 	}
 	if len(rowColumnNames) != len(tableColumnNames) {
-		common.Panic(writer.Config, "Row column names count doesn't match table column names count: "+strings.Join(rowColumnNames, ", ")+" (row) vs "+strings.Join(tableColumnNames, ", ")+" (table)")
+		Panic(writer.Config, "Row column names count doesn't match table column names count: "+strings.Join(rowColumnNames, ", ")+" (row) vs "+strings.Join(tableColumnNames, ", ")+" (table)")
 	}
 	sort.Strings(rowColumnNames)
 	sort.Strings(tableColumnNames)
 	for i := range rowColumnNames {
 		if rowColumnNames[i] != tableColumnNames[i] {
-			common.Panic(writer.Config, "Row column names don't match table column names: "+strings.Join(rowColumnNames, ", ")+" (row) vs "+strings.Join(tableColumnNames, ", ")+" (table)")
+			Panic(writer.Config, "Row column names don't match table column names: "+strings.Join(rowColumnNames, ", ")+" (row) vs "+strings.Join(tableColumnNames, ", ")+" (table)")
 		}
 	}
 
@@ -603,7 +698,7 @@ func (writer *IcebergWriter) jsonToDuckdbRowValues(rowValues map[string]interfac
 	return duckdbRowValues
 }
 
-func (writer *IcebergWriter) formattedParquetFileSize(parquetFileSize int64) string {
+func (writer *IcebergTableWriter) formattedParquetFileSize(parquetFileSize int64) string {
 	if parquetFileSize < 1024 {
 		return Int64ToString(parquetFileSize) + "B"
 	} else if parquetFileSize < 1024*1024 {

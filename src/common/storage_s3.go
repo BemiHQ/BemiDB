@@ -1,14 +1,15 @@
-package syncerCommon
+package common
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
-	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/google/uuid"
 	"github.com/xitongsys/parquet-go-source/s3v2"
 )
@@ -18,8 +19,8 @@ const (
 )
 
 type StorageS3 struct {
-	S3Client     *common.S3Client
-	Config       *common.CommonConfig
+	S3Client     *S3Client
+	Config       *CommonConfig
 	StorageUtils *StorageUtils
 }
 
@@ -71,9 +72,30 @@ type MetadataFile struct {
 	Key     string
 }
 
-func NewStorageS3(Config *common.CommonConfig) *StorageS3 {
+type IcebergTableField struct {
+	Name     string
+	Type     string
+	Required bool
+	IsList   bool
+}
+
+func (tableField IcebergTableField) ToSql() string {
+	sql := fmt.Sprintf(`"%s" %s`, tableField.Name, tableField.Type)
+
+	if tableField.IsList {
+		sql += "[]"
+	}
+
+	if tableField.Required {
+		sql += " NOT NULL"
+	}
+
+	return sql
+}
+
+func NewStorageS3(Config *CommonConfig) *StorageS3 {
 	return &StorageS3{
-		S3Client:     common.NewS3Client(Config),
+		S3Client:     NewS3Client(Config),
 		Config:       Config,
 		StorageUtils: NewStorageUtils(Config),
 	}
@@ -81,7 +103,7 @@ func NewStorageS3(Config *common.CommonConfig) *StorageS3 {
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageS3) CreateParquet(dataS3Path string, duckdbClient *common.DuckdbClient, tempDuckdbTableName string, icebergSchemaColumns []*IcebergSchemaColumn, rowCount int64) ParquetFile {
+func (storage *StorageS3) CreateParquet(dataS3Path string, duckdbClient *DuckdbClient, tempDuckdbTableName string, icebergSchemaColumns []*IcebergSchemaColumn, rowCount int64) ParquetFile {
 	ctx := context.Background()
 	fileName := storage.generateTimestampString() + "_" + uuid.New().String() + ".parquet"
 	fileS3Path := dataS3Path + "/" + fileName
@@ -93,7 +115,7 @@ func (storage *StorageS3) CreateParquet(dataS3Path string, duckdbClient *common.
 	fileSize := *headObjectOutput.ContentLength
 
 	fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.S3Client.S3, storage.Config.Aws.S3Bucket, fileS3Key)
-	common.PanicIfError(storage.Config, err)
+	PanicIfError(storage.Config, err)
 	parquetStats := storage.StorageUtils.ReadParquetStats(fileReader, icebergSchemaColumns)
 
 	return ParquetFile{
@@ -113,9 +135,9 @@ func (storage *StorageS3) CreateManifest(metadataS3Path string, parquetFilesSort
 	storage.uploadTemporaryFile("manifest", fileS3Key, func(tempFile *os.File) {
 		var err error
 		fileSize, err = storage.StorageUtils.WriteManifestFile(tempFile.Name(), parquetFilesSortedAsc)
-		common.PanicIfError(storage.Config, err)
+		PanicIfError(storage.Config, err)
 	})
-	common.LogDebug(storage.Config, "Manifest file created at:", fileS3Key)
+	LogDebug(storage.Config, "Manifest file created at:", fileS3Key)
 
 	var totalRecordCount int64
 	for _, parquetFile := range parquetFilesSortedAsc {
@@ -139,10 +161,10 @@ func (storage *StorageS3) CreateManifestList(metadataS3Path string, totalDataFil
 	storage.uploadTemporaryFile("manifest-list", fileS3Key, func(tempFile *os.File) {
 		var err error
 		manifestListFile, err = storage.StorageUtils.WriteManifestListFile(tempFile.Name(), totalDataFileSize, manifestListItemsSortedDesc)
-		common.PanicIfError(storage.Config, err)
+		PanicIfError(storage.Config, err)
 	})
 
-	common.LogDebug(storage.Config, "Manifest list file created at:", fileS3Key)
+	LogDebug(storage.Config, "Manifest list file created at:", fileS3Key)
 	manifestListFile.Key = fileS3Key
 	manifestListFile.Path = metadataS3Path + "/" + fileName
 	return manifestListFile
@@ -154,10 +176,10 @@ func (storage *StorageS3) CreateMetadata(metadataS3Path string, icebergSchemaCol
 	storage.uploadTemporaryFile("metadata", fileS3Key, func(tempFile *os.File) {
 		tableS3Path := strings.TrimSuffix(metadataS3Path, "/metadata")
 		err := storage.StorageUtils.WriteMetadataFile(tableS3Path, tempFile.Name(), icebergSchemaColumns, manifestListFilesSortedAsc)
-		common.PanicIfError(storage.Config, err)
+		PanicIfError(storage.Config, err)
 	})
 
-	common.LogDebug(storage.Config, "Metadata file created at:", fileS3Key)
+	LogDebug(storage.Config, "Metadata file created at:", fileS3Key)
 	return MetadataFile{Version: 1, Key: fileS3Key}
 }
 
@@ -167,6 +189,11 @@ func (storage *StorageS3) DeleteTableFiles(tableS3Path string) {
 }
 
 // Read ----------------------------------------------------------------------------------------------------------------
+
+func (storage *StorageS3) IcebergTableFields(metadataS3Path string) ([]IcebergTableField, error) {
+	metadataContent := storage.readObjectContent(metadataS3Path)
+	return storage.parseIcebergTableFields(metadataContent)
+}
 
 func (storage *StorageS3) LastManifestListFile(metadataS3Path string) ManifestListFile {
 	metadataContent := storage.readObjectContent(metadataS3Path)
@@ -187,7 +214,7 @@ func (storage *StorageS3) ParquetFiles(manifestFile ManifestFile, icebergSchemaC
 		fileS3Key := storage.S3Client.ObjectKey(parquetFile.Path)
 
 		fileReader, err := s3v2.NewS3FileReaderWithClient(ctx, storage.S3Client.S3, storage.Config.Aws.S3Bucket, fileS3Key)
-		common.PanicIfError(storage.Config, err)
+		PanicIfError(storage.Config, err)
 		parquetStats := storage.StorageUtils.ReadParquetStats(fileReader, icebergSchemaColumns)
 
 		parquetFilesSortedAsc[i].Key = fileS3Key
@@ -206,7 +233,7 @@ func (storage *StorageS3) generateTimestampString() string {
 
 func (storage *StorageS3) uploadTemporaryFile(tempFilePattern string, uploadFileS3Key string, writeTempFileFunc func(*os.File)) {
 	tempFile, err := os.CreateTemp("", tempFilePattern)
-	common.PanicIfError(storage.Config, err)
+	PanicIfError(storage.Config, err)
 
 	defer func() {
 		os.Remove(tempFile.Name())
@@ -217,7 +244,7 @@ func (storage *StorageS3) uploadTemporaryFile(tempFilePattern string, uploadFile
 	storage.S3Client.UploadObject(uploadFileS3Key, tempFile)
 
 	err = tempFile.Close()
-	common.PanicIfError(storage.Config, err)
+	PanicIfError(storage.Config, err)
 }
 
 func (storage *StorageS3) readObjectContent(fileS3Path string) []byte {
@@ -225,7 +252,7 @@ func (storage *StorageS3) readObjectContent(fileS3Path string) []byte {
 	getObjectResponse := storage.S3Client.GetObject(fileS3Key)
 
 	fileContent, err := io.ReadAll(getObjectResponse.Body)
-	common.PanicIfError(storage.Config, err)
+	PanicIfError(storage.Config, err)
 
 	return fileContent
 }
@@ -235,14 +262,46 @@ func (storage *StorageS3) deleteNestedObjects(prefixS3Key string) {
 
 	var fileS3Keys []*string
 	for _, obj := range listResponse.Contents {
-		common.LogDebug(storage.Config, "Object to delete:", *obj.Key)
+		LogDebug(storage.Config, "Object to delete:", *obj.Key)
 		fileS3Keys = append(fileS3Keys, obj.Key)
 	}
 
 	if len(fileS3Keys) > 0 {
 		storage.S3Client.DeleteObjects(fileS3Keys)
-		common.LogDebug(storage.Config, "Deleted", len(fileS3Keys), "object(s).")
+		LogDebug(storage.Config, "Deleted", len(fileS3Keys), "object(s).")
 	} else {
-		common.LogDebug(storage.Config, "No objects to delete.")
+		LogDebug(storage.Config, "No objects to delete.")
 	}
+}
+
+func (storage *StorageS3) parseIcebergTableFields(metadataContent []byte) ([]IcebergTableField, error) {
+	var metadataJson MetadataJson
+	err := json.Unmarshal(metadataContent, &metadataJson)
+	if err != nil {
+		return nil, err
+	}
+
+	var icebergTableFields []IcebergTableField
+	schema := metadataJson.Schemas[len(metadataJson.Schemas)-1] // Get the last schema
+	if schema.Fields != nil {
+		for _, field := range schema.Fields {
+			icebergTableField := IcebergTableField{
+				Name: field.Name,
+			}
+
+			if reflect.TypeOf(field.Type).Kind() == reflect.String {
+				icebergTableField.Type = field.Type.(string)
+				icebergTableField.Required = field.Required
+			} else {
+				listType := field.Type.(map[string]interface{})
+				icebergTableField.Type = listType["element"].(string)
+				icebergTableField.Required = listType["element-required"].(bool)
+				icebergTableField.IsList = true
+			}
+
+			icebergTableFields = append(icebergTableFields, icebergTableField)
+		}
+	}
+
+	return icebergTableFields, nil
 }

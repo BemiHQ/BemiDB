@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/BemiHQ/BemiDB/src/common"
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 var PG_SCHEMA_COLUMNS_TEST_TABLE = []PgSchemaColumn{
@@ -348,45 +347,45 @@ var CSV_ROWS_TEST_TABLE = [][]string{
 	},
 	{
 		"2",                                // id
-		syncerCommon.BEMIDB_NULL_STRING,    // bit_column
+		common.BEMIDB_NULL_STRING,          // bit_column
 		"f",                                // bool_column
 		"",                                 // bpchar_column
-		syncerCommon.BEMIDB_NULL_STRING,    // varchar_column
+		common.BEMIDB_NULL_STRING,          // varchar_column
 		"",                                 // text_column
 		"-32767",                           // int2_column
-		syncerCommon.BEMIDB_NULL_STRING,    // int4_column
+		common.BEMIDB_NULL_STRING,          // int4_column
 		"-9223372036854775807",             // int8_column
-		syncerCommon.BEMIDB_NULL_STRING,    // hugeint_column
-		syncerCommon.BEMIDB_NULL_STRING,    // xid_column
-		syncerCommon.BEMIDB_NULL_STRING,    // xid8_column
+		common.BEMIDB_NULL_STRING,          // hugeint_column
+		common.BEMIDB_NULL_STRING,          // xid_column
+		common.BEMIDB_NULL_STRING,          // xid8_column
 		"NaN",                              // float4_column
 		"-3.141592653589793",               // float8_column
 		"-12345.00",                        // numeric_column
-		syncerCommon.BEMIDB_NULL_STRING,    // numeric_column_without_precision
+		common.BEMIDB_NULL_STRING,          // numeric_column_without_precision
 		"20025-11-12",                      // date_column
 		"12:00:00.123",                     // time_column
-		syncerCommon.BEMIDB_NULL_STRING,    // timeMsColumn
+		common.BEMIDB_NULL_STRING,          // timeMsColumn
 		"12:00:00.12300+05",                // timetz_column
 		"12:00:00.1+05",                    // timetz_ms_column
 		"2024-01-01 12:00:00",              // timestamp_column
-		syncerCommon.BEMIDB_NULL_STRING,    // timestamp_ms_column
+		common.BEMIDB_NULL_STRING,          // timestamp_ms_column
 		"2024-01-01 12:00:00.000123+05:30", // timestamptz_column
 		"2024-01-01 12:00:00.12+05",        // timestamptz_ms_column
-		syncerCommon.BEMIDB_NULL_STRING,    // uuid_column
-		syncerCommon.BEMIDB_NULL_STRING,    // bytea_column
-		syncerCommon.BEMIDB_NULL_STRING,    // interval_column
-		syncerCommon.BEMIDB_NULL_STRING,    // tsvector_column
-		syncerCommon.BEMIDB_NULL_STRING,    // xml_column
-		syncerCommon.BEMIDB_NULL_STRING,    // pg_snapshot_column
-		syncerCommon.BEMIDB_NULL_STRING,    // point_column
-		syncerCommon.BEMIDB_NULL_STRING,    // inet_column
-		syncerCommon.BEMIDB_NULL_STRING,    // json_column
+		common.BEMIDB_NULL_STRING,          // uuid_column
+		common.BEMIDB_NULL_STRING,          // bytea_column
+		common.BEMIDB_NULL_STRING,          // interval_column
+		common.BEMIDB_NULL_STRING,          // tsvector_column
+		common.BEMIDB_NULL_STRING,          // xml_column
+		common.BEMIDB_NULL_STRING,          // pg_snapshot_column
+		common.BEMIDB_NULL_STRING,          // point_column
+		common.BEMIDB_NULL_STRING,          // inet_column
+		common.BEMIDB_NULL_STRING,          // json_column
 		"{}",                               // jsonb_column
-		syncerCommon.BEMIDB_NULL_STRING,    // array_text_column
+		common.BEMIDB_NULL_STRING,          // array_text_column
 		"{}",                               // array_int_column
-		syncerCommon.BEMIDB_NULL_STRING,    // array_jsonb_column
-		syncerCommon.BEMIDB_NULL_STRING,    // array_ltree_column
-		syncerCommon.BEMIDB_NULL_STRING,    // user_defined_column
+		common.BEMIDB_NULL_STRING,          // array_jsonb_column
+		common.BEMIDB_NULL_STRING,          // array_ltree_column
+		common.BEMIDB_NULL_STRING,          // user_defined_column
 	},
 }
 var CSV_ROWS_PARTITIONED_TABLE1 = [][]string{{"2024-01-01 01:02:03.123456"}}
@@ -803,7 +802,7 @@ var JSON_ROWS_EMPTY_TABLE = []string{
 func init() {
 	config := loadTestConfig()
 
-	storageS3 := syncerCommon.NewStorageS3(config.CommonConfig)
+	storageS3 := common.NewStorageS3(config.CommonConfig)
 	duckdbClient := common.NewDuckdbClient(config.CommonConfig)
 	utils := NewSyncerUtils(config, storageS3, duckdbClient)
 
@@ -859,7 +858,7 @@ func setTestArgs(args []string) {
 }
 
 func createTestTableViaFullRefresh(syncer *SyncerFullRefresh, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) {
-	cappedBuffer := syncerCommon.NewCappedBuffer(syncer.Config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
+	cappedBuffer := common.NewCappedBuffer(syncer.Config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
 	writer := csv.NewWriter(cappedBuffer)
 
 	headerRow := []string{}

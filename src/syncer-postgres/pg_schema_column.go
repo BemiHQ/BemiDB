@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
+	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 const (
@@ -31,55 +31,55 @@ func NewPgSchemaColumn(config *Config) *PgSchemaColumn {
 	}
 }
 
-func (pgSchemaColumn *PgSchemaColumn) ToIcebergSchemaColumn() *syncerCommon.IcebergSchemaColumn {
-	icebergSchemaColumn := &syncerCommon.IcebergSchemaColumn{
+func (pgSchemaColumn *PgSchemaColumn) ToIcebergSchemaColumn() *common.IcebergSchemaColumn {
+	icebergSchemaColumn := &common.IcebergSchemaColumn{
 		Config:                pgSchemaColumn.Config.CommonConfig,
 		ColumnName:            pgSchemaColumn.ColumnName,
-		Position:              syncerCommon.StringToInt(pgSchemaColumn.OrdinalPosition),
-		NumericPrecision:      syncerCommon.StringToInt(pgSchemaColumn.NumericPrecision),
-		NumericScale:          syncerCommon.StringToInt(pgSchemaColumn.NumericScale),
+		Position:              common.StringToInt(pgSchemaColumn.OrdinalPosition),
+		NumericPrecision:      common.StringToInt(pgSchemaColumn.NumericPrecision),
+		NumericScale:          common.StringToInt(pgSchemaColumn.NumericScale),
 		IsList:                pgSchemaColumn.DataType == PG_DATA_TYPE_ARRAY,
 		IsRequired:            pgSchemaColumn.IsNullable != PG_TRUE,
 		IsPartOfUniqueIndex:   pgSchemaColumn.IsPartOfUniqueIndex,
-		DatetimePrecision:     syncerCommon.StringToInt(pgSchemaColumn.DatetimePrecision),
+		DatetimePrecision:     common.StringToInt(pgSchemaColumn.DatetimePrecision),
 		PgPrimitiveColumnType: strings.TrimLeft(pgSchemaColumn.UdtName, "_"),
 	}
 
 	switch icebergSchemaColumn.PgPrimitiveColumnType {
 	case "bool":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeBoolean
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeBoolean
 	case "bit", "int2", "int4":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeInteger
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeInteger
 	case "xid":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeLong
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeLong
 	case "int8", "xid8", "interval":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeDecimal
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeDecimal
 	case "float4":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeFloat
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeFloat
 	case "float8":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeDouble
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeDouble
 	case "numeric":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeDecimal
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeDecimal
 	case "date":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeDate
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeDate
 	case "time":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeTime
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeTime
 	case "timetz":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeTimeTz
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeTimeTz
 	case "timestamp", "timestamptz":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeTimestamp
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeTimestamp
 	case "varchar", "char", "text", "jsonb", "json", "bpchar", "uuid",
 		"point", "line", "lseg", "box", "path", "polygon", "circle",
 		"cidr", "inet", "macaddr", "macaddr8",
 		"ltree", "tsvector", "xml", "pg_snapshot":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeString
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeString
 	case "bytea":
-		icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeBinary
+		icebergSchemaColumn.ColumnType = common.IcebergColumnTypeBinary
 	default:
 		// User-defined types -> VARCHAR
 		if pgSchemaColumn.Namespace != PG_SCHEMA_PG_CATALOG {
-			icebergSchemaColumn.PgPrimitiveColumnType = syncerCommon.PG_USER_DEFINED_PRIMITIVE_TYPE
-			icebergSchemaColumn.ColumnType = syncerCommon.IcebergColumnTypeString
+			icebergSchemaColumn.PgPrimitiveColumnType = common.PG_USER_DEFINED_PRIMITIVE_TYPE
+			icebergSchemaColumn.ColumnType = common.IcebergColumnTypeString
 		} else {
 			panic("Unsupported PostgreSQL type: " + pgSchemaColumn.UdtName)
 		}

@@ -36,7 +36,6 @@ RUN \
 # Compile syncers and server
 
 COPY --chown=app:app src/common/go.mod src/common/go.sum /app/src/common/
-COPY --chown=app:app src/syncer-common/go.mod src/syncer-common/go.sum /app/src/syncer-common/
 
 COPY --chown=app:app src/syncer-postgres/go.mod src/syncer-postgres/go.sum /app/src/syncer-postgres/
 RUN cd /app/src/syncer-postgres && go mod download
@@ -48,7 +47,6 @@ COPY --chown=app:app src/server/go.mod src/server/go.sum /app/src/server/
 RUN cd /app/src/server && go mod download
 
 COPY --chown=app:app src/common /app/src/common
-COPY --chown=app:app src/syncer-common /app/src/syncer-common
 COPY --chown=app:app src/syncer-postgres /app/src/syncer-postgres
 COPY --chown=app:app src/syncer-amplitude /app/src/syncer-amplitude
 COPY --chown=app:app src/server /app/src/server

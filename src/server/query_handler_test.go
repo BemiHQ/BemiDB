@@ -18,7 +18,7 @@ import (
 
 func TestHandleQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.DuckdbClient.Close()
+	defer queryHandler.ServerDuckdbClient.Close()
 
 	t.Run("PG functions", func(t *testing.T) {
 		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
@@ -367,9 +367,9 @@ func TestHandleQuery(t *testing.T) {
 	t.Run("Information schema", func(t *testing.T) {
 		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
 			"SELECT * FROM information_schema.tables WHERE table_schema = 'postgres' ORDER BY table_name DESC LIMIT 1": {
-				"description": {"table_catalog", "table_schema", "table_name", "table_type", "self_referencing_column_name", "reference_generation", "user_defined_type_catalog", "user_defined_type_schema", "user_defined_type_name", "is_insertable_into", "is_typed", "commit_action", "TABLE_COMMENT"},
+				"description": {"table_catalog", "table_schema", "table_name", "table_type", "self_referencing_column_name", "reference_generation", "user_defined_type_catalog", "user_defined_type_schema", "user_defined_type_name", "is_insertable_into", "is_typed", "commit_action"},
 				"types":       {uint32ToString(pgtype.TextOID)},
-				"values":      {"memory", "postgres", "test_table", "BASE TABLE", "", "", "", "", "", "YES", "NO", "", ""},
+				"values":      {"memory", "postgres", "test_table", "BASE TABLE", "", "", "", "", "", "YES", "NO", ""},
 			},
 			// information_schema.columns
 			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'id'": {
@@ -907,13 +907,13 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"{\"key\": \"value\", \"nestedKey\": { \"key\": \"value\" }}"},
 			},
-			"SELECT jsonb_column->'key' AS key FROM postgres.test_table WHERE jsonb_column->'nestedKey'->>'key' = 'value'": {
-				"description": {"key"},
+			"SELECT jsonb_column->'key' FROM postgres.test_table WHERE jsonb_column->'nestedKey'->>'key' = 'value'": {
+				"description": {"jsonb_column_key"},
 				"types":       {uint32ToString(pgtype.JSONOID)},
 				"values":      {"\"value\""},
 			},
-			"SELECT json_column->>'key' AS key FROM postgres.test_table WHERE id = 1 AND json_column::json->>'key' IN ('value')": {
-				"description": {"key"},
+			"SELECT json_column->>'key' FROM postgres.test_table WHERE id = 1 AND json_column::json->>'key' IN ('value')": {
+				"description": {"json_column_key"},
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"value"},
 			},
@@ -1474,7 +1474,7 @@ func TestHandleQuery(t *testing.T) {
 
 func TestHandleParseQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.DuckdbClient.Close()
+	defer queryHandler.ServerDuckdbClient.Close()
 
 	t.Run("Handles PARSE extended query step", func(t *testing.T) {
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
@@ -1517,7 +1517,7 @@ func TestHandleParseQuery(t *testing.T) {
 
 func TestHandleBindQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.DuckdbClient.Close()
+	defer queryHandler.ServerDuckdbClient.Close()
 
 	t.Run("Handles BIND extended query step with text format parameter", func(t *testing.T) {
 		parseMessage := &pgproto3.Parse{Query: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"}
@@ -1625,7 +1625,7 @@ func TestHandleBindQuery(t *testing.T) {
 
 func TestHandleDescribeQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.DuckdbClient.Close()
+	defer queryHandler.ServerDuckdbClient.Close()
 
 	t.Run("Handles DESCRIBE extended query step", func(t *testing.T) {
 		query := "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
@@ -1679,7 +1679,7 @@ func TestHandleDescribeQuery(t *testing.T) {
 
 func TestHandleExecuteQuery(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.DuckdbClient.Close()
+	defer queryHandler.ServerDuckdbClient.Close()
 
 	t.Run("Handles EXECUTE extended query step", func(t *testing.T) {
 		query := "SELECT usename, split_part(passwd, ':', 1) FROM pg_shadow WHERE usename=$1"
@@ -1721,7 +1721,7 @@ func TestHandleExecuteQuery(t *testing.T) {
 
 func TestHandleMultipleQueries(t *testing.T) {
 	queryHandler := initQueryHandler()
-	defer queryHandler.DuckdbClient.Close()
+	defer queryHandler.ServerDuckdbClient.Close()
 
 	t.Run("Handles multiple SET statements", func(t *testing.T) {
 		query := `SET client_encoding TO 'UTF8';
@@ -1800,10 +1800,8 @@ SET standard_conforming_strings = on;`
 
 func initQueryHandler() *QueryHandler {
 	config := loadTestConfig()
-	duckdbClient := common.NewDuckdbClient(config.CommonConfig, duckdbBootQueris(config))
-	catalog := NewIcebergCatalog(config)
-	icebergReader := NewIcebergReader(config, catalog)
-	return NewQueryHandler(config, duckdbClient, icebergReader)
+	serverDuckdbClient := common.NewDuckdbClient(config.CommonConfig, duckdbBootQueris(config))
+	return NewQueryHandler(config, serverDuckdbClient)
 }
 
 func loadTestConfig() *Config {

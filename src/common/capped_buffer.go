@@ -1,15 +1,13 @@
-package syncerCommon
+package common
 
 import (
 	"errors"
 	"io"
 	"sync"
-
-	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 type CappedBuffer struct {
-	Config       *common.CommonConfig
+	Config       *CommonConfig
 	MaxSizeBytes int
 
 	buffer          []byte
@@ -20,7 +18,7 @@ type CappedBuffer struct {
 	closed        bool
 }
 
-func NewCappedBuffer(config *common.CommonConfig, maxSizeBytes int) *CappedBuffer {
+func NewCappedBuffer(config *CommonConfig, maxSizeBytes int) *CappedBuffer {
 	sizedBuffer := &CappedBuffer{
 		Config:       config,
 		buffer:       make([]byte, 0, maxSizeBytes),
@@ -44,7 +42,7 @@ func (buf *CappedBuffer) Write(payload []byte) (writtenBytes int, err error) {
 	}
 
 	for len(buf.buffer)+len(payload) > buf.MaxSizeBytes && !buf.closed {
-		common.LogTrace(buf.Config, ">> Waiting for more space in capped buffer...")
+		LogTrace(buf.Config, ">> Waiting for more space in capped buffer...")
 		buf.conditionalSync.Wait() // Wait for the reader
 	}
 
@@ -55,7 +53,7 @@ func (buf *CappedBuffer) Write(payload []byte) (writtenBytes int, err error) {
 
 	writtenBytes = len(payload)
 	buf.buffer = append(buf.buffer, payload...)
-	common.LogTrace(buf.Config, ">> Writing", writtenBytes, "bytes to capped buffer...")
+	LogTrace(buf.Config, ">> Writing", writtenBytes, "bytes to capped buffer...")
 
 	buf.conditionalSync.Broadcast() // Notify the reader that new data is available
 
@@ -72,7 +70,7 @@ func (buf *CappedBuffer) Read(payload []byte) (readBytes int, err error) {
 	defer buf.mutex.Unlock()
 
 	for len(buf.buffer) == 0 && !buf.closed {
-		common.LogTrace(buf.Config, "<< Waiting for more data in capped buffer...")
+		LogTrace(buf.Config, "<< Waiting for more data in capped buffer...")
 		buf.conditionalSync.Wait() // Wait for the writer
 	}
 
@@ -83,7 +81,7 @@ func (buf *CappedBuffer) Read(payload []byte) (readBytes int, err error) {
 	maxReadBytes := len(payload)
 	readBytes = copy(payload, buf.buffer)
 	buf.buffer = buf.buffer[readBytes:]
-	common.LogTrace(buf.Config, "<< Reading "+common.IntToString(readBytes)+"/"+common.IntToString(maxReadBytes)+" bytes from capped buffer...")
+	LogTrace(buf.Config, "<< Reading "+IntToString(readBytes)+"/"+IntToString(maxReadBytes)+" bytes from capped buffer...")
 
 	buf.conditionalSync.Broadcast() // Notify the writer that space is now available
 
@@ -94,7 +92,7 @@ func (buf *CappedBuffer) Close() error {
 	buf.closeOnceSync.Do(func() {
 		buf.mutex.Lock()
 
-		common.LogTrace(buf.Config, "== Closing capped buffer...")
+		LogTrace(buf.Config, "== Closing capped buffer...")
 		buf.closed = true
 
 		buf.conditionalSync.Broadcast() // Wake up any waiting writers/readers

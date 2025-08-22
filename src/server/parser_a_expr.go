@@ -18,6 +18,10 @@ func NewParserAExpr(config *Config) *ParserAExpr {
 	}
 }
 
+func (parser *ParserAExpr) AExprFromTargetNode(targetNode *pgQuery.Node) *pgQuery.A_Expr {
+	return targetNode.GetResTarget().Val.GetAExpr()
+}
+
 func (parser *ParserAExpr) AExpr(node *pgQuery.Node) *pgQuery.A_Expr {
 	return node.GetAExpr()
 }
@@ -29,7 +33,7 @@ func (parser *ParserAExpr) AExpr(node *pgQuery.Node) *pgQuery.A_Expr {
 // ^ Could not convert string '...' to BOOL when casting from source column json_column
 func (parser *ParserAExpr) RemappedJsonExtractString(node *pgQuery.Node) *pgQuery.Node {
 	aExpr := parser.AExpr(node)
-	if aExpr == nil || aExpr.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || len(aExpr.Name) != 1 || aExpr.Name[0].GetString_().Sval != "->>" {
+	if aExpr == nil || parser.OperatorName(aExpr) != "->>" {
 		return node
 	}
 
@@ -47,7 +51,7 @@ func (parser *ParserAExpr) RemappedJsonExtractString(node *pgQuery.Node) *pgQuer
 // ^ Binder Error: No function matches the given name and argument types 'json_extract(VARCHAR, BOOLEAN)'
 func (parser *ParserAExpr) RemappedJsonExtract(node *pgQuery.Node) *pgQuery.Node {
 	aExpr := parser.AExpr(node)
-	if aExpr == nil || aExpr.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || len(aExpr.Name) != 1 || aExpr.Name[0].GetString_().Sval != "->" {
+	if aExpr == nil || parser.OperatorName(aExpr) != "->" {
 		return node
 	}
 
@@ -56,6 +60,30 @@ func (parser *ParserAExpr) RemappedJsonExtract(node *pgQuery.Node) *pgQuery.Node
 		[]*pgQuery.Node{aExpr.Lexpr, aExpr.Rexpr},
 		0,
 	)
+}
+
+func (parser *ParserAExpr) OperatorName(aExpr *pgQuery.A_Expr) string {
+	if aExpr.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || len(aExpr.Name) != 1 {
+		return ""
+	}
+
+	return aExpr.Name[0].GetString_().Sval
+}
+
+func (parser *ParserAExpr) LeftColumnRefName(aExpr *pgQuery.A_Expr) string {
+	if aExpr.Lexpr == nil || aExpr.Lexpr.GetColumnRef() == nil || len(aExpr.Lexpr.GetColumnRef().Fields) != 1 {
+		return ""
+	}
+
+	return aExpr.Lexpr.GetColumnRef().Fields[0].GetString_().Sval
+}
+
+func (parser *ParserAExpr) RightAConstValue(aExpr *pgQuery.A_Expr) string {
+	if aExpr.Rexpr == nil || aExpr.Rexpr.GetAConst() == nil {
+		return ""
+	}
+
+	return aExpr.Rexpr.GetAConst().GetSval().Sval
 }
 
 // = ANY({schema_information}) -> IN (schema_information)

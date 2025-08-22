@@ -13,6 +13,7 @@ const (
 	PG_FUNCTION_ENCODE    = "encode"
 	PG_FUNCTION_JSONB_AGG = "jsonb_agg"
 
+	PG_TABLE_PG_MATVIEWS         = "pg_matviews"
 	PG_TABLE_PG_CLASS            = "pg_class"
 	PG_TABLE_PG_STAT_USER_TABLES = "pg_stat_user_tables"
 	PG_TABLE_TABLES              = "tables"

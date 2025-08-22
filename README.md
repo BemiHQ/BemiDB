@@ -323,6 +323,7 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
 - [x] Iceberg tables compaction
 - [x] Packaging in a Docker image
 - [x] Table compaction without Trino as a dependency
+- [x] Materialized views
 - [ ] Partitioned tables ([#15](https://github.com/BemiHQ/BemiDB/issues/15))
 - [ ] Transformations with dbt ([#25](https://github.com/BemiHQ/BemiDB/issues/25))
 

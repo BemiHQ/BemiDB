@@ -1,13 +1,11 @@
-package syncerCommon
+package common
 
 import (
 	"testing"
-
-	"github.com/BemiHQ/BemiDB/src/common"
 )
 
 func TestJsonQueue(t *testing.T) {
-	config := &common.CommonConfig{
+	config := &CommonConfig{
 		LogLevel: "DEBUG",
 	}
 	buffer := NewCappedBuffer(config, 1024)

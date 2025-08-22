@@ -31,10 +31,7 @@ func main() {
 	common.LogInfo(config.CommonConfig, "DuckDB: Connected")
 	defer duckdbClient.Close()
 
-	catalog := NewIcebergCatalog(config)
-
-	icebergReader := NewIcebergReader(config, catalog)
-	queryHandler := NewQueryHandler(config, duckdbClient, icebergReader)
+	queryHandler := NewQueryHandler(config, duckdbClient)
 
 	for {
 		conn := AcceptConnection(config, tcpListener)
@@ -58,7 +55,7 @@ func duckdbBootQueris(config *Config) []string {
 
 			// Set up schemas
 			"SELECT oid FROM pg_catalog.pg_namespace",
-			"CREATE SCHEMA public",
+			"CREATE SCHEMA " + PG_SCHEMA_PUBLIC,
 
 			// Configure DuckDB
 			"SET memory_limit='3GB'",
@@ -75,7 +72,7 @@ func duckdbBootQueris(config *Config) []string {
 		CreateInformationSchemaTableQueries(config),
 
 		// Use the public schema
-		[]string{"USE public"},
+		[]string{"USE " + PG_SCHEMA_PUBLIC},
 	)
 }
 

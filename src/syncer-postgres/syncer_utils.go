@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/BemiHQ/BemiDB/src/common"
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 var (
@@ -13,11 +12,11 @@ var (
 
 type SyncerUtils struct {
 	Config       *Config
-	StorageS3    *syncerCommon.StorageS3
+	StorageS3    *common.StorageS3
 	DuckdbClient *common.DuckdbClient
 }
 
-func NewSyncerUtils(config *Config, storageS3 *syncerCommon.StorageS3, duckdbClient *common.DuckdbClient) *SyncerUtils {
+func NewSyncerUtils(config *Config, storageS3 *common.StorageS3, duckdbClient *common.DuckdbClient) *SyncerUtils {
 	return &SyncerUtils{
 		Config:       config,
 		StorageS3:    storageS3,
@@ -42,8 +41,8 @@ func (utils *SyncerUtils) ShouldSyncTable(pgSchemaTable PgSchemaTable) bool {
 }
 
 func (utils *SyncerUtils) DeleteOldTables(keepIcebergTableNames common.Set[string]) {
-	icebergCatalog := syncerCommon.NewIcebergCatalog(utils.Config.CommonConfig, utils.Config.DestinationSchemaName)
-	icebergTableNames := icebergCatalog.TableNames()
+	icebergCatalog := common.NewIcebergCatalog(utils.Config.CommonConfig)
+	icebergTableNames := icebergCatalog.SchemaTableNames(utils.Config.DestinationSchemaName)
 
 	for _, icebergTableName := range icebergTableNames.Values() {
 		if keepIcebergTableNames.Contains(icebergTableName) {
@@ -51,7 +50,8 @@ func (utils *SyncerUtils) DeleteOldTables(keepIcebergTableNames common.Set[strin
 		}
 
 		common.LogInfo(utils.Config.CommonConfig, "Deleting old Iceberg table: "+icebergTableName)
-		icebergTable := syncerCommon.NewIcebergTable(utils.Config.CommonConfig, utils.StorageS3, utils.DuckdbClient, utils.Config.DestinationSchemaName, icebergTableName)
-		icebergTable.DeleteIfExists()
+		icebergSchemaTable := common.IcebergSchemaTable{Schema: utils.Config.DestinationSchemaName, Table: icebergTableName}
+		icebergTable := common.NewIcebergTable(utils.Config.CommonConfig, utils.StorageS3, utils.DuckdbClient, icebergSchemaTable)
+		icebergTable.DropIfExists()
 	}
 }

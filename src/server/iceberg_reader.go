@@ -5,33 +5,41 @@ import (
 )
 
 type IcebergReader struct {
-	Config  *Config
-	Storage *StorageS3
-	Catalog *IcebergCatalog
+	Config         *Config
+	StorageS3      *common.StorageS3
+	IcebergCatalog *common.IcebergCatalog
 }
 
-func NewIcebergReader(config *Config, catalog *IcebergCatalog) *IcebergReader {
+func NewIcebergReader(config *Config, storageS3 *common.StorageS3, icebergCatalog *common.IcebergCatalog) *IcebergReader {
 	return &IcebergReader{
-		Config:  config,
-		Catalog: catalog,
-		Storage: NewS3Storage(config),
+		Config:         config,
+		StorageS3:      storageS3,
+		IcebergCatalog: icebergCatalog,
 	}
 }
 
 func (reader *IcebergReader) Schemas() (icebergSchemas []string, err error) {
-	return reader.Catalog.Schemas()
+	return reader.IcebergCatalog.Schemas()
 }
 
-func (reader *IcebergReader) SchemaTables() (icebergSchemaTables common.Set[IcebergSchemaTable], err error) {
-	return reader.Catalog.SchemaTables()
+func (reader *IcebergReader) SchemaTables() (icebergSchemaTables common.Set[common.IcebergSchemaTable], err error) {
+	return reader.IcebergCatalog.SchemaTables()
 }
 
-func (reader *IcebergReader) TableFields(icebergSchemaTable IcebergSchemaTable) (icebergTableFields []IcebergTableField, err error) {
+func (reader *IcebergReader) MaterializedViews() (icebergSchemaTables []common.IcebergMaterializedView, err error) {
+	return reader.IcebergCatalog.MaterializedViews()
+}
+
+func (reader *IcebergReader) MaterializedView(icebergSchemaTable common.IcebergSchemaTable) (icebergMaterializedView common.IcebergMaterializedView, err error) {
+	return reader.IcebergCatalog.MaterializedView(icebergSchemaTable)
+}
+
+func (reader *IcebergReader) TableFields(icebergSchemaTable common.IcebergSchemaTable) (icebergTableFields []common.IcebergTableField, err error) {
 	metadataPath := reader.MetadataFileS3Path(icebergSchemaTable)
 	common.LogDebug(reader.Config.CommonConfig, "Reading Iceberg table "+icebergSchemaTable.String()+" fields from "+metadataPath+" ...")
-	return reader.Storage.IcebergTableFields(metadataPath)
+	return reader.StorageS3.IcebergTableFields(metadataPath)
 }
 
-func (reader *IcebergReader) MetadataFileS3Path(icebergSchemaTable IcebergSchemaTable) string {
-	return reader.Catalog.MetadataFileS3Path(icebergSchemaTable)
+func (reader *IcebergReader) MetadataFileS3Path(icebergSchemaTable common.IcebergSchemaTable) string {
+	return reader.IcebergCatalog.MetadataFileS3Path(icebergSchemaTable)
 }

@@ -34,19 +34,21 @@ type QueryRemapper struct {
 	remapperFunction   *QueryRemapperFunction
 	remapperSelect     *QueryRemapperSelect
 	remapperShow       *QueryRemapperShow
-	icebergReader      *IcebergReader
+	IcebergReader      *IcebergReader
+	IcebergWriter      *IcebergWriter
 	config             *Config
 }
 
-func NewQueryRemapper(config *Config, icebergReader *IcebergReader, duckdbClient *common.DuckdbClient) *QueryRemapper {
+func NewQueryRemapper(config *Config, icebergReader *IcebergReader, icebergWriter *IcebergWriter, serverDuckdbClient *common.DuckdbClient) *QueryRemapper {
 	return &QueryRemapper{
 		parserTypeCast:     NewParserTypeCast(config),
-		remapperTable:      NewQueryRemapperTable(config, icebergReader, duckdbClient),
+		remapperTable:      NewQueryRemapperTable(config, icebergReader, serverDuckdbClient),
 		remapperExpression: NewQueryRemapperExpression(config),
 		remapperFunction:   NewQueryRemapperFunction(config, icebergReader),
 		remapperSelect:     NewQueryRemapperSelect(config),
 		remapperShow:       NewQueryRemapperShow(config),
-		icebergReader:      icebergReader,
+		IcebergReader:      icebergReader,
+		IcebergWriter:      icebergWriter,
 		config:             config,
 	}
 }
@@ -72,7 +74,7 @@ func (remapper *QueryRemapper) ParseAndRemapQuery(query string) ([]string, []str
 
 	remappedStatements, err := remapper.remapStatements(queryTree.Stmts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("couldn't remap query: %s. %w", query, err)
+		return nil, nil, err
 	}
 
 	var queryStatements []string
@@ -126,6 +128,30 @@ func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([
 
 		// BEGIN
 		case node.GetTransactionStmt() != nil:
+			statements[i] = NOOP_QUERY_TREE.Stmts[0]
+
+		// CREATE MATERIALIZED VIEW
+		case node.GetCreateTableAsStmt() != nil:
+			err := remapper.createMaterializedView(node)
+			if err != nil {
+				return nil, err
+			}
+			statements[i] = NOOP_QUERY_TREE.Stmts[0]
+
+		// DROP MATERIALIZED VIEW
+		case node.GetDropStmt() != nil && node.GetDropStmt().RemoveType == pgQuery.ObjectType_OBJECT_MATVIEW:
+			err := remapper.dropMaterializedViewFromNode(node)
+			if err != nil {
+				return nil, err
+			}
+			statements[i] = NOOP_QUERY_TREE.Stmts[0]
+
+		// REFRESH MATERIALIZED VIEW
+		case node.GetRefreshMatViewStmt() != nil:
+			err := remapper.refreshMaterializedViewFromNode(node)
+			if err != nil {
+				return nil, err
+			}
 			statements[i] = NOOP_QUERY_TREE.Stmts[0]
 
 		// Unsupported query
@@ -407,7 +433,7 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 
 	// SELECT ...
 	for targetNodeIdx, targetNode := range selectStatement.TargetList {
-		targetNode = remapper.remapperSelect.SetDefaultTargetNameToFunctionName(targetNode)
+		targetNode = remapper.remapperSelect.SetDefaultTargetName(targetNode)
 
 		valNode := targetNode.GetResTarget().Val
 		if valNode != nil {
@@ -491,6 +517,118 @@ func (remapper *QueryRemapper) removeWhereClause(whereClause *pgQuery.Node) bool
 	}
 
 	return true
+}
+
+func (remapper *QueryRemapper) createMaterializedView(node *pgQuery.Node) error {
+	// Extract the schema and table names
+	icebergSchemaTable := common.IcebergSchemaTable{
+		Schema: node.GetCreateTableAsStmt().Into.Rel.Schemaname,
+		Table:  node.GetCreateTableAsStmt().Into.Rel.Relname,
+	}
+	if icebergSchemaTable.Schema == "" {
+		icebergSchemaTable.Schema = PG_SCHEMA_PUBLIC
+	}
+
+	// Extract the definition of the materialized view
+	definitionSelectStmt := node.GetCreateTableAsStmt().Query.GetSelectStmt()
+	definitionRawStmt := &pgQuery.RawStmt{Stmt: &pgQuery.Node{Node: &pgQuery.Node_SelectStmt{SelectStmt: definitionSelectStmt}}}
+	definition, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{definitionRawStmt}})
+	if err != nil {
+		return fmt.Errorf("couldn't read definition of CREATE MATERIALIZED VIEW: %w", err)
+	}
+
+	// Store the materialized view in the catalog
+	err = remapper.IcebergWriter.CreateMaterializedView(icebergSchemaTable, definition)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "ERROR: duplicate key value violates unique constraint") {
+			return fmt.Errorf("relation %s already exists", icebergSchemaTable.String())
+		} else {
+			return fmt.Errorf("couldn't create materialized view: %w", err)
+		}
+	}
+
+	// Refresh the materialized view if it is not a "CREATE MATERIALIZED VIEW ... WITH NO DATA" statement
+	if !node.GetCreateTableAsStmt().Into.SkipData {
+		queryStatements, _, err := remapper.ParseAndRemapQuery(definition)
+		if err != nil {
+			deleteErr := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable)
+			if deleteErr != nil {
+				return fmt.Errorf("couldn't remap definition of CREATE MATERIALIZED VIEW: %w (%w)", err, deleteErr)
+			}
+			return fmt.Errorf("couldn't remap definition of CREATE MATERIALIZED VIEW: %w", err)
+		}
+
+		err = remapper.IcebergWriter.RefreshMaterializedView(icebergSchemaTable, queryStatements[0])
+		if err != nil {
+			deleteErr := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable)
+			if deleteErr != nil {
+				return fmt.Errorf("couldn't refresh materialized view: %w (%w)", err, deleteErr)
+			}
+			return fmt.Errorf("couldn't refresh materialized view: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (remapper *QueryRemapper) dropMaterializedViewFromNode(node *pgQuery.Node) error {
+	var icebergSchemaTable common.IcebergSchemaTable
+	nodeItems := node.GetDropStmt().Objects[0].GetList().Items
+	if len(nodeItems) == 2 {
+		icebergSchemaTable = common.IcebergSchemaTable{
+			Schema: nodeItems[0].GetString_().Sval,
+			Table:  nodeItems[1].GetString_().Sval,
+		}
+	} else {
+		icebergSchemaTable = common.IcebergSchemaTable{
+			Schema: PG_SCHEMA_PUBLIC,
+			Table:  nodeItems[0].GetString_().Sval,
+		}
+	}
+
+	// Delete the materialized view from the catalog
+	err := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (remapper *QueryRemapper) refreshMaterializedViewFromNode(node *pgQuery.Node) error {
+	icebergSchemaTable := common.IcebergSchemaTable{
+		Schema: node.GetRefreshMatViewStmt().Relation.Schemaname,
+		Table:  node.GetRefreshMatViewStmt().Relation.Relname,
+	}
+	if icebergSchemaTable.Schema == "" {
+		icebergSchemaTable.Schema = PG_SCHEMA_PUBLIC
+	}
+
+	materializedView, err := remapper.IcebergReader.MaterializedView(icebergSchemaTable)
+	if err != nil {
+		return err
+	}
+
+	queryStatements, _, err := remapper.ParseAndRemapQuery(materializedView.Definition)
+	if err != nil {
+		return fmt.Errorf("couldn't remap definition of REFRESH MATERIALIZED VIEW: %w", err)
+	}
+
+	if node.GetRefreshMatViewStmt().Concurrent {
+		go func() {
+			err := remapper.IcebergWriter.RefreshMaterializedView(icebergSchemaTable, queryStatements[0])
+			if err != nil {
+				common.LogError(remapper.config.CommonConfig, "couldn't refresh materialized view concurrently: %s", err)
+			}
+		}()
+	} else {
+		err = remapper.IcebergWriter.RefreshMaterializedView(icebergSchemaTable, queryStatements[0])
+		if err != nil {
+			return fmt.Errorf("couldn't refresh materialized view: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (remapper *QueryRemapper) traceTreeTraversal(label string, indentLevel int) {

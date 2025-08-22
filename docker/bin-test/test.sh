@@ -28,7 +28,7 @@ SOURCE_POSTGRES_SYNC_MODE=FULL_REFRESH \
   go test -v ./...
 
 # Run tests
-cd /app/src/syncer-common
+cd /app/src/common
 go test -v -count=1 ./...
 cd /app/src/server
 BEMIDB_USER=user \

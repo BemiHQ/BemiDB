@@ -1,32 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"strings"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 )
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-type IcebergTableField struct {
-	Name     string
-	Type     string
-	Required bool
-	IsList   bool
-}
-
-func (tableField IcebergTableField) ToSql() string {
-	sql := fmt.Sprintf(`"%s" %s`, tableField.Name, tableField.Type)
-
-	if tableField.IsList {
-		sql += "[]"
-	}
-
-	if tableField.Required {
-		sql += " NOT NULL"
-	}
-
-	return sql
-}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -56,15 +34,15 @@ func NewQuerySchemaTableFromString(schemaTable string) QuerySchemaTable {
 	return qSchemaTable
 }
 
-func (qSchemaTable QuerySchemaTable) ToIcebergSchemaTable() IcebergSchemaTable {
+func (qSchemaTable QuerySchemaTable) ToIcebergSchemaTable() common.IcebergSchemaTable {
 	if qSchemaTable.Schema == "" {
-		return IcebergSchemaTable{
+		return common.IcebergSchemaTable{
 			Schema: PG_SCHEMA_PUBLIC,
 			Table:  qSchemaTable.Table,
 		}
 	}
 
-	return IcebergSchemaTable{
+	return common.IcebergSchemaTable{
 		Schema: qSchemaTable.Schema,
 		Table:  qSchemaTable.Table,
 	}

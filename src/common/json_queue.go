@@ -1,4 +1,4 @@
-package syncerCommon
+package common
 
 import (
 	"encoding/binary"

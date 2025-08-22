@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/BemiHQ/BemiDB/src/common"
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 const (
@@ -21,13 +20,13 @@ const (
 type Syncer struct {
 	Config       *Config
 	Amplitude    *Amplitude
-	StorageS3    *syncerCommon.StorageS3
+	StorageS3    *common.StorageS3
 	DuckdbClient *common.DuckdbClient
 }
 
 func NewSyncer(config *Config) *Syncer {
-	storageS3 := syncerCommon.NewStorageS3(config.CommonConfig)
-	duckdbClient := common.NewDuckdbClient(config.CommonConfig, syncerCommon.DUCKDB_BOOT_QUERIES)
+	storageS3 := common.NewStorageS3(config.CommonConfig)
+	duckdbClient := common.NewDuckdbClient(config.CommonConfig, common.SYNCER_DUCKDB_BOOT_QUERIES)
 
 	return &Syncer{
 		Config:       config,
@@ -38,17 +37,18 @@ func NewSyncer(config *Config) *Syncer {
 }
 
 func (syncer *Syncer) Sync() {
-	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-start", syncer.name())
+	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-start", syncer.name())
 
-	cappedBuffer := syncerCommon.NewCappedBuffer(syncer.Config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
-	jsonQueueWriter := syncerCommon.NewJsonQueueWriter(cappedBuffer)
+	cappedBuffer := common.NewCappedBuffer(syncer.Config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
+	jsonQueueWriter := common.NewJsonQueueWriter(cappedBuffer)
 
-	icebergTable := syncerCommon.NewIcebergTable(syncer.Config.CommonConfig, syncer.StorageS3, syncer.DuckdbClient, syncer.Config.DestinationSchemaName, EVENTS_TABLE_NAME)
+	icebergSchemaTable := common.IcebergSchemaTable{Schema: syncer.Config.DestinationSchemaName, Table: EVENTS_TABLE_NAME}
+	icebergTable := common.NewIcebergTable(syncer.Config.CommonConfig, syncer.StorageS3, syncer.DuckdbClient, icebergSchemaTable)
 	cursorValue := icebergTable.LastCursorValue(CURSOR_COLUMN_NAME)
 
 	lastSyncedTime := syncer.Config.StartDate
 	if cursorValue.StringValue != "" {
-		lastSyncedTime = syncerCommon.StringMsToUtcTime(cursorValue.StringValue).Truncate(time.Hour).Add(time.Hour) // add 1 hour to ensure we don't overlap
+		lastSyncedTime = common.StringMsToUtcTime(cursorValue.StringValue).Truncate(time.Hour).Add(time.Hour) // add 1 hour to ensure we don't overlap
 	}
 	now := time.Now().UTC()
 	endOfSyncWindow := now.Add(-AMPLITUDE_DATA_DELAY).Truncate(time.Hour)
@@ -75,10 +75,10 @@ func (syncer *Syncer) Sync() {
 
 	// Read from cappedBuffer and write to Iceberg
 	icebergSchemaColumns := EventIcebergSchemaColumns(syncer.Config.CommonConfig)
-	icebergWriter := syncerCommon.NewIcebergWriter(syncer.Config.CommonConfig, syncer.StorageS3, syncer.DuckdbClient, icebergSchemaColumns, COMPRESSION_FACTOR)
-	icebergWriter.AppendFromJsonCappedBuffer(icebergTable, cursorValue, cappedBuffer)
+	icebergTableWriter := common.NewIcebergTableWriter(syncer.Config.CommonConfig, syncer.StorageS3, syncer.DuckdbClient, icebergTable, icebergSchemaColumns, COMPRESSION_FACTOR)
+	icebergTableWriter.AppendFromJsonCappedBuffer(cursorValue, cappedBuffer)
 
-	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-finish", syncer.name())
+	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-finish", syncer.name())
 }
 
 func (syncer *Syncer) name() string {

@@ -49,9 +49,38 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		// DuckDB does not support indnullsnotdistinct column
 		"CREATE VIEW pg_index AS SELECT *, FALSE AS indnullsnotdistinct FROM pg_catalog.pg_index",
 		// Hide DuckDB's system and duplicate schemas
-		"CREATE VIEW pg_namespace AS SELECT * FROM pg_catalog.pg_namespace WHERE oid > 1265",
+		"CREATE VIEW pg_namespace AS SELECT * FROM pg_catalog.pg_namespace WHERE oid >= (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = '" + PG_SCHEMA_PUBLIC + "')",
 		// DuckDB does not support relforcerowsecurity column
-		"CREATE VIEW pg_class AS SELECT *, FALSE AS relforcerowsecurity FROM pg_catalog.pg_class",
+		`CREATE VIEW pg_class AS SELECT
+			oid,
+			relname,
+			relnamespace,
+			reltype,
+			reloftype,
+			relowner,
+			relam,
+			relfilenode,
+			reltablespace,
+			relpages,
+			reltuples,
+			relallvisible,
+			reltoastrelid,
+			relhasindex,
+			relisshared,
+			relpersistence,
+			CASE relkind
+				WHEN 'v' THEN
+					CASE relnamespace >= (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = '` + PG_SCHEMA_PUBLIC + `')
+					WHEN TRUE THEN
+						'm'
+					ELSE
+						'v'
+					END
+			ELSE
+				relkind
+			END AS relkind,
+			FALSE AS relforcerowsecurity
+		FROM pg_catalog.pg_class`,
 	}
 	PG_CATALOG_TABLE_NAMES = extractTableNames(result)
 	return result
@@ -99,31 +128,48 @@ func CreateInformationSchemaTableQueries(config *Config) []string {
 			END AS udt_name,
 			scope_catalog, scope_schema, scope_name, maximum_cardinality, dtd_identifier, is_self_referencing, is_identity, identity_generation, identity_start, identity_increment, identity_maximum, identity_minimum, identity_cycle, is_generated, generation_expression, is_updatable
 		FROM information_schema.columns`,
+		`CREATE VIEW tables AS SELECT
+			table_catalog,
+			table_schema,
+			table_name,
+			table_type,
+			self_referencing_column_name,
+			reference_generation,
+			user_defined_type_catalog,
+			user_defined_type_schema,
+			user_defined_type_name,
+			is_insertable_into,
+			is_typed,
+			commit_action
+		FROM information_schema.tables
+		WHERE table_type != 'VIEW'`,
 	}
 	PG_INFORMATION_SCHEMA_TABLE_NAMES = extractTableNames(result)
 	return result
 }
 
 type QueryRemapperTable struct {
-	parserTable         *ParserTable
-	parserFunction      *ParserFunction
-	remapperFunction    *QueryRemapperFunction
-	icebergSchemaTables common.Set[IcebergSchemaTable]
-	icebergReader       *IcebergReader
-	duckdb              *common.DuckdbClient // nilable
-	config              *Config
+	parserTable                   *ParserTable
+	parserFunction                *ParserFunction
+	remapperFunction              *QueryRemapperFunction
+	IcebergPersistentSchemaTables common.Set[common.IcebergSchemaTable]
+	IcebergMaterlizedSchemaTables common.Set[common.IcebergSchemaTable]
+	IcebergMaterializedViews      []common.IcebergMaterializedView
+	icebergReader                 *IcebergReader
+	ServerDuckdbClient            *common.DuckdbClient // nilable
+	config                        *Config
 }
 
-func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, duckdb *common.DuckdbClient) *QueryRemapperTable {
+func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, serverDuckdbClient *common.DuckdbClient) *QueryRemapperTable {
 	remapper := &QueryRemapperTable{
-		parserTable:      NewParserTable(config),
-		parserFunction:   NewParserFunction(config),
-		remapperFunction: NewQueryRemapperFunction(config, icebergReader),
-		icebergReader:    icebergReader,
-		duckdb:           duckdb,
-		config:           config,
+		parserTable:        NewParserTable(config),
+		parserFunction:     NewParserFunction(config),
+		remapperFunction:   NewQueryRemapperFunction(config, icebergReader),
+		icebergReader:      icebergReader,
+		ServerDuckdbClient: serverDuckdbClient,
+		config:             config,
 	}
-	remapper.reloadIceberSchemaTables()
+	remapper.reloadIcebergTables()
 	return remapper
 }
 
@@ -138,12 +184,17 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 
 		// pg_class -> reload Iceberg tables
 		case PG_TABLE_PG_CLASS:
-			remapper.reloadIceberSchemaTables()
+			remapper.reloadIcebergTables()
 
 		// pg_stat_user_tables -> return Iceberg tables
 		case PG_TABLE_PG_STAT_USER_TABLES:
-			remapper.reloadIceberSchemaTables()
-			remapper.upsertPgStatUserTables(remapper.icebergSchemaTables)
+			remapper.reloadIcebergTables()
+			remapper.upsertPgStatUserTables()
+
+		// pg_matviews -> reload Iceberg materialized views
+		case PG_TABLE_PG_MATVIEWS:
+			remapper.reloadIcebergMaterializedViews()
+			remapper.upsertPgMatviews()
 		}
 
 		// pg_catalog.pg_table -> main.pg_table
@@ -161,7 +212,9 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 		switch qSchemaTable.Table {
 		// information_schema.tables -> reload Iceberg tables
 		case PG_TABLE_TABLES:
-			remapper.reloadIceberSchemaTables()
+			remapper.reloadIcebergTables()
+			parser.RemapSchemaToMain(node)
+			return node
 		}
 
 		// information_schema.table -> main.table
@@ -177,9 +230,9 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 	// public.table -> FROM iceberg_scan('path') table
 	// schema.table -> FROM iceberg_scan('path') schema_table
 	schemaTable := qSchemaTable.ToIcebergSchemaTable()
-	if !remapper.icebergSchemaTables.Contains(schemaTable) { // Reload Iceberg tables if not found
-		remapper.reloadIceberSchemaTables()
-		if !remapper.icebergSchemaTables.Contains(schemaTable) {
+	if !remapper.IcebergPersistentSchemaTables.Contains(schemaTable) && !remapper.IcebergMaterlizedSchemaTables.Contains(schemaTable) { // Reload Iceberg tables if not found
+		remapper.reloadIcebergTables()
+		if !remapper.IcebergPersistentSchemaTables.Contains(schemaTable) && !remapper.IcebergMaterlizedSchemaTables.Contains(schemaTable) {
 			return node // Let it return "Catalog Error: Table with name _ does not exist!"
 		}
 	}
@@ -204,21 +257,20 @@ func (remapper *QueryRemapperTable) RemapTableFunctionCall(rangeFunction *pgQuer
 	}
 }
 
-func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
+func (remapper *QueryRemapperTable) reloadIcebergTables() {
+	remapper.reloadIcebergMaterializedViews()
+	remapper.reloadIcebergPersistentTables()
+}
+
+func (remapper *QueryRemapperTable) reloadIcebergPersistentTables() {
 	newIcebergSchemaTables, err := remapper.icebergReader.SchemaTables()
-	if err != nil && strings.Contains(err.Error(), "no Iceberg directory found") {
-		common.PrintErrorAndExit(remapper.config.CommonConfig, err.Error()+".\n\n"+
-			"Please make sure to run 'bemidb sync' first.\n"+
-			"See https://github.com/BemiHQ/BemiDB#quickstart for more information.")
-	}
 	common.PanicIfError(remapper.config.CommonConfig, err)
-
-	previousIcebergSchemaTables := remapper.icebergSchemaTables
-	remapper.icebergSchemaTables = newIcebergSchemaTables
-
-	if remapper.duckdb == nil {
-		return
+	for _, icebergSchemaTable := range remapper.IcebergMaterlizedSchemaTables.Values() {
+		newIcebergSchemaTables.Remove(icebergSchemaTable)
 	}
+
+	previousIcebergSchemaTables := remapper.IcebergPersistentSchemaTables
+	remapper.IcebergPersistentSchemaTables = newIcebergSchemaTables
 
 	ctx := context.Background()
 	// CREATE TABLE IF NOT EXISTS
@@ -232,35 +284,90 @@ func (remapper *QueryRemapperTable) reloadIceberSchemaTables() {
 				sqlColumns = append(sqlColumns, icebergTableField.ToSql())
 			}
 
-			_, err = remapper.duckdb.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+icebergSchemaTable.Schema)
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+icebergSchemaTable.Schema)
 			common.PanicIfError(remapper.config.CommonConfig, err)
-			_, err = remapper.duckdb.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS "+icebergSchemaTable.String()+" ("+strings.Join(sqlColumns, ", ")+")")
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS "+icebergSchemaTable.String()+" ("+strings.Join(sqlColumns, ", ")+")")
 			common.PanicIfError(remapper.config.CommonConfig, err)
 		}
 	}
 	// DROP TABLE IF EXISTS
 	for _, icebergSchemaTable := range previousIcebergSchemaTables.Values() {
 		if !newIcebergSchemaTables.Contains(icebergSchemaTable) {
-			_, err = remapper.duckdb.ExecContext(ctx, "DROP TABLE IF EXISTS "+icebergSchemaTable.String())
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "DROP TABLE IF EXISTS "+icebergSchemaTable.String())
 			common.PanicIfError(remapper.config.CommonConfig, err)
 		}
 	}
 }
 
-func (remapper *QueryRemapperTable) upsertPgStatUserTables(icebergSchemaTables common.Set[IcebergSchemaTable]) {
-	if remapper.duckdb == nil {
-		return
-	}
+func (remapper *QueryRemapperTable) reloadIcebergMaterializedViews() {
+	newIcebergMaterializedViews, err := remapper.icebergReader.MaterializedViews()
+	common.PanicIfError(remapper.config.CommonConfig, err)
 
-	values := make([]string, len(icebergSchemaTables))
-	for i, icebergSchemaTable := range icebergSchemaTables.Values() {
-		values[i] = "('123456', '" + icebergSchemaTable.Schema + "', '" + icebergSchemaTable.Table + "', 0, NULL, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, NULL, NULL, NULL, NULL, 0, 0, 0, 0)"
-	}
+	remapper.IcebergMaterializedViews = newIcebergMaterializedViews
 
-	err := remapper.duckdb.ExecTransactionContext(context.Background(), []string{
-		"DELETE FROM pg_stat_user_tables",
-		"INSERT INTO pg_stat_user_tables VALUES " + strings.Join(values, ", "),
-	})
+	newMaterializedSchemaTables := common.NewSet[common.IcebergSchemaTable]()
+	for _, icebergMaterializedView := range newIcebergMaterializedViews {
+		newMaterializedSchemaTables.Add(icebergMaterializedView.ToIcebergSchemaTable())
+	}
+	previousIcebergSchemaTables := remapper.IcebergMaterlizedSchemaTables
+	remapper.IcebergMaterlizedSchemaTables = newMaterializedSchemaTables
+
+	ctx := context.Background()
+	// CREATE VIEW IF NOT EXISTS
+	for _, icebergSchemaTable := range remapper.IcebergMaterlizedSchemaTables.Values() {
+		if !previousIcebergSchemaTables.Contains(icebergSchemaTable) {
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+icebergSchemaTable.Schema)
+			common.PanicIfError(remapper.config.CommonConfig, err)
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "CREATE VIEW IF NOT EXISTS "+icebergSchemaTable.String()+" AS SELECT 1")
+			common.PanicIfError(remapper.config.CommonConfig, err)
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "INSERT INTO pg_matviews VALUES ('"+icebergSchemaTable.Schema+"', '"+icebergSchemaTable.Table+"', '"+remapper.config.User+"', NULL, FALSE, TRUE, '')")
+			common.PanicIfError(remapper.config.CommonConfig, err)
+		}
+	}
+	// DROP VIEW IF EXISTS
+	for _, icebergSchemaTable := range previousIcebergSchemaTables.Values() {
+		if !newMaterializedSchemaTables.Contains(icebergSchemaTable) {
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "DROP VIEW IF EXISTS "+icebergSchemaTable.String())
+			common.PanicIfError(remapper.config.CommonConfig, err)
+			_, err = remapper.ServerDuckdbClient.ExecContext(ctx, "DELETE FROM pg_matviews WHERE schemaname = '"+icebergSchemaTable.Schema+"' AND matviewname = '"+icebergSchemaTable.Table+"'")
+			common.PanicIfError(remapper.config.CommonConfig, err)
+		}
+	}
+}
+
+func (remapper *QueryRemapperTable) upsertPgStatUserTables() {
+	icebergSchemaTables := append(remapper.IcebergPersistentSchemaTables.Values(), remapper.IcebergMaterlizedSchemaTables.Values()...)
+
+	sqls := []string{"DELETE FROM pg_stat_user_tables"}
+	if len(icebergSchemaTables) > 0 {
+		values := make([]string, len(icebergSchemaTables))
+		for i, icebergSchemaTable := range icebergSchemaTables {
+			values[i] = "('123456', '" + icebergSchemaTable.Schema + "', '" + icebergSchemaTable.Table + "', 0, NULL, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, NULL, NULL, NULL, NULL, 0, 0, 0, 0)"
+		}
+		sqls = append(sqls, "INSERT INTO pg_stat_user_tables VALUES "+strings.Join(values, ", "))
+	}
+	err := remapper.ServerDuckdbClient.ExecTransactionContext(context.Background(), sqls)
+	common.PanicIfError(remapper.config.CommonConfig, err)
+}
+
+func (remapper *QueryRemapperTable) upsertPgMatviews() {
+	args := []map[string]string{map[string]string{}}
+	sqls := []string{"DELETE FROM pg_matviews"}
+	if len(remapper.IcebergMaterializedViews) > 0 {
+		values := make([]string, len(remapper.IcebergMaterializedViews))
+		arg := map[string]string{}
+		for i, icebergMaterializedView := range remapper.IcebergMaterializedViews {
+			iStr := common.IntToString(i)
+			values[i] = "('$schema" + iStr + "', '$table" + iStr + "', '$owner" + iStr + "', NULL, FALSE, TRUE, '$definition" + iStr + "')"
+			arg["schema"+iStr] = icebergMaterializedView.Schema
+			arg["table"+iStr] = icebergMaterializedView.Table
+			arg["owner"+iStr] = remapper.config.User
+			arg["definition"+iStr] = icebergMaterializedView.Definition
+		}
+		sqls = append(sqls, "INSERT INTO pg_matviews VALUES "+strings.Join(values, ", "))
+		args = append(args, arg)
+	}
+	err := remapper.ServerDuckdbClient.ExecTransactionContext(context.Background(), sqls, args)
 	common.PanicIfError(remapper.config.CommonConfig, err)
 }
 
@@ -269,7 +376,8 @@ func (remapper *QueryRemapperTable) isTableFromPgCatalog(qSchemaTable QuerySchem
 	return qSchemaTable.Schema == PG_SCHEMA_PG_CATALOG ||
 		(qSchemaTable.Schema == "" &&
 			(PG_SYSTEM_TABLES.Contains(qSchemaTable.Table) || PG_SYSTEM_VIEWS.Contains(qSchemaTable.Table)) &&
-			!remapper.icebergSchemaTables.Contains(qSchemaTable.ToIcebergSchemaTable()))
+			!remapper.IcebergPersistentSchemaTables.Contains(qSchemaTable.ToIcebergSchemaTable()) &&
+			!remapper.IcebergMaterlizedSchemaTables.Contains(qSchemaTable.ToIcebergSchemaTable()))
 }
 
 func extractTableNames(tables []string) common.Set[string] {

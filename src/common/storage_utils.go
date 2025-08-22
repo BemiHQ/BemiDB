@@ -1,4 +1,4 @@
-package syncerCommon
+package common
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BemiHQ/BemiDB/src/common"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
 	"github.com/xitongsys/parquet-go/reader"
@@ -62,10 +61,10 @@ type ManifestListSequenceStats struct {
 }
 
 type StorageUtils struct {
-	Config *common.CommonConfig
+	Config *CommonConfig
 }
 
-func NewStorageUtils(config *common.CommonConfig) *StorageUtils {
+func NewStorageUtils(config *CommonConfig) *StorageUtils {
 	return &StorageUtils{
 		Config: config,
 	}
@@ -73,13 +72,13 @@ func NewStorageUtils(config *common.CommonConfig) *StorageUtils {
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (utils *StorageUtils) WriteParquetFile(fileS3Path string, duckdbClient *common.DuckdbClient, tempDuckdbTableName string, icebergSchemaColumns []*IcebergSchemaColumn) {
+func (utils *StorageUtils) WriteParquetFile(fileS3Path string, duckdbClient *DuckdbClient, tempDuckdbTableName string, icebergSchemaColumns []*IcebergSchemaColumn) {
 	fieldIds := make([]string, len(icebergSchemaColumns))
 	for i, col := range icebergSchemaColumns {
 		if col.IsList {
-			fieldIds[i] = col.QuotedColumnName() + ":{__duckdb_field_id: " + common.IntToString(col.Position) + ", element: " + common.IntToString(PARQUET_NESTED_FIELD_ID_PREFIX+col.Position) + "}"
+			fieldIds[i] = col.QuotedColumnName() + ":{__duckdb_field_id: " + IntToString(col.Position) + ", element: " + IntToString(PARQUET_NESTED_FIELD_ID_PREFIX+col.Position) + "}"
 		} else {
-			fieldIds[i] = col.QuotedColumnName() + ":" + common.IntToString(col.Position)
+			fieldIds[i] = col.QuotedColumnName() + ":" + IntToString(col.Position)
 		}
 	}
 
@@ -88,14 +87,14 @@ func (utils *StorageUtils) WriteParquetFile(fileS3Path string, duckdbClient *com
 		"fileS3Path": fileS3Path,
 		"fieldIds":   strings.Join(fieldIds, ","),
 	})
-	common.PanicIfError(utils.Config, err)
+	PanicIfError(utils.Config, err)
 }
 
 func (utils *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, icebergSchemaColumns []*IcebergSchemaColumn) (parquetStats ParquetFileStats) {
 	defer fileReader.Close()
 
 	pr, err := reader.NewParquetReader(fileReader, nil, 1)
-	common.PanicIfError(utils.Config, err)
+	PanicIfError(utils.Config, err)
 	defer pr.ReadStop()
 
 	parquetStats = ParquetFileStats{
@@ -107,7 +106,7 @@ func (utils *StorageUtils) ReadParquetStats(fileReader source.ParquetFile, icebe
 		SplitOffsets:    []int64{},
 	}
 
-	stringColumnNames := common.NewSet[string]()
+	stringColumnNames := NewSet[string]()
 	fieldIdByColumnName := make(map[string]int)
 	for _, column := range icebergSchemaColumns {
 		columnName := strings.ToLower(column.NormalizedColumnName())
@@ -291,7 +290,7 @@ func (utils *StorageUtils) WriteManifestListFile(filePath string, totalDataFileS
 
 	for i, manifestListItem := range manifestListItemsSortedDesc {
 		sequenceNumber := manifestListItem.SequenceNumber
-		sequenceStats := statsBySequenceNumber[common.IntToString(sequenceNumber)]
+		sequenceStats := statsBySequenceNumber[IntToString(sequenceNumber)]
 		manifestFile := manifestListItem.ManifestFile
 
 		manifestListRecord := map[string]interface{}{
@@ -325,7 +324,7 @@ func (utils *StorageUtils) WriteManifestListFile(filePath string, totalDataFileS
 			sequenceStats.TotalRecords += manifestFile.TotalRecordCount
 		}
 
-		statsBySequenceNumber[common.IntToString(sequenceNumber)] = sequenceStats
+		statsBySequenceNumber[IntToString(sequenceNumber)] = sequenceStats
 		manifestListEntries[i] = manifestListRecord
 	}
 
@@ -355,7 +354,7 @@ func (utils *StorageUtils) WriteManifestListFile(filePath string, totalDataFileS
 	}
 
 	lastManifestListItem := manifestListItemsSortedDesc[0]
-	lastSequenceStats := statsBySequenceNumber[common.IntToString(lastManifestListItem.SequenceNumber)]
+	lastSequenceStats := statsBySequenceNumber[IntToString(lastManifestListItem.SequenceNumber)]
 
 	manifestListFile := ManifestListFile{
 		SequenceNumber: lastManifestListItem.SequenceNumber,
@@ -499,7 +498,7 @@ func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string
 func (utils *StorageUtils) ParseLastManifestListFile(bucketS3Prefix string, metadataContent []byte) ManifestListFile {
 	var manifestListsJson ManifestListsJson
 	err := json.Unmarshal(metadataContent, &manifestListsJson)
-	common.PanicIfError(utils.Config, err)
+	PanicIfError(utils.Config, err)
 
 	snapshot := manifestListsJson.Snapshots[len(manifestListsJson.Snapshots)-1]
 
@@ -518,13 +517,13 @@ func (utils *StorageUtils) ParseLastManifestListFile(bucketS3Prefix string, meta
 
 func (utils *StorageUtils) ParseManifestListItems(bucketS3Prefix string, manifestListFileContent []byte) []ManifestListItem {
 	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestListFileContent)))
-	common.PanicIfError(utils.Config, err)
+	PanicIfError(utils.Config, err)
 
 	manifestListItemsSortedDesc := []ManifestListItem{}
 
 	for ocfReader.Scan() {
 		record, err := ocfReader.Read()
-		common.PanicIfError(utils.Config, err)
+		PanicIfError(utils.Config, err)
 
 		recordMap := record.(map[string]interface{})
 
@@ -546,13 +545,13 @@ func (utils *StorageUtils) ParseManifestListItems(bucketS3Prefix string, manifes
 
 func (utils *StorageUtils) ParseParquetFiles(manifestContent []byte) []ParquetFile {
 	ocfReader, err := goavro.NewOCFReader(strings.NewReader(string(manifestContent)))
-	common.PanicIfError(utils.Config, err)
+	PanicIfError(utils.Config, err)
 
 	parquetFilesSortedAsc := []ParquetFile{}
 
 	for ocfReader.Scan() {
 		record, err := ocfReader.Read()
-		common.PanicIfError(utils.Config, err)
+		PanicIfError(utils.Config, err)
 
 		recordMap := record.(map[string]interface{})
 		dataFile := recordMap["data_file"].(map[string]interface{})

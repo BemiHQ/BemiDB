@@ -8,6 +8,11 @@ import (
 	"github.com/marcboeker/go-duckdb/v2"
 )
 
+var SYNCER_DUCKDB_BOOT_QUERIES = []string{
+	"SET memory_limit='2GB'",
+	"SET threads=2",
+}
+
 type DuckdbClient struct {
 	Config    *CommonConfig
 	Db        *sql.DB
@@ -88,16 +93,21 @@ func (client *DuckdbClient) ExecContext(ctx context.Context, query string, args 
 	return client.Db.ExecContext(ctx, replaceNamedStringArgs(query, args[0]))
 }
 
-func (client *DuckdbClient) ExecTransactionContext(ctx context.Context, queries []string) error {
+func (client *DuckdbClient) ExecTransactionContext(ctx context.Context, queries []string, args ...[]map[string]string) error {
 	tx, err := client.Db.Begin()
 	LogDebug(client.Config, "Querying DuckDBClient: BEGIN")
 	if err != nil {
 		return err
 	}
 
-	for _, query := range queries {
+	for i, query := range queries {
 		LogDebug(client.Config, "Querying DuckDBClient:", query)
-		_, err := tx.ExecContext(ctx, query)
+		var err error
+		if len(args) == 0 {
+			_, err = tx.ExecContext(ctx, query)
+		} else {
+			_, err = tx.ExecContext(ctx, replaceNamedStringArgs(query, args[0][i]))
+		}
 		if err != nil {
 			tx.Rollback()
 			return err
@@ -135,7 +145,11 @@ func (client *DuckdbClient) setExplicitAwsCredentials(ctx context.Context) {
 
 func replaceNamedStringArgs(query string, args map[string]string) string {
 	for key, value := range args {
-		query = strings.ReplaceAll(query, "$"+key, value)
+		query = strings.ReplaceAll(
+			query,
+			"$"+key,
+			strings.ReplaceAll(value, "'", "''"),
+		)
 	}
 	return query
 }

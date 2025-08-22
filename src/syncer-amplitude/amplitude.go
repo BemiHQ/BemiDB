@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/BemiHQ/BemiDB/src/common"
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 const (
@@ -31,7 +30,7 @@ func NewAmplitude(config *Config) *Amplitude {
 	}
 }
 
-func (amplitude *Amplitude) Export(jsonQueueWriter *syncerCommon.JsonQueueWriter, startTime, endTime time.Time) error {
+func (amplitude *Amplitude) Export(jsonQueueWriter *common.JsonQueueWriter, startTime, endTime time.Time) error {
 	startString := startTime.UTC().Format(AMPLITUDE_TIME_FORMAT)
 	endString := endTime.UTC().Format(AMPLITUDE_TIME_FORMAT)
 

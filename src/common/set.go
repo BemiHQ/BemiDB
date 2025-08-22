@@ -19,6 +19,11 @@ func (set Set[T]) AddAll(items []T) Set[T] {
 	return set
 }
 
+func (set Set[T]) Remove(item T) Set[T] {
+	delete(set, item)
+	return set
+}
+
 func (set Set[T]) Contains(item T) bool {
 	_, ok := set[item]
 	return ok

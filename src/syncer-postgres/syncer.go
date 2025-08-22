@@ -4,19 +4,18 @@ import (
 	"net/url"
 
 	"github.com/BemiHQ/BemiDB/src/common"
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 type Syncer struct {
 	Config       *Config
 	Utils        *SyncerUtils
-	StorageS3    *syncerCommon.StorageS3
+	StorageS3    *common.StorageS3
 	DuckdbClient *common.DuckdbClient
 }
 
 func NewSyncer(config *Config) *Syncer {
-	storageS3 := syncerCommon.NewStorageS3(config.CommonConfig)
-	duckdbClient := common.NewDuckdbClient(config.CommonConfig, syncerCommon.DUCKDB_BOOT_QUERIES)
+	storageS3 := common.NewStorageS3(config.CommonConfig)
+	duckdbClient := common.NewDuckdbClient(config.CommonConfig, common.SYNCER_DUCKDB_BOOT_QUERIES)
 
 	return &Syncer{
 		Config:       config,
@@ -27,7 +26,7 @@ func NewSyncer(config *Config) *Syncer {
 }
 
 func (syncer *Syncer) Sync() {
-	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-start", syncer.name())
+	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-start", syncer.name())
 
 	postgres := NewPostgres(syncer.Config)
 	defer postgres.Close()
@@ -46,7 +45,7 @@ func (syncer *Syncer) Sync() {
 		NewSyncerFullRefresh(syncer.Config, syncer.Utils, syncer.StorageS3, syncer.DuckdbClient).Sync(postgres, pgSchemaTables)
 	}
 
-	syncerCommon.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-finish", syncer.name())
+	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-finish", syncer.name())
 }
 
 func (syncer *Syncer) pgSchemaTables(postgres *Postgres) []PgSchemaTable {

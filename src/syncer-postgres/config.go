@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/BemiHQ/BemiDB/src/common"
-	"github.com/BemiHQ/BemiDB/src/syncer-common"
 )
 
 type SyncMode string
@@ -104,7 +103,7 @@ func registerFlags() {
 	flag.IntVar(&_config.Nats.FetchTimeoutSeconds, "nats-fetch-timeout-seconds", DEFAULT_NATS_FETCH_TIMEOUT_SECONDS, "NATS fetch timeout in seconds")
 	fetchTimeoutSeconds := os.Getenv(ENV_NATS_FETCH_TIMEOUT_SECONDS)
 	if fetchTimeoutSeconds != "" {
-		_config.Nats.FetchTimeoutSeconds = syncerCommon.StringToInt(fetchTimeoutSeconds)
+		_config.Nats.FetchTimeoutSeconds = common.StringToInt(fetchTimeoutSeconds)
 	}
 }
 

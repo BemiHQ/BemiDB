@@ -4,13 +4,10 @@ go 1.24.4
 
 require (
 	github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
-	github.com/BemiHQ/BemiDB/src/syncer-common v0.0.1
 	github.com/nats-io/nats.go v1.43.0
 )
 
 replace github.com/BemiHQ/BemiDB/src/common => ../common
-
-replace github.com/BemiHQ/BemiDB/src/syncer-common => ../syncer-common
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0 // indirect
