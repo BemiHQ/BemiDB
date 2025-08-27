@@ -8,5 +8,7 @@
 /benchmark/tpch-kit
 /benchmark/data/*.tbl
 /build
-bemidb
 /src/__debug*
+
+# dbt
+/logs/

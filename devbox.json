@@ -2,10 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.1/.schema/devbox.schema.json",
   "packages": [
     "go@1.24.4",
-    "postgresql@latest"
+    "postgresql@latest",
+    "python@latest"
   ],
   "shell": {
-    "init_hook": [],
+    "init_hook": ". $VENV_DIR/bin/activate",
     "scripts": {
       "test": [
         "echo \"Error: no test specified\" && exit 1"

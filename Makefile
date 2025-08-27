@@ -49,6 +49,12 @@ test: build-test
 test-function:
 	devbox run "cd src/server && go test ./... -run $(FUNC)"
 
+dbt-setup:
+	devbox run "python -m pip install dbt-core dbt-postgres"
+
+dbt-run:
+	devbox run "cd bemidb_dbt && dbt run"
+
 debug:
 	devbox run "cd src/server && dlv test github.com/BemiHQ/BemiDB"
 
