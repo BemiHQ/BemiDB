@@ -14,6 +14,8 @@ const (
 
 	PG_CONNECTION_TIMEOUT = 30 * time.Second
 	PG_SESSION_TIMEOUT    = "2h"
+
+	POSTGRES_MAX_RETRY_COUNT = 1
 )
 
 type Postgres struct {
@@ -22,27 +24,9 @@ type Postgres struct {
 }
 
 func NewPostgres(config *Config) *Postgres {
-	postgresClient := common.NewPostgresClient(config.CommonConfig, config.DatabaseUrl)
-
-	_, err := postgresClient.Exec(context.Background(), "SET SESSION statement_timeout = '"+PG_SESSION_TIMEOUT+"'")
-	common.PanicIfError(config.CommonConfig, err)
-
-	var isStandby bool
-	err = postgresClient.QueryRow(context.Background(), "SELECT pg_is_in_recovery()").Scan(&isStandby)
-	common.PanicIfError(config.CommonConfig, err)
-
-	if isStandby {
-		_, err = postgresClient.Exec(context.Background(), "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-		common.PanicIfError(config.CommonConfig, err)
-	} else {
-		_, err = postgresClient.Exec(context.Background(), "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
-		common.PanicIfError(config.CommonConfig, err)
-	}
-
-	return &Postgres{
-		Config:         config,
-		PostgresClient: postgresClient,
-	}
+	postgres := Postgres{Config: config}
+	postgres.Reconnect()
+	return &postgres
 }
 
 func (postgres *Postgres) Close() {
@@ -69,7 +53,11 @@ func (postgres *Postgres) Schemas() []string {
 
 	schemasRows, err := postgres.PostgresClient.Query(
 		context.Background(),
-		"SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'pg_toast', 'information_schema')",
+		`SELECT schema_name
+		FROM information_schema.schemata
+		WHERE
+			schema_name NOT IN ('pg_catalog', 'pg_toast', 'information_schema') AND
+			has_schema_privilege(current_user, schema_name, 'USAGE')`,
 	)
 	common.PanicIfError(postgres.Config.CommonConfig, err)
 	defer schemasRows.Close()
@@ -95,7 +83,10 @@ func (postgres *Postgres) SchemaTables(schema string) []PgSchemaTable {
 		JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
 		LEFT JOIN pg_inherits ON pg_inherits.inhrelid = pg_class.oid
 		LEFT JOIN pg_class AS parent ON pg_inherits.inhparent = parent.oid
-		WHERE pg_namespace.nspname = $1 AND pg_class.relkind = 'r' AND has_table_privilege(pg_class.oid, 'SELECT')
+		WHERE
+			pg_namespace.nspname = $1 AND
+			pg_class.relkind = 'r' AND
+			has_table_privilege(pg_class.oid, 'SELECT')
 		`,
 		schema,
 	)
@@ -112,7 +103,7 @@ func (postgres *Postgres) SchemaTables(schema string) []PgSchemaTable {
 	return pgSchemaTables
 }
 
-func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchemaColumn {
+func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable, retryCount ...int) []PgSchemaColumn {
 	var pgSchemaColumns []PgSchemaColumn
 
 	rows, err := postgres.PostgresClient.Query(
@@ -172,10 +163,25 @@ func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchem
 		pgSchemaTable.Schema,
 		pgSchemaTable.Table,
 	).Scan(&joinedUniqueColumnNames)
-	if err != nil && err.Error() == "no rows in result set" {
-		joinedUniqueColumnNames = ""
-	} else {
-		common.PanicIfError(postgres.Config.CommonConfig, err)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			joinedUniqueColumnNames = ""
+		} else {
+			if strings.Contains(err.Error(), "terminating connection due to conflict with recovery (SQLSTATE 40001)") ||
+				strings.Contains(err.Error(), "failed to deallocate cached statement(s): conn closed") {
+				currentRetryCount := 0
+				if len(retryCount) > 0 {
+					currentRetryCount = retryCount[0]
+				}
+
+				if currentRetryCount < POSTGRES_MAX_RETRY_COUNT {
+					common.LogWarn(postgres.Config.CommonConfig, "Retrying PgSchemaColumns() for table "+pgSchemaTable.String()+" due to failure:", err)
+					postgres.Reconnect()
+					return postgres.PgSchemaColumns(pgSchemaTable, currentRetryCount+1)
+				}
+			}
+			common.PanicIfError(postgres.Config.CommonConfig, err)
+		}
 	}
 
 	uniqueColumnNames := common.NewSet[string]()
@@ -191,4 +197,26 @@ func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable) []PgSchem
 	}
 
 	return pgSchemaColumns
+}
+
+func (postgres *Postgres) Reconnect() {
+	if postgres.PostgresClient != nil {
+		postgres.Close()
+	}
+	postgres.PostgresClient = common.NewPostgresClient(postgres.Config.CommonConfig, postgres.Config.DatabaseUrl)
+
+	_, err := postgres.PostgresClient.Exec(context.Background(), "SET SESSION statement_timeout = '"+PG_SESSION_TIMEOUT+"'")
+	common.PanicIfError(postgres.Config.CommonConfig, err)
+
+	var isStandby bool
+	err = postgres.PostgresClient.QueryRow(context.Background(), "SELECT pg_is_in_recovery()").Scan(&isStandby)
+	common.PanicIfError(postgres.Config.CommonConfig, err)
+
+	if isStandby {
+		_, err = postgres.PostgresClient.Exec(context.Background(), "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+		common.PanicIfError(postgres.Config.CommonConfig, err)
+	} else {
+		_, err = postgres.PostgresClient.Exec(context.Background(), "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE")
+		common.PanicIfError(postgres.Config.CommonConfig, err)
+	}
 }

@@ -19,22 +19,28 @@ build:
 publish:
 	./scripts/publish-docker.sh
 
-build-local:
+server:
+	docker run -it --rm --env-file .env  -p 54321:54321 ghcr.io/bemihq/bemidb:latest server
+
+syncer-postgres:
+	docker run -it --rm --env-file .env -e DESTINATION_SCHEMA_NAME=postgres ghcr.io/bemihq/bemidb:latest syncer-postgres
+
+local-build:
 	docker build --build-arg PLATFORM=linux/arm64 -t bemidb:local .
 
-server: build-local
+local-server: local-build
 	docker run -it --rm --env-file .env -p 54321:54321 bemidb:local server
 
-syncer-postgres: build-local
+local-syncer-postgres: local-build
 	docker run -it --rm --env-file .env -e DESTINATION_SCHEMA_NAME=postgres bemidb:local syncer-postgres
 
-syncer-amplitude: build-local
+local-syncer-amplitude: local-build
 	docker run -it --rm --env-file .env -e DESTINATION_SCHEMA_NAME=amplitude bemidb:local syncer-amplitude
 
-bash:
+local-sh:
 	docker run -it --rm --env-file .env bemidb:local bash
 
-build-test:
+test-build:
 	docker build --build-arg PLATFORM=linux/arm64 -t bemidb:test -f Dockerfile.test .
 
 test: build-test

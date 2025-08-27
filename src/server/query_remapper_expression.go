@@ -119,7 +119,12 @@ func (remapper *QueryRemapperExpression) remappedNullColumnExpression(node *pgQu
 // public.table.column -> table.column
 // schema.table.column -> schema_table.column
 func (remapper *QueryRemapperExpression) remapColumnReference(node *pgQuery.Node) {
-	fieldNames := remapper.parserColumnRef.FieldNames(node)
+	columnRef := node.GetColumnRef()
+	if columnRef == nil {
+		return
+	}
+
+	fieldNames := remapper.parserColumnRef.FieldNames(columnRef)
 	if fieldNames == nil || len(fieldNames) != 3 {
 		return
 	}

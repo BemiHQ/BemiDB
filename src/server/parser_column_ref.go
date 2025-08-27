@@ -12,12 +12,11 @@ func NewParserColumnRef(config *Config) *ParserColumnRef {
 	return &ParserColumnRef{config: config}
 }
 
-func (parser *ParserColumnRef) FieldNames(node *pgQuery.Node) []string {
-	columnRef := node.GetColumnRef()
-	if columnRef == nil {
-		return nil
-	}
+func (parser *ParserColumnRef) ColumnRefFromTargetNode(targetNode *pgQuery.Node) *pgQuery.ColumnRef {
+	return targetNode.GetResTarget().Val.GetColumnRef()
+}
 
+func (parser *ParserColumnRef) FieldNames(columnRef *pgQuery.ColumnRef) []string {
 	fieldNames := make([]string, 0)
 	for _, field := range columnRef.Fields {
 		if field.GetString_() == nil {

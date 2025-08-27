@@ -31,6 +31,7 @@ func CreatePgCatalogTableQueries(config *Config) []string {
 		"CREATE TABLE pg_publication(oid oid, pubname text, pubowner oid, puballtables bool, pubinsert bool, pubupdate bool, pubdelete bool, pubtruncate bool, pubviaroot bool)",
 		"CREATE TABLE pg_publication_rel(oid oid, prpubid oid, prrelid oid, prqual text, prattrs text)",
 		"CREATE TABLE pg_publication_namespace(oid oid, pnpubid oid, pnnspid oid)",
+		"CREATE TABLE pg_rewrite(oid oid, rulename text, ev_class oid, ev_type char, ev_enabled char, is_instead bool, ev_qual text, ev_action text)",
 
 		// Dynamic tables
 		// DuckDB doesn't handle dynamic view replacement properly
@@ -197,7 +198,7 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 			remapper.upsertPgMatviews()
 		}
 
-		// pg_catalog.pg_table -> main.pg_table
+		// pg_catalog -> main for tables defined in CreatePgCatalogTableQueries
 		if PG_CATALOG_TABLE_NAMES.Contains(qSchemaTable.Table) {
 			parser.RemapSchemaToMain(node)
 			return node

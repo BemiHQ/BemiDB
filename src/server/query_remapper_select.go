@@ -5,23 +5,50 @@ import (
 )
 
 type QueryRemapperSelect struct {
-	parserSelect   *ParserSelect
-	parserFunction *ParserFunction
-	parserAExpr    *ParserAExpr
-	config         *Config
+	parserSelect    *ParserSelect
+	parserFunction  *ParserFunction
+	parserAExpr     *ParserAExpr
+	parserColumnRef *ParserColumnRef
+	config          *Config
 }
 
 func NewQueryRemapperSelect(config *Config) *QueryRemapperSelect {
 	return &QueryRemapperSelect{
-		parserSelect:   NewParserSelect(config),
-		parserFunction: NewParserFunction(config),
-		parserAExpr:    NewParserAExpr(config),
-		config:         config,
+		parserSelect:    NewParserSelect(config),
+		parserFunction:  NewParserFunction(config),
+		parserAExpr:     NewParserAExpr(config),
+		parserColumnRef: NewParserColumnRef(config),
+		config:          config,
 	}
 }
 
-// SELECT FUNCTION(...) -> SELECT FUNCTION(...) AS FUNCTION
-func (remapper *QueryRemapperSelect) SetDefaultTargetName(targetNode *pgQuery.Node) *pgQuery.Node {
+// table.column AS table -> table.column AS table_
+//
+// DuckDB can't execute GROUP BY table, thinking it's a table name instead of an alias:
+// column "name" must appear in the GROUP BY clause or must be part of an aggregate function.
+// Either add it to the GROUP BY list, or use "ANY_VALUE(name)" if the exact value of "name" is not important.
+//
+// So we rename the alias to table_ and use it in GROUP BY and ORDER BY clauses.
+func (remapper *QueryRemapperSelect) RemapTargetName(targetNode *pgQuery.Node) (*pgQuery.Node, map[string]string) {
+	remappedColumnRefs := make(map[string]string)
+
+	columnRef := remapper.parserColumnRef.ColumnRefFromTargetNode(targetNode)
+	if columnRef != nil {
+		fieldNames := remapper.parserColumnRef.FieldNames(columnRef)
+		targetName := remapper.parserSelect.TargetName(targetNode)
+
+		if len(fieldNames) == 2 && fieldNames[0] == targetName {
+			newTargetName := targetName + "_"
+			remapper.parserSelect.SetTargetName(targetNode, newTargetName)
+			remappedColumnRefs[targetName] = newTargetName
+		}
+	}
+
+	return targetNode, remappedColumnRefs
+}
+
+// SELECT ... -> SELECT ... AS ...
+func (remapper *QueryRemapperSelect) SetTargetNameIfEmpty(targetNode *pgQuery.Node) *pgQuery.Node {
 	aExpr := remapper.parserAExpr.AExprFromTargetNode(targetNode)
 	if aExpr != nil {
 		operatorName := remapper.parserAExpr.OperatorName(aExpr)
@@ -32,7 +59,7 @@ func (remapper *QueryRemapperSelect) SetDefaultTargetName(targetNode *pgQuery.No
 			valueName := remapper.parserAExpr.RightAConstValue(aExpr)
 
 			if columnName != "" && valueName != "" {
-				remapper.parserSelect.SetDefaultTargetName(targetNode, columnName+"_"+valueName)
+				remapper.parserSelect.SetTargetNameIfEmpty(targetNode, columnName+"_"+valueName)
 				return targetNode
 			}
 		}
@@ -44,14 +71,14 @@ func (remapper *QueryRemapperSelect) SetDefaultTargetName(targetNode *pgQuery.No
 		functionName := schemaFunction.Function
 
 		// FUNCTION(...) -> FUNCTION(...) AS FUNCTION
-		remapper.parserSelect.SetDefaultTargetName(targetNode, functionName)
+		remapper.parserSelect.SetTargetNameIfEmpty(targetNode, functionName)
 		return targetNode
 	}
 
 	indirectionName := remapper.parserFunction.IndirectionName(targetNode)
 	if indirectionName != "" {
 		// (FUNCTION()).n -> (FUNCTION()).n AS n
-		remapper.parserSelect.SetDefaultTargetName(targetNode, indirectionName)
+		remapper.parserSelect.SetTargetNameIfEmpty(targetNode, indirectionName)
 		return targetNode
 	}
 
