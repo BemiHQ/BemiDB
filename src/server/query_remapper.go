@@ -130,7 +130,7 @@ func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([
 		case node.GetTransactionStmt() != nil:
 			statements[i] = NOOP_QUERY_TREE.Stmts[0]
 
-		// CREATE MATERIALIZED VIEW
+		// CREATE MATERIALIZED VIEW [IF NOT EXISTS] AS ... [WITH NO DATA]
 		case node.GetCreateTableAsStmt() != nil:
 			err := remapper.createMaterializedView(node)
 			if err != nil {
@@ -138,8 +138,9 @@ func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([
 			}
 			statements[i] = NOOP_QUERY_TREE.Stmts[0]
 
-		// DROP MATERIALIZED VIEW
-		case node.GetDropStmt() != nil && node.GetDropStmt().RemoveType == pgQuery.ObjectType_OBJECT_MATVIEW:
+		// DROP MATERIALIZED VIEW [IF EXISTS]
+		case node.GetDropStmt() != nil &&
+			(node.GetDropStmt().RemoveType == pgQuery.ObjectType_OBJECT_TABLE || node.GetDropStmt().RemoveType == pgQuery.ObjectType_OBJECT_MATVIEW):
 			err := remapper.dropMaterializedViewFromNode(node)
 			if err != nil {
 				return nil, err
@@ -149,6 +150,15 @@ func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([
 		// REFRESH MATERIALIZED VIEW
 		case node.GetRefreshMatViewStmt() != nil:
 			err := remapper.refreshMaterializedViewFromNode(node)
+			if err != nil {
+				return nil, err
+			}
+			statements[i] = NOOP_QUERY_TREE.Stmts[0]
+
+		// ALTER TABLE [IF EXISTS] ... RENAME TO ...
+		case node.GetRenameStmt() != nil &&
+			(node.GetRenameStmt().RenameType == pgQuery.ObjectType_OBJECT_TABLE || node.GetRenameStmt().RenameType == pgQuery.ObjectType_OBJECT_MATVIEW):
+			err := remapper.renameMaterializedViewFromNode(node)
 			if err != nil {
 				return nil, err
 			}
@@ -554,8 +564,10 @@ func (remapper *QueryRemapper) createMaterializedView(node *pgQuery.Node) error 
 		return fmt.Errorf("couldn't read definition of CREATE MATERIALIZED VIEW: %w", err)
 	}
 
+	ifNotExists := node.GetCreateTableAsStmt().IfNotExists
+
 	// Store the materialized view in the catalog
-	err = remapper.IcebergWriter.CreateMaterializedView(icebergSchemaTable, definition)
+	err = remapper.IcebergWriter.CreateMaterializedView(icebergSchemaTable, definition, ifNotExists)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "ERROR: duplicate key value violates unique constraint") {
 			return fmt.Errorf("relation %s already exists", icebergSchemaTable.String())
@@ -568,7 +580,7 @@ func (remapper *QueryRemapper) createMaterializedView(node *pgQuery.Node) error 
 	if !node.GetCreateTableAsStmt().Into.SkipData {
 		queryStatements, _, err := remapper.ParseAndRemapQuery(definition)
 		if err != nil {
-			deleteErr := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable)
+			deleteErr := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable, true)
 			if deleteErr != nil {
 				return fmt.Errorf("couldn't remap definition of CREATE MATERIALIZED VIEW: %w (%w)", err, deleteErr)
 			}
@@ -577,7 +589,7 @@ func (remapper *QueryRemapper) createMaterializedView(node *pgQuery.Node) error 
 
 		err = remapper.IcebergWriter.RefreshMaterializedView(icebergSchemaTable, queryStatements[0])
 		if err != nil {
-			deleteErr := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable)
+			deleteErr := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable, true)
 			if deleteErr != nil {
 				return fmt.Errorf("couldn't refresh materialized view: %w (%w)", err, deleteErr)
 			}
@@ -590,21 +602,34 @@ func (remapper *QueryRemapper) createMaterializedView(node *pgQuery.Node) error 
 
 func (remapper *QueryRemapper) dropMaterializedViewFromNode(node *pgQuery.Node) error {
 	var icebergSchemaTable common.IcebergSchemaTable
-	nodeItems := node.GetDropStmt().Objects[0].GetList().Items
-	if len(nodeItems) == 2 {
+	dropStatement := node.GetDropStmt()
+	nodeItems := dropStatement.Objects[0].GetList().Items
+
+	switch len(nodeItems) {
+	case 3:
+		if nodeItems[0].GetString_().Sval != remapper.config.Database {
+			return fmt.Errorf("cross-database materialized view drop is not supported: %s", nodeItems[0].GetString_().Sval)
+		}
+		icebergSchemaTable = common.IcebergSchemaTable{
+			Schema: nodeItems[1].GetString_().Sval,
+			Table:  nodeItems[2].GetString_().Sval,
+		}
+	case 2:
 		icebergSchemaTable = common.IcebergSchemaTable{
 			Schema: nodeItems[0].GetString_().Sval,
 			Table:  nodeItems[1].GetString_().Sval,
 		}
-	} else {
+	case 1:
 		icebergSchemaTable = common.IcebergSchemaTable{
 			Schema: PG_SCHEMA_PUBLIC,
 			Table:  nodeItems[0].GetString_().Sval,
 		}
+	default:
+		return errors.New("couldn't read DROP MATERIALIZED VIEW statement")
 	}
 
-	// Delete the materialized view from the catalog
-	err := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable)
+	// Drop the materialized view from the catalog
+	err := remapper.IcebergWriter.DropMaterializedView(icebergSchemaTable, dropStatement.MissingOk)
 	if err != nil {
 		return err
 	}
@@ -643,6 +668,26 @@ func (remapper *QueryRemapper) refreshMaterializedViewFromNode(node *pgQuery.Nod
 		if err != nil {
 			return fmt.Errorf("couldn't refresh materialized view: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func (remapper *QueryRemapper) renameMaterializedViewFromNode(node *pgQuery.Node) error {
+	icebergSchemaTable := common.IcebergSchemaTable{
+		Schema: node.GetRenameStmt().Relation.Schemaname,
+		Table:  node.GetRenameStmt().Relation.Relname,
+	}
+	if icebergSchemaTable.Schema == "" {
+		icebergSchemaTable.Schema = PG_SCHEMA_PUBLIC
+	}
+
+	renameStatement := node.GetRenameStmt()
+	newName := renameStatement.Newname
+
+	err := remapper.IcebergWriter.RenameMaterializedView(icebergSchemaTable, newName, renameStatement.MissingOk)
+	if err != nil {
+		return fmt.Errorf("couldn't rename table: %w", err)
 	}
 
 	return nil

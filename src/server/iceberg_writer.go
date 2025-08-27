@@ -20,8 +20,19 @@ func NewIcebergWriter(config *Config, storageS3 *common.StorageS3, serverDuckdbC
 	}
 }
 
-func (writer *IcebergWriter) CreateMaterializedView(icebergSchemaTable common.IcebergSchemaTable, remappedDefinitionQuery string) error {
-	return writer.IcebergCatalog.CreateMaterializedView(icebergSchemaTable, remappedDefinitionQuery)
+func (writer *IcebergWriter) CreateMaterializedView(icebergSchemaTable common.IcebergSchemaTable, remappedDefinitionQuery string, ifNotExists bool) error {
+	return writer.IcebergCatalog.CreateMaterializedView(icebergSchemaTable, remappedDefinitionQuery, ifNotExists)
+}
+
+func (writer *IcebergWriter) RenameMaterializedView(icebergSchemaTable common.IcebergSchemaTable, newName string, missingOk bool) error {
+	err := writer.IcebergCatalog.RenameMaterializedView(icebergSchemaTable, newName, missingOk)
+	if err != nil {
+		return err
+	}
+
+	icebergTable := common.NewIcebergTable(writer.Config.CommonConfig, writer.StorageS3, writer.ServerDuckdbClient, icebergSchemaTable)
+	icebergTable.Rename(newName)
+	return nil
 }
 
 func (writer *IcebergWriter) RefreshMaterializedView(icebergSchemaTable common.IcebergSchemaTable, remappedDefinitionQuery string) error {
@@ -62,8 +73,8 @@ func (writer *IcebergWriter) RefreshMaterializedView(icebergSchemaTable common.I
 	return nil
 }
 
-func (writer *IcebergWriter) DropMaterializedView(icebergSchemaTable common.IcebergSchemaTable) error {
-	err := writer.IcebergCatalog.DropMaterializedView(icebergSchemaTable)
+func (writer *IcebergWriter) DropMaterializedView(icebergSchemaTable common.IcebergSchemaTable, missingOk bool) error {
+	err := writer.IcebergCatalog.DropMaterializedView(icebergSchemaTable, missingOk)
 	if err != nil {
 		return err
 	}

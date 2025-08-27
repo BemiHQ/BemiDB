@@ -352,6 +352,10 @@ func TestHandleQuery(t *testing.T) {
 				"description": {"oid", "pnpubid", "pnnspid"},
 				"types":       {uint32ToString(pgtype.OIDOID), uint32ToString(pgtype.Int8OID), uint32ToString(pgtype.Int8OID)},
 			},
+			"SELECT * FROM pg_catalog.pg_rewrite": {
+				"description": {"oid", "rulename", "ev_class", "ev_type", "ev_enabled", "is_instead", "ev_qual", "ev_action"},
+				"types":       {uint32ToString(pgtype.OIDOID), uint32ToString(pgtype.TextOID), uint32ToString(pgtype.Int8OID), uint32ToString(pgtype.TextOID), uint32ToString(pgtype.TextOID), uint32ToString(pgtype.BoolOID), uint32ToString(pgtype.TextOID), uint32ToString(pgtype.TextOID)},
+			},
 			"SELECT pubname, NULL, NULL FROM pg_catalog.pg_publication p JOIN pg_catalog.pg_publication_namespace pn ON p.oid = pn.pnpubid JOIN pg_catalog.pg_class pc ON pc.relnamespace = pn.pnnspid UNION SELECT pubname, pg_get_expr(pr.prqual, c.oid), (CASE WHEN pr.prattrs IS NOT NULL THEN (SELECT string_agg(attname, ', ') FROM pg_catalog.generate_series(0, pg_catalog.array_upper(pr.prattrs::pg_catalog.int2[], 1)) s, pg_catalog.pg_attribute WHERE attrelid = pr.prrelid AND attnum = prattrs[s]) ELSE NULL END) FROM pg_catalog.pg_publication p JOIN pg_catalog.pg_publication_rel pr ON p.oid = pr.prpubid JOIN pg_catalog.pg_class c ON c.oid = pr.prrelid UNION SELECT pubname, NULL, NULL FROM pg_catalog.pg_publication p ORDER BY 1": {
 				"description": {"pubname", "NULL", "NULL"},
 				"types":       {uint32ToString(pgtype.TextOID), uint32ToString(pgtype.TextOID), uint32ToString(pgtype.TextOID)},
@@ -1309,6 +1313,11 @@ func TestHandleQuery(t *testing.T) {
 				"description": {"max"},
 				"types":       {uint32ToString(pgtype.Int4OID)},
 				"values":      {"1"},
+			},
+			`WITH schema AS (SELECT pg_namespace.nspname AS name FROM pg_namespace WHERE nspname != 'information_schema' AND nspname NOT LIKE 'pg\_%') SELECT schema.name AS schema FROM schema GROUP BY schema ORDER BY schema LIMIT 1`: {
+				"description": {"schema_"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"postgres"},
 			},
 		})
 	})

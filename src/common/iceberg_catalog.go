@@ -243,12 +243,24 @@ func (catalog *IcebergCatalog) DropTable(icebergSchemaTable IcebergSchemaTable) 
 	PanicIfError(catalog.Config, err)
 }
 
-func (catalog *IcebergCatalog) CreateMaterializedView(icebergSchemaTable IcebergSchemaTable, definition string) error {
+func (catalog *IcebergCatalog) CreateMaterializedView(icebergSchemaTable IcebergSchemaTable, definition string, ifNotExists bool) error {
 	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
+	exists, err := catalog.doesMaterializedViewExist(pgClient, icebergSchemaTable)
+	if err != nil {
+		return err
+	}
+	if exists {
+		if ifNotExists {
+			return nil
+		} else {
+			return fmt.Errorf("materialized view %s already exists", icebergSchemaTable.String())
+		}
+	}
+
 	ctx := context.Background()
-	_, err := pgClient.Exec(
+	_, err = pgClient.Exec(
 		ctx,
 		"INSERT INTO iceberg_materialized_views (schema_name, table_name, definition) VALUES ($1, $2, $3)",
 		icebergSchemaTable.Schema, icebergSchemaTable.Table, definition,
@@ -257,24 +269,47 @@ func (catalog *IcebergCatalog) CreateMaterializedView(icebergSchemaTable Iceberg
 	return err
 }
 
-func (catalog *IcebergCatalog) DropMaterializedView(icebergSchemaTable IcebergSchemaTable) error {
+func (catalog *IcebergCatalog) RenameMaterializedView(icebergSchemaTable IcebergSchemaTable, newName string, missingOk bool) error {
+	ctx := context.Background()
+	pgClient := catalog.newPostgresClient()
+	defer pgClient.Close()
+
+	exists, err := catalog.doesMaterializedViewExist(pgClient, icebergSchemaTable)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if missingOk {
+			return nil
+		} else {
+			return fmt.Errorf("materialized view %s does not exist", icebergSchemaTable.String())
+		}
+	}
+
+	_, err = pgClient.Exec(
+		ctx,
+		"UPDATE iceberg_materialized_views SET table_name=$1 WHERE schema_name=$2 AND table_name=$3",
+		newName, icebergSchemaTable.Schema, icebergSchemaTable.Table,
+	)
+
+	return err
+}
+
+func (catalog *IcebergCatalog) DropMaterializedView(icebergSchemaTable IcebergSchemaTable, missingOk bool) error {
 	ctx := context.Background()
 
 	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
-	var exists bool
-	err := pgClient.QueryRow(
-		ctx,
-		"SELECT TRUE FROM iceberg_materialized_views WHERE schema_name=$1 AND table_name=$2",
-		icebergSchemaTable.Schema, icebergSchemaTable.Table,
-	).Scan(&exists)
-
+	exists, err := catalog.doesMaterializedViewExist(pgClient, icebergSchemaTable)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
-			return fmt.Errorf("materialized view %s does not exist", icebergSchemaTable.String())
+		return err
+	}
+	if !exists {
+		if missingOk {
+			return nil
 		} else {
-			return fmt.Errorf("error checking materialized view existence: %w", err)
+			return fmt.Errorf("materialized view %s does not exist", icebergSchemaTable.String())
 		}
 	}
 
@@ -285,6 +320,24 @@ func (catalog *IcebergCatalog) DropMaterializedView(icebergSchemaTable IcebergSc
 	)
 
 	return err
+}
+
+func (catalog *IcebergCatalog) doesMaterializedViewExist(pgClient *PostgresClient, icebergSchemaTable IcebergSchemaTable) (bool, error) {
+	var exists bool
+	err := pgClient.QueryRow(
+		context.Background(),
+		"SELECT TRUE FROM iceberg_materialized_views WHERE schema_name=$1 AND table_name=$2",
+		icebergSchemaTable.Schema, icebergSchemaTable.Table,
+	).Scan(&exists)
+
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return false, nil
+		} else {
+			return false, fmt.Errorf("error checking materialized view existence: %w", err)
+		}
+	}
+	return exists, nil
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

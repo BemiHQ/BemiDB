@@ -324,8 +324,8 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
 - [x] Packaging in a Docker image
 - [x] Table compaction without Trino as a dependency
 - [x] Materialized views
+- [x] Transformations with dbt ([#25](https://github.com/BemiHQ/BemiDB/issues/25))
 - [ ] Partitioned tables ([#15](https://github.com/BemiHQ/BemiDB/issues/15))
-- [ ] Transformations with dbt ([#25](https://github.com/BemiHQ/BemiDB/issues/25))
 
 Are you looking for real-time data syncing? Check out [BemiDB Cloud](https://bemidb.com), our managed data platform.
 
