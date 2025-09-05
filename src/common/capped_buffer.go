@@ -6,6 +6,8 @@ import (
 	"sync"
 )
 
+const DEFAULT_CAPPED_BUFFER_SIZE = 32 * 1024 * 1024 // 32 MB in memory
+
 type CappedBuffer struct {
 	Config       *CommonConfig
 	MaxSizeBytes int

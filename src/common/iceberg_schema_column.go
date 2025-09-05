@@ -368,8 +368,17 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromJson(value any) interfac
 			return value
 		}
 	case IcebergColumnTypeDate:
-		days := value.(float64)
-		return time.Unix(0, 0).UTC().AddDate(0, 0, int(days))
+		switch kind {
+		case reflect.String:
+			valueString := value.(string)
+			if valueString == "" {
+				return nil
+			}
+			return StringDateToTime(valueString)
+		case reflect.Float64:
+			days := value.(float64)
+			return time.Unix(0, 0).UTC().AddDate(0, 0, int(days))
+		}
 	case IcebergColumnTypeTime:
 		var nanoseconds int64
 		if col.DatetimePrecision == 6 {

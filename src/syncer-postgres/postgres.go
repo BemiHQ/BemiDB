@@ -168,6 +168,7 @@ func (postgres *Postgres) PgSchemaColumns(pgSchemaTable PgSchemaTable, retryCoun
 			joinedUniqueColumnNames = ""
 		} else {
 			if strings.Contains(err.Error(), "terminating connection due to conflict with recovery (SQLSTATE 40001)") ||
+				strings.Contains(err.Error(), "current transaction is aborted, commands ignored until end of transaction block (SQLSTATE 25P02)") ||
 				strings.Contains(err.Error(), "failed to deallocate cached statement(s): conn closed") {
 				currentRetryCount := 0
 				if len(retryCount) > 0 {

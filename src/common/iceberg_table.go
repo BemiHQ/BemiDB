@@ -43,6 +43,32 @@ func (table *IcebergTable) Create(tableS3Path string) {
 	table.IcebergCatalog.CreateTable(table.IcebergSchemaTable, tableS3Path+"/metadata/"+ICEBERG_METADATA_INITIAL_FILE_NAME)
 }
 
+func (table *IcebergTable) ReplaceWith(callbackFunc func(syncingIcebergTable *IcebergTable)) {
+	originalTableName := table.IcebergSchemaTable.Table
+
+	// Delete -syncing table
+	syncingIcebergSchemaTable := IcebergSchemaTable{Schema: table.IcebergSchemaTable.Schema, Table: originalTableName + TEMP_TABLE_SUFFIX_SYNCING}
+	syncingIcebergTable := NewIcebergTable(table.Config, table.StorageS3, table.DuckdbClient, syncingIcebergSchemaTable)
+	syncingIcebergTable.DropIfExists()
+
+	// Insert into -syncing table
+	callbackFunc(syncingIcebergTable)
+
+	// Delete -deleting table
+	deletingIcebergSchemaTable := IcebergSchemaTable{Schema: table.IcebergSchemaTable.Schema, Table: originalTableName + TEMP_TABLE_SUFFIX_DELETING}
+	deletingIcebergTable := NewIcebergTable(table.Config, table.StorageS3, table.DuckdbClient, deletingIcebergSchemaTable)
+	deletingIcebergTable.DropIfExists()
+
+	// Rename table to -deleting
+	table.Rename(deletingIcebergSchemaTable.Table)
+
+	// Rename -syncing to table
+	syncingIcebergTable.Rename(originalTableName)
+
+	// Delete -deleting table
+	deletingIcebergTable.DropIfExists()
+}
+
 func (table *IcebergTable) DropIfExists() {
 	tableS3Path := table.IcebergCatalog.TableS3Path(table.IcebergSchemaTable)
 	if tableS3Path == "" {

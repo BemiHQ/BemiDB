@@ -128,7 +128,7 @@ func (event *Event) ToMap() map[string]interface{} {
 	return result
 }
 
-func EventIcebergSchemaColumns(config *common.CommonConfig) []*common.IcebergSchemaColumn {
+func EventsIcebergSchemaColumns(config *common.CommonConfig) []*common.IcebergSchemaColumn {
 	return []*common.IcebergSchemaColumn{
 		{Config: config, ColumnName: "adid", ColumnType: common.IcebergColumnTypeString, Position: 1},
 		{Config: config, ColumnName: "amplitude_attribution_ids", ColumnType: common.IcebergColumnTypeString, Position: 2},

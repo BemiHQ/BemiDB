@@ -13,8 +13,7 @@ const (
 
 	CURSOR_COLUMN_NAME = "server_upload_time"
 
-	MAX_IN_MEMORY_BUFFER_SIZE = 32 * 1024 * 1024 // 32 MB
-	COMPRESSION_FACTOR        = 2                // 1 GB uncompressed data x 2 = ~90MB compressed data
+	COMPRESSION_FACTOR = 2 // 1 GB uncompressed data x 2 = ~90MB compressed data
 )
 
 type Syncer struct {
@@ -39,7 +38,7 @@ func NewSyncer(config *Config) *Syncer {
 func (syncer *Syncer) Sync() {
 	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-start", syncer.name())
 
-	cappedBuffer := common.NewCappedBuffer(syncer.Config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
+	cappedBuffer := common.NewCappedBuffer(syncer.Config.CommonConfig, common.DEFAULT_CAPPED_BUFFER_SIZE)
 	jsonQueueWriter := common.NewJsonQueueWriter(cappedBuffer)
 
 	icebergSchemaTable := common.IcebergSchemaTable{Schema: syncer.Config.DestinationSchemaName, Table: EVENTS_TABLE_NAME}
@@ -74,7 +73,7 @@ func (syncer *Syncer) Sync() {
 	}()
 
 	// Read from cappedBuffer and write to Iceberg
-	icebergSchemaColumns := EventIcebergSchemaColumns(syncer.Config.CommonConfig)
+	icebergSchemaColumns := EventsIcebergSchemaColumns(syncer.Config.CommonConfig)
 	icebergTableWriter := common.NewIcebergTableWriter(syncer.Config.CommonConfig, syncer.StorageS3, syncer.DuckdbClient, icebergTable, icebergSchemaColumns, COMPRESSION_FACTOR)
 	icebergTableWriter.AppendFromJsonCappedBuffer(cursorValue, cappedBuffer)
 

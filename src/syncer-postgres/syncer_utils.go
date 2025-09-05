@@ -4,12 +4,6 @@ import (
 	"github.com/BemiHQ/BemiDB/src/common"
 )
 
-var (
-	MAX_IN_MEMORY_BUFFER_SIZE = 32 * 1024 * 1024 // 32 MB
-
-	COMPACT_AFTER_INSERT_BATCH_COUNT = 40 // Compact the table after every N insert batches
-)
-
 type SyncerUtils struct {
 	Config       *Config
 	StorageS3    *common.StorageS3

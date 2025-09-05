@@ -858,7 +858,7 @@ func setTestArgs(args []string) {
 }
 
 func createTestTableViaFullRefresh(syncer *SyncerFullRefresh, pgSchemaTable PgSchemaTable, pgSchemaColumns []PgSchemaColumn, rows [][]string) {
-	cappedBuffer := common.NewCappedBuffer(syncer.Config.CommonConfig, MAX_IN_MEMORY_BUFFER_SIZE)
+	cappedBuffer := common.NewCappedBuffer(syncer.Config.CommonConfig, common.DEFAULT_CAPPED_BUFFER_SIZE)
 	writer := csv.NewWriter(cappedBuffer)
 
 	headerRow := []string{}

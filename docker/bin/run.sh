@@ -27,6 +27,16 @@ case "${1:-}" in
     ./bin/syncer-amplitude 2>&1 | sed 's/^/[Syncer] /'
     echo "Syncer for Amplitude finished."
     ;;
+  syncer-attio)
+    : "${SOURCE_ATTIO_API_ACCESS_TOKEN:?Environment variable SOURCE_ATTIO_API_ACCESS_TOKEN must be set}"
+    : "${DESTINATION_SCHEMA_NAME:?Environment variable DESTINATION_SCHEMA_NAME must be set}"
+
+    psql $CATALOG_DATABASE_URL -f /app/scripts/catalog.sql
+
+    echo "Starting Syncer for Attio..."
+    ./bin/syncer-attio 2>&1 | sed 's/^/[Syncer] /'
+    echo "Syncer for Attio finished."
+    ;;
   server)
     : "${AWS_REGION:?Environment variable AWS_REGION must be set}"
     : "${AWS_S3_BUCKET:?Environment variable AWS_S3_BUCKET must be set}"

@@ -5,12 +5,14 @@ install:
 	devbox run "cd src/common && go mod tidy && \
 		cd ../syncer-postgres && go mod tidy && \
 		cd ../syncer-amplitude && go mod tidy && \
+		cd ../syncer-attio && go mod tidy && \
 		cd ../server && go mod tidy"
 
 lint:
 	devbox run "cd src/common && go fmt && staticcheck . && \
 		cd ../syncer-postgres && go fmt && deadcode . && staticcheck . && \
 		cd ../syncer-amplitude && go fmt && deadcode . && staticcheck . && \
+		cd ../syncer-attio && go fmt && deadcode . && staticcheck . && \
 		cd ../server && go fmt && deadcode . && staticcheck ."
 
 build:
@@ -36,6 +38,9 @@ local-syncer-postgres: local-build
 
 local-syncer-amplitude: local-build
 	docker run -it --rm --env-file .env -e DESTINATION_SCHEMA_NAME=amplitude bemidb:local syncer-amplitude
+
+local-syncer-attio: local-build
+	docker run -it --rm --env-file .env -e DESTINATION_SCHEMA_NAME=attio bemidb:local syncer-attio
 
 local-sh:
 	docker run -it --rm --env-file .env bemidb:local bash

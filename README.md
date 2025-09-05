@@ -165,6 +165,16 @@ docker run \
   ghcr.io/bemihq/bemidb:latest syncer-amplitude
 ```
 
+#### Syncing from Attio
+
+```sh
+docker run \
+  -e SOURCE_ATTIO_API_ACCESS_TOKEN=[...] \
+  -e DESTINATION_SCHEMA_NAME=attio \
+  -e AWS_REGION -e AWS_S3_BUCKET -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e CATALOG_DATABASE_URL \
+  ghcr.io/bemihq/bemidb:latest syncer-attio
+```
+
 #### Customizing S3 endpoint
 
 BemiDB can work with various S3-compatible object storage solutions, such as MinIO.
@@ -214,6 +224,13 @@ export AWS_S3_ENDPOINT=http://localhost:9000
 | `SOURCE_AMPLITUDE_API_KEY`    | Required      | Amplitude API key for authentication.                              |
 | `SOURCE_AMPLITUDE_SECRET_KEY` | Required      | Amplitude secret key for authentication.                           |
 | `SOURCE_AMPLITUDE_START_DATE` | `2025-01-01`  | Start date for syncing data from Amplitude in `YYYY-MM-DD` format. |
+
+#### `syncer-attio` command options
+
+| Environment variable            | Default value | Description                                |
+|---------------------------------|---------------|--------------------------------------------|
+| `DESTINATION_SCHEMA_NAME`       | Required      | Schema name in BemiDB to sync data to.     |
+| `SOURCE_ATTIO_API_ACCESS_TOKEN` | Required      | Attio API access token for authentication. |
 
 #### `server` command options
 
@@ -314,6 +331,7 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
   - [ ] Jupyter notebooks ([#27](https://github.com/BemiHQ/BemiDB/issues/27))
 - [x] Data syncing from other sources
   - [x] Amplitude (incremental)
+  - [x] Attio CRM (full-refresh)
   - [x] Postgres (full-refresh)
   - [ ] HubSpot
   - [ ] Stripe

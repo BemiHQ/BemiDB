@@ -43,24 +43,34 @@ RUN cd /app/src/syncer-postgres && go mod download
 COPY --chown=app:app src/syncer-amplitude/go.mod src/syncer-amplitude/go.sum /app/src/syncer-amplitude/
 RUN cd /app/src/syncer-amplitude && go mod download
 
+COPY --chown=app:app src/syncer-attio/go.mod src/syncer-attio/go.sum /app/src/syncer-attio/
+RUN cd /app/src/syncer-attio && go mod download
+
 COPY --chown=app:app src/server/go.mod src/server/go.sum /app/src/server/
 RUN cd /app/src/server && go mod download
 
 COPY --chown=app:app src/common /app/src/common
 COPY --chown=app:app src/syncer-postgres /app/src/syncer-postgres
 COPY --chown=app:app src/syncer-amplitude /app/src/syncer-amplitude
+COPY --chown=app:app src/syncer-attio /app/src/syncer-attio
 COPY --chown=app:app src/server /app/src/server
 
 RUN ARCH=$(dpkg --print-architecture) \
   && cd /app/src/syncer-postgres && CGO_ENABLED=1 GOOS=linux GOARCH=$ARCH go build -o /app/bin/syncer-postgres \
     && cd /app/src/syncer-amplitude && CGO_ENABLED=1 GOOS=linux GOARCH=$ARCH go build -o /app/bin/syncer-amplitude \
+    && cd /app/src/syncer-attio && CGO_ENABLED=1 GOOS=linux GOARCH=$ARCH go build -o /app/bin/syncer-attio \
     && cd /app/src/server && CGO_ENABLED=1 GOOS=linux GOARCH=$ARCH go build -o /app/bin/server
 
 # Prepare final image ##############################################################################
 
 FROM base AS final
 
-COPY --chown=app:app --from=compile /app/bin/syncer-postgres /app/bin/syncer-amplitude /app/bin/server /app/bin/
+COPY --chown=app:app --from=compile \
+  /app/bin/syncer-postgres \
+  /app/bin/syncer-amplitude \
+  /app/bin/syncer-attio \
+  /app/bin/server \
+  /app/bin/
 COPY --chown=app:app docker/bin /app/bin/
 
 USER app
