@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -8,6 +9,11 @@ import (
 	pgQuery "github.com/pganalyze/pg_query_go/v6"
 
 	"github.com/BemiHQ/BemiDB/src/common"
+)
+
+const (
+	INSPECT_SQL_COMMENT     = " --INSPECT"
+	PERMISSIONS_SQL_COMMENT = "BEMIDB_PERMISSIONS"
 )
 
 var SUPPORTED_SET_STATEMENTS = common.NewSet[string]().AddAll([]string{
@@ -63,6 +69,15 @@ func (remapper *QueryRemapper) ParseAndRemapQuery(query string) ([]string, []str
 		common.LogDebug(remapper.config.CommonConfig, queryTree.Stmts)
 	}
 
+	var permissions *map[string][]string
+	if strings.Count(query, "/*"+PERMISSIONS_SQL_COMMENT+" ") == 1 && strings.Count(query, " "+PERMISSIONS_SQL_COMMENT+"*/") == 1 {
+		permissions, err = remapper.extractPermissions(query)
+		if err != nil {
+			return nil, nil, fmt.Errorf("couldn't extract permissions from query comment: %s. %w", query, err)
+		}
+		common.LogDebug(remapper.config.CommonConfig, "Parsed permissions:", permissions)
+	}
+
 	var originalQueryStatements []string
 	for _, stmt := range queryTree.Stmts {
 		originalQueryStatement, err := pgQuery.Deparse(&pgQuery.ParseResult{Stmts: []*pgQuery.RawStmt{stmt}})
@@ -72,7 +87,7 @@ func (remapper *QueryRemapper) ParseAndRemapQuery(query string) ([]string, []str
 		originalQueryStatements = append(originalQueryStatements, originalQueryStatement)
 	}
 
-	remappedStatements, err := remapper.remapStatements(queryTree.Stmts)
+	remappedStatements, err := remapper.remapStatements(queryTree.Stmts, permissions)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -91,7 +106,7 @@ func (remapper *QueryRemapper) ParseAndRemapQuery(query string) ([]string, []str
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([]*pgQuery.RawStmt, error) {
+func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt, permissions *map[string][]string) ([]*pgQuery.RawStmt, error) {
 	// Empty query
 	if len(statements) == 0 {
 		return statements, nil
@@ -110,7 +125,7 @@ func (remapper *QueryRemapper) remapStatements(statements []*pgQuery.RawStmt) ([
 		// SELECT
 		case node.GetSelectStmt() != nil:
 			selectStatement := node.GetSelectStmt()
-			remapper.remapSelectStatement(selectStatement, 1)
+			remapper.remapSelectStatement(selectStatement, permissions, 1)
 			stmt.Stmt = &pgQuery.Node{Node: &pgQuery.Node_SelectStmt{SelectStmt: selectStatement}}
 			statements[i] = stmt
 
@@ -189,24 +204,24 @@ func (remapper *QueryRemapper) remapSetStatement(stmt *pgQuery.RawStmt) *pgQuery
 	return NOOP_QUERY_TREE.Stmts[0]
 }
 
-func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.SelectStmt, indentLevel int) {
+func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.SelectStmt, permissions *map[string][]string, indentLevel int) {
 	// SELECT
-	remappedColumnRefs := remapper.remapSelect(selectStatement, indentLevel) // recursion
+	remappedColumnRefs := remapper.remapSelect(selectStatement, permissions, indentLevel) // recursion
 
 	// UNION
 	if selectStatement.FromClause == nil && selectStatement.Larg != nil && selectStatement.Rarg != nil {
 		remapper.traceTreeTraversal("UNION left", indentLevel)
 		leftSelectStatement := selectStatement.Larg
-		remapper.remapSelectStatement(leftSelectStatement, indentLevel+1) // self-recursion
+		remapper.remapSelectStatement(leftSelectStatement, permissions, indentLevel+1) // self-recursion
 
 		remapper.traceTreeTraversal("UNION right", indentLevel)
 		rightSelectStatement := selectStatement.Rarg
-		remapper.remapSelectStatement(rightSelectStatement, indentLevel+1) // self-recursion
+		remapper.remapSelectStatement(rightSelectStatement, permissions, indentLevel+1) // self-recursion
 	}
 
 	// JOIN
 	if len(selectStatement.FromClause) > 0 && selectStatement.FromClause[0].GetJoinExpr() != nil {
-		selectStatement.FromClause[0] = remapper.remapJoinExpressions(selectStatement, selectStatement.FromClause[0], remappedColumnRefs, indentLevel+1) // recursion
+		selectStatement.FromClause[0] = remapper.remapJoinExpressions(selectStatement, selectStatement.FromClause[0], remappedColumnRefs, permissions, indentLevel+1) // recursion
 	}
 
 	// WHERE
@@ -216,7 +231,7 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 		if remapper.removeWhereClause(selectStatement.WhereClause) {
 			selectStatement.WhereClause = nil
 		} else {
-			selectStatement.WhereClause = remapper.remappedExpressions(selectStatement.WhereClause, remappedColumnRefs, indentLevel) // recursion
+			selectStatement.WhereClause = remapper.remappedExpressions(selectStatement.WhereClause, remappedColumnRefs, permissions, indentLevel) // recursion
 		}
 	}
 
@@ -225,7 +240,7 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 		remapper.traceTreeTraversal("WITH CTE's", indentLevel)
 		for _, cte := range selectStatement.WithClause.Ctes {
 			if cteSelect := cte.GetCommonTableExpr().Ctequery.GetSelectStmt(); cteSelect != nil {
-				remapper.remapSelectStatement(cteSelect, indentLevel+1) // self-recursion
+				remapper.remapSelectStatement(cteSelect, permissions, indentLevel+1) // self-recursion
 			}
 		}
 	}
@@ -236,12 +251,12 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 			if fromNode.GetRangeVar() != nil {
 				// FROM [TABLE]
 				remapper.traceTreeTraversal("FROM table", indentLevel)
-				selectStatement.FromClause[i] = remapper.remapperTable.RemapTable(fromNode)
+				selectStatement.FromClause[i] = remapper.remapperTable.RemapTable(fromNode, permissions)
 			} else if fromNode.GetRangeSubselect() != nil {
 				// FROM (SELECT ...)
 				remapper.traceTreeTraversal("FROM subselect", indentLevel)
 				subSelectStatement := fromNode.GetRangeSubselect().Subquery.GetSelectStmt()
-				remapper.remapSelectStatement(subSelectStatement, indentLevel+1) // self-recursion
+				remapper.remapSelectStatement(subSelectStatement, permissions, indentLevel+1) // self-recursion
 			} else if fromNode.GetRangeFunction() != nil {
 				// FROM PG_FUNCTION()
 				remapper.traceTreeTraversal("FROM function()", indentLevel)
@@ -254,7 +269,7 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	if selectStatement.SortClause != nil {
 		remapper.traceTreeTraversal("ORDER BY statements", indentLevel)
 		for _, sortNode := range selectStatement.SortClause {
-			sortNode.GetSortBy().Node = remapper.remappedExpressions(sortNode.GetSortBy().Node, remappedColumnRefs, indentLevel) // recursion
+			sortNode.GetSortBy().Node = remapper.remappedExpressions(sortNode.GetSortBy().Node, remappedColumnRefs, permissions, indentLevel) // recursion
 		}
 	}
 
@@ -262,43 +277,43 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 	if selectStatement.GroupClause != nil {
 		remapper.traceTreeTraversal("GROUP BY statements", indentLevel)
 		for i, groupNode := range selectStatement.GroupClause {
-			selectStatement.GroupClause[i] = remapper.remappedExpressions(groupNode, remappedColumnRefs, indentLevel) // recursion
+			selectStatement.GroupClause[i] = remapper.remappedExpressions(groupNode, remappedColumnRefs, permissions, indentLevel) // recursion
 		}
 	}
 }
 
-func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.SelectStmt, node *pgQuery.Node, remappedColumnRefs map[string]string, indentLevel int) *pgQuery.Node {
+func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.SelectStmt, node *pgQuery.Node, remappedColumnRefs map[string]string, permissions *map[string][]string, indentLevel int) *pgQuery.Node {
 	remapper.traceTreeTraversal("JOIN left", indentLevel)
 	leftJoinNode := node.GetJoinExpr().Larg
 	if leftJoinNode.GetJoinExpr() != nil {
-		leftJoinNode = remapper.remapJoinExpressions(selectStatement, leftJoinNode, remappedColumnRefs, indentLevel+1) // self-recursion
+		leftJoinNode = remapper.remapJoinExpressions(selectStatement, leftJoinNode, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 	} else if leftJoinNode.GetRangeVar() != nil {
 		// TABLE
 		remapper.traceTreeTraversal("TABLE left", indentLevel+1)
-		leftJoinNode = remapper.remapperTable.RemapTable(leftJoinNode)
+		leftJoinNode = remapper.remapperTable.RemapTable(leftJoinNode, permissions)
 	} else if leftJoinNode.GetRangeSubselect() != nil {
 		leftSelectStatement := leftJoinNode.GetRangeSubselect().Subquery.GetSelectStmt()
-		remapper.remapSelectStatement(leftSelectStatement, indentLevel+1) // parent-recursion
+		remapper.remapSelectStatement(leftSelectStatement, permissions, indentLevel+1) // parent-recursion
 	}
 	node.GetJoinExpr().Larg = leftJoinNode
 
 	remapper.traceTreeTraversal("JOIN right", indentLevel)
 	rightJoinNode := node.GetJoinExpr().Rarg
 	if rightJoinNode.GetJoinExpr() != nil {
-		rightJoinNode = remapper.remapJoinExpressions(selectStatement, rightJoinNode, remappedColumnRefs, indentLevel+1) // self-recursion
+		rightJoinNode = remapper.remapJoinExpressions(selectStatement, rightJoinNode, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 	} else if rightJoinNode.GetRangeVar() != nil {
 		// TABLE
 		remapper.traceTreeTraversal("TABLE right", indentLevel+1)
-		rightJoinNode = remapper.remapperTable.RemapTable(rightJoinNode)
+		rightJoinNode = remapper.remapperTable.RemapTable(rightJoinNode, permissions)
 	} else if rightJoinNode.GetRangeSubselect() != nil {
 		rightSelectStatement := rightJoinNode.GetRangeSubselect().Subquery.GetSelectStmt()
-		remapper.remapSelectStatement(rightSelectStatement, indentLevel+1) // parent-recursion
+		remapper.remapSelectStatement(rightSelectStatement, permissions, indentLevel+1) // parent-recursion
 	}
 	node.GetJoinExpr().Rarg = rightJoinNode
 
 	if quals := node.GetJoinExpr().Quals; quals != nil {
 		remapper.traceTreeTraversal("JOIN on", indentLevel)
-		node.GetJoinExpr().Quals = remapper.remappedExpressions(quals, remappedColumnRefs, indentLevel) // recursion
+		node.GetJoinExpr().Quals = remapper.remappedExpressions(quals, remappedColumnRefs, permissions, indentLevel) // recursion
 
 		// DuckDB doesn't support non-INNER JOINs with ON clauses that reference columns from outer tables:
 		//   SELECT (
@@ -323,18 +338,18 @@ func (remapper *QueryRemapper) remapJoinExpressions(selectStatement *pgQuery.Sel
 	return node
 }
 
-func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedColumnRefs map[string]string, indentLevel int) *pgQuery.Node {
+func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedColumnRefs map[string]string, permissions *map[string][]string, indentLevel int) *pgQuery.Node {
 	// CASE
 	caseExpression := node.GetCaseExpr()
 	if caseExpression != nil {
-		remapper.remapCaseExpression(caseExpression, remappedColumnRefs, indentLevel) // recursion
+		remapper.remapCaseExpression(caseExpression, remappedColumnRefs, permissions, indentLevel) // recursion
 	}
 
 	// OR/AND
 	boolExpr := node.GetBoolExpr()
 	if boolExpr != nil {
 		for i, arg := range boolExpr.Args {
-			boolExpr.Args[i] = remapper.remappedExpressions(arg, remappedColumnRefs, indentLevel+1) // self-recursion
+			boolExpr.Args[i] = remapper.remappedExpressions(arg, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 		}
 	}
 
@@ -345,7 +360,7 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedC
 			if arg.GetSubLink() != nil {
 				// Nested SELECT
 				subSelect := arg.GetSubLink().Subselect.GetSelectStmt()
-				remapper.remapSelectStatement(subSelect, indentLevel+1) // recursion
+				remapper.remapSelectStatement(subSelect, permissions, indentLevel+1) // recursion
 			}
 		}
 	}
@@ -354,7 +369,7 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedC
 	subLink := node.GetSubLink()
 	if subLink != nil {
 		subSelect := subLink.Subselect.GetSelectStmt()
-		remapper.remapSelectStatement(subSelect, indentLevel+1) // recursion
+		remapper.remapSelectStatement(subSelect, permissions, indentLevel+1) // recursion
 	}
 
 	// Comparison
@@ -362,17 +377,17 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedC
 	if aExpr != nil {
 		node = remapper.remapperExpression.RemappedExpression(node)
 		if aExpr.Lexpr != nil {
-			aExpr.Lexpr = remapper.remappedExpressions(aExpr.Lexpr, remappedColumnRefs, indentLevel+1) // self-recursion
+			aExpr.Lexpr = remapper.remappedExpressions(aExpr.Lexpr, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 		}
 		if aExpr.Rexpr != nil {
-			aExpr.Rexpr = remapper.remappedExpressions(aExpr.Rexpr, remappedColumnRefs, indentLevel+1) // self-recursion
+			aExpr.Rexpr = remapper.remappedExpressions(aExpr.Rexpr, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 		}
 	}
 
 	// IS NULL
 	nullTest := node.GetNullTest()
 	if nullTest != nil {
-		nullTest.Arg = remapper.remappedExpressions(nullTest.Arg, remappedColumnRefs, indentLevel+1) // self-recursion
+		nullTest.Arg = remapper.remappedExpressions(nullTest.Arg, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 	}
 
 	// IN
@@ -393,12 +408,12 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedC
 
 		for i, arg := range functionCall.Args {
 			if arg != nil {
-				functionCall.Args[i] = remapper.remappedExpressions(arg, remappedColumnRefs, indentLevel+1) // self-recursion
+				functionCall.Args[i] = remapper.remappedExpressions(arg, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 			}
 		}
 
 		if functionCall.AggFilter != nil && functionCall.AggFilter.GetNullTest() != nil {
-			functionCall.AggFilter.GetNullTest().Arg = remapper.remappedExpressions(functionCall.AggFilter.GetNullTest().Arg, remappedColumnRefs, indentLevel+1) // self-recursion
+			functionCall.AggFilter.GetNullTest().Arg = remapper.remappedExpressions(functionCall.AggFilter.GetNullTest().Arg, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 		}
 	}
 
@@ -427,29 +442,29 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedC
 }
 
 // CASE ...
-func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, remappedColumnRefs map[string]string, indentLevel int) {
+func (remapper *QueryRemapper) remapCaseExpression(caseExpr *pgQuery.CaseExpr, remappedColumnRefs map[string]string, permissions *map[string][]string, indentLevel int) {
 	for _, when := range caseExpr.Args {
 		if whenClause := when.GetCaseWhen(); whenClause != nil {
 			// WHEN ...
 			if whenClause.Expr != nil {
-				whenClause.Expr = remapper.remappedExpressions(whenClause.Expr, remappedColumnRefs, indentLevel+1) // recursion
+				whenClause.Expr = remapper.remappedExpressions(whenClause.Expr, remappedColumnRefs, permissions, indentLevel+1) // recursion
 			}
 
 			// THEN ...
 			if whenClause.Result != nil {
-				whenClause.Result = remapper.remappedExpressions(whenClause.Result, remappedColumnRefs, indentLevel+1) // recursion
+				whenClause.Result = remapper.remappedExpressions(whenClause.Result, remappedColumnRefs, permissions, indentLevel+1) // recursion
 			}
 		}
 	}
 
 	// ELSE ...
 	if caseExpr.Defresult != nil {
-		caseExpr.Defresult = remapper.remappedExpressions(caseExpr.Defresult, remappedColumnRefs, indentLevel+1) // recursion
+		caseExpr.Defresult = remapper.remappedExpressions(caseExpr.Defresult, remappedColumnRefs, permissions, indentLevel+1) // recursion
 	}
 }
 
 // SELECT ...
-func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, indentLevel int) map[string]string {
+func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, permissions *map[string][]string, indentLevel int) map[string]string {
 	remapper.traceTreeTraversal("SELECT statements", indentLevel)
 	remappedColumnRefs := make(map[string]string)
 
@@ -464,7 +479,7 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 
 		valNode := targetNode.GetResTarget().Val
 		if valNode != nil {
-			targetNode.GetResTarget().Val = remapper.remappedExpressions(valNode, remappedColumnRefs, indentLevel) // recursion
+			targetNode.GetResTarget().Val = remapper.remappedExpressions(valNode, remappedColumnRefs, permissions, indentLevel) // recursion
 		}
 
 		// Nested SELECT
@@ -691,6 +706,26 @@ func (remapper *QueryRemapper) renameMaterializedViewFromNode(node *pgQuery.Node
 	}
 
 	return nil
+}
+
+func (remapper *QueryRemapper) extractPermissions(query string) (*map[string][]string, error) {
+	parts := strings.Split(query, "/*"+PERMISSIONS_SQL_COMMENT+" ")
+	if len(parts) != 2 {
+		return nil, nil
+	}
+	parts = strings.Split(parts[1], " "+PERMISSIONS_SQL_COMMENT+"*/")
+	if len(parts) != 2 {
+		return nil, nil
+	}
+
+	// JSON parse
+	var permissions map[string][]string
+	err := json.Unmarshal([]byte(parts[0]), &permissions)
+	if err != nil {
+		return nil, err
+	}
+
+	return &permissions, nil
 }
 
 func (remapper *QueryRemapper) traceTreeTraversal(label string, indentLevel int) {

@@ -18,6 +18,10 @@ type IcebergSchemaTable struct {
 	Table  string
 }
 
+func (schemaTable IcebergSchemaTable) ToArg() string {
+	return schemaTable.Schema + "." + schemaTable.Table
+}
+
 func (schemaTable IcebergSchemaTable) String() string {
 	return fmt.Sprintf(`"%s"."%s"`, schemaTable.Schema, schemaTable.Table)
 }
@@ -46,29 +50,6 @@ func NewIcebergCatalog(config *CommonConfig) *IcebergCatalog {
 }
 
 // Read ----------------------------------------------------------------------------------------------------------------
-
-func (catalog *IcebergCatalog) Schemas() ([]string, error) {
-	pgClient := catalog.newPostgresClient()
-	defer pgClient.Close()
-
-	ctx := context.Background()
-	rows, err := pgClient.Query(ctx, "SELECT table_namespace FROM iceberg_tables WHERE table_name NOT LIKE '%"+TEMP_TABLE_SUFFIX_SYNCING+"' AND table_name NOT LIKE '%"+TEMP_TABLE_SUFFIX_DELETING+"' GROUP BY table_namespace")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var schemas []string
-	for rows.Next() {
-		var schema string
-		err := rows.Scan(&schema)
-		if err != nil {
-			return nil, err
-		}
-		schemas = append(schemas, schema)
-	}
-	return schemas, nil
-}
 
 func (catalog *IcebergCatalog) SchemaTables() (Set[IcebergSchemaTable], error) {
 	pgClient := catalog.newPostgresClient()
@@ -120,7 +101,6 @@ func (catalog *IcebergCatalog) MaterializedViews() ([]IcebergMaterializedView, e
 			Table:      table,
 			Definition: definition,
 		})
-
 	}
 	return materializedViews, nil
 }

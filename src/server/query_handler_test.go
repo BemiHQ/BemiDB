@@ -375,6 +375,11 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"memory", "postgres", "test_table", "BASE TABLE", "", "", "", "", "", "YES", "NO", ""},
 			},
+			"SELECT * FROM information_schema.tables WHERE table_schema = 'postgres' /*BEMIDB_PERMISSIONS {\"postgres.test_table\": [\"id\"]} BEMIDB_PERMISSIONS*/": {
+				"description": {"table_catalog", "table_schema", "table_name", "table_type", "self_referencing_column_name", "reference_generation", "user_defined_type_catalog", "user_defined_type_schema", "user_defined_type_name", "is_insertable_into", "is_typed", "commit_action"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"memory", "postgres", "test_table", "BASE TABLE", "", "", "", "", "", "YES", "NO", ""},
+			},
 			// information_schema.columns
 			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'id'": {
 				"description": {"udt_name"},
@@ -575,6 +580,11 @@ func TestHandleQuery(t *testing.T) {
 				"description": {"udt_name"},
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"text"},
+			},
+			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' /*BEMIDB_PERMISSIONS {\"postgres.test_table\": [\"id\"]} BEMIDB_PERMISSIONS*/": {
+				"description": {"udt_name"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"int4"},
 			},
 		})
 	})
@@ -1419,6 +1429,25 @@ func TestHandleQuery(t *testing.T) {
 			"",
 			"LINE 1: SELECT * FROM non_existent_table",
 			"                      ^",
+		}, "\n")
+		if err.Error() != expectedErrorMessage {
+			t.Errorf("Expected the error to be '"+expectedErrorMessage+"', got %v", err.Error())
+		}
+	})
+
+	t.Run("Returns an error if permission for a column is denied", func(t *testing.T) {
+		_, err := queryHandler.HandleSimpleQuery("SELECT id, bit_column FROM postgres.test_table /*BEMIDB_PERMISSIONS {\"postgres.test_table\": [\"id\"]} BEMIDB_PERMISSIONS*/")
+
+		if err == nil {
+			t.Errorf("Expected an error, got nil")
+		}
+
+		expectedErrorMessage := strings.Join([]string{
+			"Binder Error: Referenced column \"bit_column\" not found in FROM clause!",
+			"Candidate bindings: \"id\"",
+			"",
+			"LINE 1: SELECT id, bit_column FROM (SELECT id FROM iceberg_scan('s3://bemidb...",
+			"                   ^",
 		}, "\n")
 		if err.Error() != expectedErrorMessage {
 			t.Errorf("Expected the error to be '"+expectedErrorMessage+"', got %v", err.Error())

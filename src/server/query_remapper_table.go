@@ -11,7 +11,6 @@ import (
 )
 
 var PG_CATALOG_TABLE_NAMES = common.Set[string]{}
-var PG_INFORMATION_SCHEMA_TABLE_NAMES = common.Set[string]{}
 
 func CreatePgCatalogTableQueries(config *Config) []string {
 	result := []string{
@@ -91,7 +90,7 @@ func CreateInformationSchemaTableQueries(config *Config) []string {
 	result := []string{
 		// Dynamic views
 		// DuckDB does not support udt_catalog, udt_schema, udt_name
-		`CREATE VIEW columns AS
+		`CREATE VIEW ` + PG_TABLE_COLUMNS + ` AS
 		SELECT
 			table_catalog, table_schema, table_name, column_name, ordinal_position, column_default, is_nullable, data_type, character_maximum_length, character_octet_length, numeric_precision, numeric_precision_radix, numeric_scale, datetime_precision, interval_type, interval_precision, character_set_catalog, character_set_schema, character_set_name, collation_catalog, collation_schema, collation_name, domain_catalog, domain_schema, domain_name,
 			'` + config.Database + `' AS udt_catalog,
@@ -129,7 +128,7 @@ func CreateInformationSchemaTableQueries(config *Config) []string {
 			END AS udt_name,
 			scope_catalog, scope_schema, scope_name, maximum_cardinality, dtd_identifier, is_self_referencing, is_identity, identity_generation, identity_start, identity_increment, identity_maximum, identity_minimum, identity_cycle, is_generated, generation_expression, is_updatable
 		FROM information_schema.columns`,
-		`CREATE VIEW tables AS SELECT
+		`CREATE VIEW ` + PG_TABLE_TABLES + ` AS SELECT
 			table_catalog,
 			table_schema,
 			table_name,
@@ -143,9 +142,8 @@ func CreateInformationSchemaTableQueries(config *Config) []string {
 			is_typed,
 			commit_action
 		FROM information_schema.tables
-		WHERE table_type != 'VIEW'`,
+		WHERE table_type != 'VIEW' AND table_schema != 'main'`,
 	}
-	PG_INFORMATION_SCHEMA_TABLE_NAMES = extractTableNames(result)
 	return result
 }
 
@@ -175,7 +173,7 @@ func NewQueryRemapperTable(config *Config, icebergReader *IcebergReader, serverD
 }
 
 // FROM / JOIN [TABLE]
-func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node {
+func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node, permissions *map[string][]string) *pgQuery.Node {
 	parser := remapper.parserTable
 	qSchemaTable := parser.NodeToQuerySchemaTable(node)
 
@@ -198,7 +196,7 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 			remapper.upsertPgMatviews()
 		}
 
-		// pg_catalog -> main for tables defined in CreatePgCatalogTableQueries
+		// pg_catalog.[table] -> main.[table] for tables defined in CreatePgCatalogTableQueries
 		if PG_CATALOG_TABLE_NAMES.Contains(qSchemaTable.Table) {
 			parser.RemapSchemaToMain(node)
 			return node
@@ -211,25 +209,26 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 	// information_schema.* system tables
 	if parser.IsTableFromInformationSchema(qSchemaTable) {
 		switch qSchemaTable.Table {
-		// information_schema.tables -> reload Iceberg tables
+		// information_schema.tables -> (SELECT * FROM main.tables) information_schema_tables
+		// information_schema.tables -> (SELECT * FROM main.tables WHERE table_schema || '.' || table_name IN ('permitted.table')) information_schema_tables
 		case PG_TABLE_TABLES:
 			remapper.reloadIcebergTables()
-			parser.RemapSchemaToMain(node)
-			return node
-		}
+			return parser.MakeInformationSchemaTablesNode(qSchemaTable, permissions)
 
-		// information_schema.table -> main.table
-		if PG_INFORMATION_SCHEMA_TABLE_NAMES.Contains(qSchemaTable.Table) {
-			parser.RemapSchemaToMain(node)
-			return node
+		// information_schema.columns -> (SELECT * FROM main.columns) information_schema_columns
+		// information_schema.columns -> (SELECT * FROM main.columns WHERE (table_schema || '.' || table_name IN ('permitted.table') AND column_name IN ('permitted', 'columns')) OR ...) information_schema_columns
+		case PG_TABLE_COLUMNS:
+			return parser.MakeInformationSchemaColumnsNode(qSchemaTable, permissions)
 		}
 
 		// information_schema.* other system tables -> return as is
 		return node
 	}
 
-	// public.table -> FROM iceberg_scan('path') table
-	// schema.table -> FROM iceberg_scan('path') schema_table
+	// public.table -> (SELECT * FROM iceberg_scan('path')) table
+	// schema.table -> (SELECT * FROM iceberg_scan('path')) schema_table
+	// public.table -> (SELECT permitted, columns FROM iceberg_scan('path')) table
+	// public.table -> (SELECT NULL WHERE FALSE) table
 	schemaTable := qSchemaTable.ToIcebergSchemaTable()
 	if !remapper.IcebergPersistentSchemaTables.Contains(schemaTable) && !remapper.IcebergMaterlizedSchemaTables.Contains(schemaTable) { // Reload Iceberg tables if not found
 		remapper.reloadIcebergTables()
@@ -242,7 +241,7 @@ func (remapper *QueryRemapperTable) RemapTable(node *pgQuery.Node) *pgQuery.Node
 	return parser.MakeIcebergTableNode(QueryToIcebergTable{
 		QuerySchemaTable: qSchemaTable,
 		IcebergTablePath: icebergPath,
-	})
+	}, permissions)
 }
 
 // FROM FUNCTION()
@@ -266,6 +265,8 @@ func (remapper *QueryRemapperTable) reloadIcebergTables() {
 func (remapper *QueryRemapperTable) reloadIcebergPersistentTables() {
 	newIcebergSchemaTables, err := remapper.icebergReader.SchemaTables()
 	common.PanicIfError(remapper.config.CommonConfig, err)
+
+	// Exclude materialized views
 	for _, icebergSchemaTable := range remapper.IcebergMaterlizedSchemaTables.Values() {
 		newIcebergSchemaTables.Remove(icebergSchemaTable)
 	}

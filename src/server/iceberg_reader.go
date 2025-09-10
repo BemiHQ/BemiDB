@@ -18,10 +18,6 @@ func NewIcebergReader(config *Config, storageS3 *common.StorageS3, icebergCatalo
 	}
 }
 
-func (reader *IcebergReader) Schemas() (icebergSchemas []string, err error) {
-	return reader.IcebergCatalog.Schemas()
-}
-
 func (reader *IcebergReader) SchemaTables() (icebergSchemaTables common.Set[common.IcebergSchemaTable], err error) {
 	return reader.IcebergCatalog.SchemaTables()
 }

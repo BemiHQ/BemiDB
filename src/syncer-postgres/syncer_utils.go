@@ -19,10 +19,6 @@ func NewSyncerUtils(config *Config, storageS3 *common.StorageS3, duckdbClient *c
 }
 
 func (utils *SyncerUtils) ShouldSyncTable(pgSchemaTable PgSchemaTable) bool {
-	if utils.Config.IncludeSchemas != nil && !utils.Config.IncludeSchemas.Contains(pgSchemaTable.Schema) {
-		return false
-	}
-
 	if utils.Config.IncludeTables != nil && !utils.Config.IncludeTables.Contains(pgSchemaTable.ToConfigArg()) {
 		return false
 	}

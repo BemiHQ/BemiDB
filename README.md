@@ -131,17 +131,6 @@ docker run \
   ghcr.io/bemihq/bemidb:latest syncer-postgres
 ```
 
-To include all tables from a specific schema:
-
-```sh
-docker run \
-  -e SOURCE_POSTGRES_DATABASE_URL=postgres://user:password@host.docker.internal:5432/source \
-  -e SOURCE_POSTGRES_INCLUDE_SCHEMAS=public \ # A comma-separated list of schemas to include
-  -e DESTINATION_SCHEMA_NAME=postgres \
-  -e AWS_REGION -e AWS_S3_BUCKET -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e CATALOG_DATABASE_URL \
-  ghcr.io/bemihq/bemidb:latest syncer-postgres
-```
-
 To exclude specific tables during the sync:
 
 ```sh
@@ -212,7 +201,6 @@ export AWS_S3_ENDPOINT=http://localhost:9000
 |-------------------------------------|---------------|----------------------------------------------------------------------|
 | `DESTINATION_SCHEMA_NAME`           | Required      | Schema name in BemiDB to sync data to.                               |
 | `SOURCE_POSTGRES_DATABASE_URL`      | Required      | Postgres database URL to sync data from.                             |
-| `SOURCE_POSTGRES_INCLUDE_SCHEMAS`   |               | List of schemas to include in sync. Comma-separated `schema.table`.  |
 | `SOURCE_POSTGRES_INCLUDE_TABLES`    |               | List of tables to include in sync. Comma-separated `schema.table`.   |
 | `SOURCE_POSTGRES_EXCLUDE_TABLES`    |               | List of tables to exclude from sync. Comma-separated `schema.table`. |
 

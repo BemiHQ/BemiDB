@@ -32,35 +32,6 @@ func (utils *ParserUtils) SchemaFunction(functionCall *pgQuery.FuncCall) *QueryS
 	}
 }
 
-func (utils *ParserUtils) MakeSubselectFromNode(qSchemaTable QuerySchemaTable, targetList []*pgQuery.Node, fromNode *pgQuery.Node) *pgQuery.Node {
-	alias := qSchemaTable.Alias
-	if alias == "" {
-		if qSchemaTable.Schema == PG_SCHEMA_PUBLIC || qSchemaTable.Schema == "" {
-			alias = qSchemaTable.Table
-		} else {
-			alias = qSchemaTable.Schema + "_" + qSchemaTable.Table
-		}
-	}
-
-	return &pgQuery.Node{
-		Node: &pgQuery.Node_RangeSubselect{
-			RangeSubselect: &pgQuery.RangeSubselect{
-				Subquery: &pgQuery.Node{
-					Node: &pgQuery.Node_SelectStmt{
-						SelectStmt: &pgQuery.SelectStmt{
-							TargetList: targetList,
-							FromClause: []*pgQuery.Node{fromNode},
-						},
-					},
-				},
-				Alias: &pgQuery.Alias{
-					Aliasname: alias,
-				},
-			},
-		},
-	}
-}
-
 func (utils *ParserUtils) MakeNullNode() *pgQuery.Node {
 	return &pgQuery.Node{
 		Node: &pgQuery.Node_AConst{

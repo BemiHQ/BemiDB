@@ -1,6 +1,9 @@
 package main
 
 import (
+	"strings"
+
+	"github.com/BemiHQ/BemiDB/src/common"
 	pgQuery "github.com/pganalyze/pg_query_go/v6"
 )
 
@@ -42,35 +45,60 @@ func (parser *ParserTable) IsTableFromInformationSchema(qSchemaTable QuerySchema
 	return qSchemaTable.Schema == PG_SCHEMA_INFORMATION_SCHEMA
 }
 
-// public.table -> FROM iceberg_scan('path') table
-// schema.table -> FROM iceberg_scan('path') schema_table
-func (parser *ParserTable) MakeIcebergTableNode(queryToIcebergTable QueryToIcebergTable) *pgQuery.Node {
-	node := pgQuery.MakeSimpleRangeFunctionNode([]*pgQuery.Node{
-		pgQuery.MakeListNode([]*pgQuery.Node{
-			pgQuery.MakeFuncCallNode(
-				[]*pgQuery.Node{
-					pgQuery.MakeStrNode("iceberg_scan"),
-				},
-				[]*pgQuery.Node{
-					pgQuery.MakeAConstStrNode(
-						queryToIcebergTable.IcebergTablePath,
-						0,
-					),
-				},
-				0,
-			),
-		}),
-	})
+// public.table -> (SELECT * FROM iceberg_scan('path')) table
+// schema.table -> (SELECT * FROM iceberg_scan('path')) schema_table
+// public.table -> (SELECT permitted, columns FROM iceberg_scan('path')) table
+// public.table -> (SELECT NULL WHERE FALSE) table
+// public.table t -> (SELECT * FROM iceberg_scan('path')) t
+func (parser *ParserTable) MakeIcebergTableNode(queryToIcebergTable QueryToIcebergTable, permissions *map[string][]string) *pgQuery.Node {
+	var query string
+	if permissions == nil {
+		query = "SELECT * FROM iceberg_scan('" + queryToIcebergTable.IcebergTablePath + "')"
+	} else if columnNames, allowed := (*permissions)[queryToIcebergTable.QuerySchemaTable.ToIcebergSchemaTable().ToArg()]; allowed {
+		query = "SELECT " + strings.Join(columnNames, ", ") + " FROM iceberg_scan('" + queryToIcebergTable.IcebergTablePath + "')"
+	} else {
+		query = "SELECT NULL WHERE FALSE"
+	}
 
-	// DuckDB doesn't support aliases on iceberg_scan() functions, so we need to wrap it in a nested select that can have an alias
-	selectStarNode := pgQuery.MakeResTargetNodeWithVal(
-		pgQuery.MakeColumnRefNode(
-			[]*pgQuery.Node{pgQuery.MakeAStarNode()},
-			0,
-		),
-		0,
-	)
-	return parser.utils.MakeSubselectFromNode(queryToIcebergTable.QuerySchemaTable, []*pgQuery.Node{selectStarNode}, node)
+	return parser.makeSubselectNode(query, queryToIcebergTable.QuerySchemaTable)
+}
+
+// information_schema.tables -> (SELECT * FROM main.tables) information_schema_tables
+// information_schema.tables -> (SELECT * FROM main.tables WHERE table_schema || '.' || table_name IN ('permitted.table')) information_schema_tables
+// information_schema.tables t -> (SELECT * FROM main.tables) t
+func (parser *ParserTable) MakeInformationSchemaTablesNode(qSchemaTable QuerySchemaTable, permissions *map[string][]string) *pgQuery.Node {
+	query := "SELECT * FROM main.tables"
+
+	if permissions != nil {
+		quotedSchemaTableNames := []string{}
+		for schemaTable := range *permissions {
+			quotedSchemaTableNames = append(quotedSchemaTableNames, "'"+schemaTable+"'")
+		}
+		query += " WHERE table_schema || '.' || table_name IN (" + strings.Join(quotedSchemaTableNames, ", ") + ")"
+	}
+
+	return parser.makeSubselectNode(query, qSchemaTable)
+}
+
+// information_schema.columns -> (SELECT * FROM main.columns) information_schema_columns
+// information_schema.columns -> (SELECT * FROM main.columns WHERE (table_schema || '.' || table_name IN ('permitted.table') AND column_name IN ('permitted', 'columns')) OR ...) information_schema_columns
+// information_schema.columns c -> (SELECT * FROM main.columns) c
+func (parser *ParserTable) MakeInformationSchemaColumnsNode(qSchemaTable QuerySchemaTable, permissions *map[string][]string) *pgQuery.Node {
+	query := "SELECT * FROM main.columns"
+
+	if permissions != nil {
+		conditions := []string{}
+		for schemaTable, columnNames := range *permissions {
+			quotedColumnNames := []string{}
+			for _, columnName := range columnNames {
+				quotedColumnNames = append(quotedColumnNames, "'"+columnName+"'")
+			}
+			conditions = append(conditions, "(table_schema || '.' || table_name = '"+schemaTable+"' AND column_name IN ("+strings.Join(quotedColumnNames, ", ")+"))")
+		}
+		query += " WHERE " + strings.Join(conditions, " OR ")
+	}
+
+	return parser.makeSubselectNode(query, qSchemaTable)
 }
 
 func (parser *ParserTable) TopLevelSchemaFunction(rangeFunction *pgQuery.RangeFunction) *QuerySchemaFunction {
@@ -107,4 +135,36 @@ func (parser *ParserTable) SetAliasIfNotExists(rangeFunction *pgQuery.RangeFunct
 	}
 
 	rangeFunction.Alias = &pgQuery.Alias{Aliasname: alias}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// (query) AS qSchemaTable
+func (parser *ParserTable) makeSubselectNode(query string, qSchemaTable QuerySchemaTable) *pgQuery.Node {
+	queryTree, err := pgQuery.Parse(query)
+	common.PanicIfError(parser.config.CommonConfig, err)
+
+	alias := qSchemaTable.Alias
+	if alias == "" {
+		if qSchemaTable.Schema == PG_SCHEMA_PUBLIC || qSchemaTable.Schema == "" {
+			alias = qSchemaTable.Table
+		} else {
+			alias = qSchemaTable.Schema + "_" + qSchemaTable.Table
+		}
+	}
+
+	return &pgQuery.Node{
+		Node: &pgQuery.Node_RangeSubselect{
+			RangeSubselect: &pgQuery.RangeSubselect{
+				Subquery: &pgQuery.Node{
+					Node: &pgQuery.Node_SelectStmt{
+						SelectStmt: queryTree.Stmts[0].Stmt.GetSelectStmt(),
+					},
+				},
+				Alias: &pgQuery.Alias{
+					Aliasname: alias,
+				},
+			},
+		},
+	}
 }

@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	FALLBACK_SQL_QUERY  = "SELECT 1"
-	INSPECT_SQL_COMMENT = " --INSPECT"
+	FALLBACK_SQL_QUERY = "SELECT 1"
 )
 
 type QueryHandler struct {
@@ -58,8 +57,6 @@ func NewQueryHandler(config *Config, serverDuckdbClient *common.DuckdbClient) *Q
 		QueryRemapper:      NewQueryRemapper(config, icebergReader, icebergWriter, serverDuckdbClient),
 		ResponseHandler:    NewResponseHandler(config),
 	}
-
-	queryHandler.createSchemas(icebergReader)
 
 	return queryHandler
 }
@@ -236,21 +233,6 @@ func (queryHandler *QueryHandler) HandleExecuteQuery(message *pgproto3.Execute, 
 	defer preparedStatement.Rows.Close()
 
 	return queryHandler.rowsToDataMessages(preparedStatement.Rows, preparedStatement.OriginalQuery)
-}
-
-func (queryHandler *QueryHandler) createSchemas(icebergReader *IcebergReader) {
-	ctx := context.Background()
-	schemas, err := icebergReader.Schemas()
-	common.PanicIfError(queryHandler.Config.CommonConfig, err)
-
-	for _, schema := range schemas {
-		_, err := queryHandler.ServerDuckdbClient.ExecContext(
-			ctx,
-			"CREATE SCHEMA IF NOT EXISTS \"$schema\"",
-			map[string]string{"schema": schema},
-		)
-		common.PanicIfError(queryHandler.Config.CommonConfig, err)
-	}
 }
 
 func (queryHandler *QueryHandler) rowsToDescriptionMessages(rows *sql.Rows, originalQuery string) ([]pgproto3.Message, error) {

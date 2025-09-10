@@ -17,6 +17,7 @@ const (
 	PG_TABLE_PG_CLASS            = "pg_class"
 	PG_TABLE_PG_STAT_USER_TABLES = "pg_stat_user_tables"
 	PG_TABLE_TABLES              = "tables"
+	PG_TABLE_COLUMNS             = "columns"
 
 	PG_VAR_SEARCH_PATH = "search_path"
 )

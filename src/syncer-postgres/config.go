@@ -20,7 +20,6 @@ const (
 
 	ENV_DATABASE_URL          = "SOURCE_POSTGRES_DATABASE_URL"
 	ENV_SYNC_MODE             = "SOURCE_POSTGRES_SYNC_MODE"
-	ENV_INCLUDE_SCHEMAS       = "SOURCE_POSTGRES_INCLUDE_SCHEMAS"
 	ENV_INCLUDE_TABLES        = "SOURCE_POSTGRES_INCLUDE_TABLES"
 	ENV_EXCLUDE_TABLES        = "SOURCE_POSTGRES_EXCLUDE_TABLES"
 	ENV_CURSOR_COLUMNS        = "SOURCE_POSTGRES_CURSOR_COLUMNS"        // Incremental sync
@@ -51,7 +50,6 @@ type Config struct {
 
 	SyncMode                    SyncMode
 	DatabaseUrl                 string
-	IncludeSchemas              common.Set[string]
 	IncludeTables               common.Set[string]
 	ExcludeTables               common.Set[string]
 	CursorColumnNameByTableName map[string]string  // Incremental sync
@@ -61,7 +59,6 @@ type Config struct {
 }
 
 type configParseValues struct {
-	IncludeSchemas      string
 	IncludeTables       string
 	ExcludeTables       string
 	IgnoreUpdateColumns string
@@ -90,7 +87,6 @@ func registerFlags() {
 	flag.StringVar(&_config.DestinationSchemaName, "destination-schema-name", os.Getenv(ENV_DESTINATION_SCHEMA_NAME), "Destination schema name to store the synced data")
 	flag.StringVar(&_config.DatabaseUrl, "database-url", os.Getenv(ENV_DATABASE_URL), "PostgreSQL database URL")
 	flag.StringVar((*string)(&_config.SyncMode), "sync-mode", os.Getenv(ENV_SYNC_MODE), `Sync mode: "FULL_REFRESH", "CDC", or "INCREMENTAL"`)
-	flag.StringVar(&_configParseValues.IncludeSchemas, "include-schemas", os.Getenv(ENV_INCLUDE_SCHEMAS), "Comma-separated list of schemas to include in the sync. Default: all schemas included")
 	flag.StringVar(&_configParseValues.IncludeTables, "include-tables", os.Getenv(ENV_INCLUDE_TABLES), "Comma-separated list of tables to include in the sync. Default: all tables included")
 	flag.StringVar(&_configParseValues.ExcludeTables, "exclude-tables", os.Getenv(ENV_EXCLUDE_TABLES), "Comma-separated list of tables to exclude from the sync. Default: no tables excluded")
 	flag.StringVar(&_configParseValues.CursorColumns, "cursor-columns", os.Getenv(ENV_CURSOR_COLUMNS), "Cursor columns to use for incremental sync. Format: schema.table=column,schema2.table2=column2. Default: no cursor columns specified")
@@ -136,9 +132,6 @@ func parseFlags() {
 
 	if _config.DestinationSchemaName == "" {
 		panic("Destination schema name is required")
-	}
-	if _configParseValues.IncludeSchemas != "" {
-		_config.IncludeSchemas = common.NewSet[string]().AddAll(strings.Split(_configParseValues.IncludeSchemas, ","))
 	}
 	if _configParseValues.IncludeTables != "" && _configParseValues.ExcludeTables != "" {
 		panic("Cannot specify both include-tables and exclude-tables. Please use one or the other.")
