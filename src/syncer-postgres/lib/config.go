@@ -1,4 +1,4 @@
-package main
+package postgres
 
 import (
 	"flag"
@@ -68,11 +68,7 @@ type configParseValues struct {
 var _config Config
 var _configParseValues configParseValues
 
-func init() {
-	registerFlags()
-}
-
-func registerFlags() {
+func RegisterFlags() {
 	_config.CommonConfig = &common.CommonConfig{}
 
 	flag.StringVar(&_config.CommonConfig.LogLevel, "log-level", os.Getenv(common.ENV_LOG_LEVEL), `Log level: "ERROR", "WARN", "INFO", "DEBUG", "TRACE". Default: "`+common.DEFAULT_LOG_LEVEL+`"`)
@@ -101,6 +97,11 @@ func registerFlags() {
 	if fetchTimeoutSeconds != "" {
 		_config.Nats.FetchTimeoutSeconds = common.StringToInt(fetchTimeoutSeconds)
 	}
+}
+
+func LoadConfig() *Config {
+	parseFlags()
+	return &_config
 }
 
 func parseFlags() {
@@ -190,9 +191,4 @@ func parseFlags() {
 	if _config.DatabaseUrl == "" {
 		panic("Source PostgreSQL database URL is required")
 	}
-}
-
-func LoadConfig() *Config {
-	parseFlags()
-	return &_config
 }

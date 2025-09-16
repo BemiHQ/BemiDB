@@ -22,7 +22,7 @@ trap 'kill -s TERM $postgres_pid $minio_pid 2>/dev/null' EXIT # kill children on
 /app/bin/minio_configure.sh
 
 # Seed data
-cd /app/src/syncer-postgres
+cd /app/src/syncer-postgres/lib
 SOURCE_POSTGRES_SYNC_MODE=FULL_REFRESH \
   DESTINATION_SCHEMA_NAME=postgres \
   go test -v ./...

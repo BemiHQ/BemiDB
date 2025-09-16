@@ -1126,6 +1126,11 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.IntervalOID)},
 				"values":      {"0 months 7 days 0 microseconds"},
 			},
+			"SELECT '{\"key\": \"value\"}'::JSONB AS jsonb": {
+				"description": {"jsonb"},
+				"types":       {uint32ToString(pgtype.JSONOID)},
+				"values":      {"{\"key\":\"value\"}"},
+			},
 			"SELECT date_trunc('month', '2025-02-24 15:58:23-05'::timestamptz + '-1 month'::interval) AS date": {
 				"description": {"date"},
 				"types":       {uint32ToString(pgtype.TimestamptzOID)},
@@ -1285,9 +1290,10 @@ func TestHandleQuery(t *testing.T) {
 
 	t.Run("WHERE ANY(column reference)", func(t *testing.T) {
 		testResponseByQuery(t, queryHandler, map[string]map[string][]string{
-			"SELECT id FROM postgres.test_table WHERE id = ANY(id)": { // NOTE: ... = ANY() on non-constants is not fully supported yet
+			"SELECT id FROM postgres.test_table WHERE 'one' = ANY(array_text_column)": {
 				"description": {"id"},
 				"types":       {uint32ToString(pgtype.Int4OID)},
+				"values":      {"1"},
 			},
 		})
 	})

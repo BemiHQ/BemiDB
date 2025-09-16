@@ -1,15 +1,13 @@
-module github.com/BemiHQ/BemiDB/src/syncer-amplitude
+module github.com/BemiHQ/BemiDB/src/syncer-postgres/lib
 
 go 1.24.4
 
 require (
 	github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
-	github.com/BemiHQ/BemiDB/src/syncer-amplitude/lib v0.0.0-00010101000000-000000000000
+	github.com/nats-io/nats.go v1.43.0
 )
 
-replace github.com/BemiHQ/BemiDB/src/common => ../common
-
-replace github.com/BemiHQ/BemiDB/src/syncer-amplitude/lib => ./lib
+replace github.com/BemiHQ/BemiDB/src/common => ../../common
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0 // indirect
@@ -54,6 +52,8 @@ require (
 	github.com/marcboeker/go-duckdb/arrowmapping v0.0.9 // indirect
 	github.com/marcboeker/go-duckdb/mapping v0.0.10 // indirect
 	github.com/marcboeker/go-duckdb/v2 v2.3.2 // indirect
+	github.com/nats-io/nkeys v0.4.11 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/xitongsys/parquet-go v1.6.2 // indirect
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b // indirect

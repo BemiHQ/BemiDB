@@ -1,4 +1,4 @@
-package main
+package amplitude
 
 import (
 	"flag"
@@ -35,11 +35,7 @@ type configParseValues struct {
 var _config Config
 var _configParseValues configParseValues
 
-func init() {
-	registerFlags()
-}
-
-func registerFlags() {
+func RegisterFlags() {
 	_config.CommonConfig = &common.CommonConfig{}
 
 	flag.StringVar(&_config.CommonConfig.LogLevel, "log-level", os.Getenv(common.ENV_LOG_LEVEL), `Log level: "ERROR", "WARN", "INFO", "DEBUG", "TRACE". Default: "`+common.DEFAULT_LOG_LEVEL+`"`)
@@ -55,6 +51,11 @@ func registerFlags() {
 	flag.StringVar(&_config.ApiKey, "api-key", os.Getenv(ENV_API_KEY), "Amplitude API Key")
 	flag.StringVar(&_config.SecretKey, "secret-key", os.Getenv(ENV_SECRET_KEY), "Amplitude Secret Key")
 	flag.StringVar(&_configParseValues.StartDate, "start-date", os.Getenv(ENV_START_DATE), "Amplitude start date in YYYY-MM-DD format")
+}
+
+func LoadConfig() *Config {
+	parseFlags()
+	return &_config
 }
 
 func parseFlags() {
@@ -102,9 +103,4 @@ func parseFlags() {
 		panic("Invalid start date format. Expected YYYY-MM-DD, got: " + _configParseValues.StartDate)
 	}
 	_config.StartDate = parsedStartDate
-}
-
-func LoadConfig() *Config {
-	parseFlags()
-	return &_config
 }

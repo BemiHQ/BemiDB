@@ -1,4 +1,4 @@
-package main
+package postgres
 
 type DebeziumData struct {
 	Operation string `json:"op"`

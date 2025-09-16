@@ -57,6 +57,9 @@ RUN \
 
 COPY --chown=app:app src/common/go.mod src/common/go.sum /app/src/common/
 
+COPY --chown=app:app src/syncer-postgres/lib/go.mod src/syncer-postgres/lib/go.sum /app/src/syncer-postgres/lib/
+RUN cd /app/src/syncer-postgres/lib && go mod download
+
 COPY --chown=app:app src/syncer-postgres/go.mod src/syncer-postgres/go.sum /app/src/syncer-postgres/
 RUN cd /app/src/syncer-postgres && go mod download
 

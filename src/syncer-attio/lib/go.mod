@@ -1,15 +1,10 @@
-module github.com/BemiHQ/BemiDB/src/syncer-amplitude
+module github.com/BemiHQ/BemiDB/src/syncer-attio/lib
 
 go 1.24.4
 
-require (
-	github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
-	github.com/BemiHQ/BemiDB/src/syncer-amplitude/lib v0.0.0-00010101000000-000000000000
-)
+require github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
 
-replace github.com/BemiHQ/BemiDB/src/common => ../common
-
-replace github.com/BemiHQ/BemiDB/src/syncer-amplitude/lib => ./lib
+replace github.com/BemiHQ/BemiDB/src/common => ../../common
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0 // indirect
@@ -58,12 +53,12 @@ require (
 	github.com/xitongsys/parquet-go v1.6.2 // indirect
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
-	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
-	golang.org/x/mod v0.26.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
-	golang.org/x/text v0.27.0 // indirect
-	golang.org/x/tools v0.35.0 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
+	golang.org/x/mod v0.25.0 // indirect
+	golang.org/x/sync v0.15.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/text v0.26.0 // indirect
+	golang.org/x/tools v0.34.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 )

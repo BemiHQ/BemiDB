@@ -63,6 +63,9 @@ func (remapper *QueryRemapperExpression) remappedTypeCast(node *pgQuery.Node) *p
 			return node
 		}
 		return remapper.parserTypeCast.MakeSubselectOidBySchemaTableArg(nestedTypeCast.Arg)
+	case "jsonb":
+		// value::jsonb -> value::json
+		remapper.parserTypeCast.SetTypeName(typeCast, "json")
 	case "text":
 		// value::(regtype|regnamespace|regclass)::text -> value::text
 		nestedTypeCast := remapper.parserTypeCast.NestedTypeCast(typeCast)
@@ -83,8 +86,8 @@ func (remapper *QueryRemapperExpression) remappedArithmeticExpression(node *pgQu
 		return node
 	}
 
-	// = ANY({schema_information}) -> IN (schema_information)
-	node = remapper.parserAExpr.ConvertedRightAnyToIn(node)
+	// = ANY('{information_schema, ...}') -> IN ('information_schema', ...)
+	node = remapper.parserAExpr.ConvertedRightAnyStringConstantToIn(node)
 
 	// pg_catalog.[operator] -> [operator]
 	remapper.parserAExpr.RemovePgCatalog(node)

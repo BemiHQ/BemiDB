@@ -1,4 +1,4 @@
-package main
+package amplitude
 
 import (
 	"strings"
@@ -23,10 +23,7 @@ type Syncer struct {
 	DuckdbClient *common.DuckdbClient
 }
 
-func NewSyncer(config *Config) *Syncer {
-	storageS3 := common.NewStorageS3(config.CommonConfig)
-	duckdbClient := common.NewDuckdbClient(config.CommonConfig, common.SYNCER_DUCKDB_BOOT_QUERIES)
-
+func NewSyncer(config *Config, storageS3 *common.StorageS3, duckdbClient *common.DuckdbClient) *Syncer {
 	return &Syncer{
 		Config:       config,
 		Amplitude:    NewAmplitude(config),
@@ -72,12 +69,15 @@ func (syncer *Syncer) Sync() {
 		jsonQueueWriter.Close()
 	}()
 
-	// Read from cappedBuffer and write to Iceberg
+	syncer.WriteToIceberg(icebergTable, cursorValue, cappedBuffer)
+
+	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-finish", syncer.name())
+}
+
+func (syncer *Syncer) WriteToIceberg(icebergTable *common.IcebergTable, cursorValue common.CursorValue, cappedBuffer *common.CappedBuffer) {
 	icebergSchemaColumns := EventsIcebergSchemaColumns(syncer.Config.CommonConfig)
 	icebergTableWriter := common.NewIcebergTableWriter(syncer.Config.CommonConfig, syncer.StorageS3, syncer.DuckdbClient, icebergTable, icebergSchemaColumns, COMPRESSION_FACTOR)
 	icebergTableWriter.AppendFromJsonCappedBuffer(cursorValue, cappedBuffer)
-
-	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-amplitude-finish", syncer.name())
 }
 
 func (syncer *Syncer) name() string {

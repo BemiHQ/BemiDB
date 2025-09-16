@@ -1,4 +1,4 @@
-package main
+package postgres
 
 import (
 	"github.com/BemiHQ/BemiDB/src/common"

@@ -1,4 +1,4 @@
-package main
+package attio
 
 import (
 	"flag"
@@ -22,11 +22,7 @@ type Config struct {
 
 var _config Config
 
-func init() {
-	registerFlags()
-}
-
-func registerFlags() {
+func RegisterFlags() {
 	_config.CommonConfig = &common.CommonConfig{}
 
 	flag.StringVar(&_config.CommonConfig.LogLevel, "log-level", os.Getenv(common.ENV_LOG_LEVEL), `Log level: "ERROR", "WARN", "INFO", "DEBUG", "TRACE". Default: "`+common.DEFAULT_LOG_LEVEL+`"`)
@@ -40,6 +36,11 @@ func registerFlags() {
 
 	flag.StringVar(&_config.DestinationSchemaName, "destination-schema-name", os.Getenv(ENV_DESTINATION_SCHEMA_NAME), "Destination schema name to store the synced data")
 	flag.StringVar(&_config.ApiAccessToken, "api-access-token", os.Getenv(ENV_API_ACCESS_TOKEN), "Attio API Key")
+}
+
+func LoadConfig() *Config {
+	parseFlags()
+	return &_config
 }
 
 func parseFlags() {
@@ -75,9 +76,4 @@ func parseFlags() {
 	if _config.ApiAccessToken == "" {
 		panic("Attio API key is required")
 	}
-}
-
-func LoadConfig() *Config {
-	parseFlags()
-	return &_config
 }

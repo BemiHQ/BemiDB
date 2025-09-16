@@ -1,4 +1,4 @@
-package main
+package attio
 
 import (
 	"encoding/json"
@@ -98,9 +98,9 @@ func (attio *Attio) Load(object string, jsonQueueWriter *common.JsonQueueWriter)
 				}
 			}
 		case ATTIO_OBJECT_PEOPLE:
-			for _, rawDeal := range response.Data {
+			for _, rawPerson := range response.Data {
 				var person RecordPerson
-				err = json.Unmarshal(rawDeal, &person)
+				err = json.Unmarshal(rawPerson, &person)
 				if err != nil {
 					return err
 				}

@@ -1,4 +1,4 @@
-package main
+package amplitude
 
 import (
 	"archive/zip"

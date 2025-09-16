@@ -49,6 +49,14 @@ func (parser *ParserTypeCast) TypeName(typeCast *pgQuery.TypeCast) string {
 	return typeName
 }
 
+func (parser *ParserTypeCast) SetTypeName(typeCast *pgQuery.TypeCast, typeName string) {
+	if typeCast == nil || len(typeCast.TypeName.Names) != 1 {
+		return
+	}
+
+	typeCast.TypeName.Names[0] = pgQuery.MakeStrNode(typeName)
+}
+
 func (parser *ParserTypeCast) NestedTypeCast(typeCast *pgQuery.TypeCast) *pgQuery.TypeCast {
 	return parser.TypeCast(typeCast.Arg)
 }

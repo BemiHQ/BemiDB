@@ -1,15 +1,10 @@
-module github.com/BemiHQ/BemiDB/src/syncer-amplitude
+module github.com/BemiHQ/BemiDB/src/syncer-amplitude/lib
 
 go 1.24.4
 
-require (
-	github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
-	github.com/BemiHQ/BemiDB/src/syncer-amplitude/lib v0.0.0-00010101000000-000000000000
-)
+require github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
 
-replace github.com/BemiHQ/BemiDB/src/common => ../common
-
-replace github.com/BemiHQ/BemiDB/src/syncer-amplitude/lib => ./lib
+replace github.com/BemiHQ/BemiDB/src/common => ../../common
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0 // indirect

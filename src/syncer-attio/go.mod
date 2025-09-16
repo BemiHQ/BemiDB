@@ -2,9 +2,14 @@ module github.com/BemiHQ/BemiDB/src/syncer-attio
 
 go 1.24.4
 
-require github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
+require (
+	github.com/BemiHQ/BemiDB/src/common v0.0.0-00010101000000-000000000000
+	github.com/BemiHQ/BemiDB/src/syncer-attio/lib v0.0.0-00010101000000-000000000000
+)
 
 replace github.com/BemiHQ/BemiDB/src/common => ../common
+
+replace github.com/BemiHQ/BemiDB/src/syncer-attio/lib => ./lib
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0 // indirect

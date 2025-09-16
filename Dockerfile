@@ -37,12 +37,15 @@ RUN \
 
 COPY --chown=app:app src/common/go.mod src/common/go.sum /app/src/common/
 
+COPY --chown=app:app src/syncer-postgres/lib/go.mod src/syncer-postgres/lib/go.sum /app/src/syncer-postgres/lib/
 COPY --chown=app:app src/syncer-postgres/go.mod src/syncer-postgres/go.sum /app/src/syncer-postgres/
 RUN cd /app/src/syncer-postgres && go mod download
 
+COPY --chown=app:app src/syncer-amplitude/lib/go.mod src/syncer-amplitude/lib/go.sum /app/src/syncer-amplitude/lib/
 COPY --chown=app:app src/syncer-amplitude/go.mod src/syncer-amplitude/go.sum /app/src/syncer-amplitude/
 RUN cd /app/src/syncer-amplitude && go mod download
 
+COPY --chown=app:app src/syncer-attio/lib/go.mod src/syncer-attio/lib/go.sum /app/src/syncer-attio/lib/
 COPY --chown=app:app src/syncer-attio/go.mod src/syncer-attio/go.sum /app/src/syncer-attio/
 RUN cd /app/src/syncer-attio && go mod download
 

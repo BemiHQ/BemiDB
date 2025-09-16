@@ -86,8 +86,10 @@ func (parser *ParserAExpr) RightAConstValue(aExpr *pgQuery.A_Expr) string {
 	return aExpr.Rexpr.GetAConst().GetSval().Sval
 }
 
-// = ANY({schema_information}) -> IN (schema_information)
-func (parser *ParserAExpr) ConvertedRightAnyToIn(node *pgQuery.Node) *pgQuery.Node {
+// = ANY('{information_schema, ...}') -> IN ('information_schema', ...)
+//
+// DuckDB error: UNNEST() for correlated expressions is not supported yet
+func (parser *ParserAExpr) ConvertedRightAnyStringConstantToIn(node *pgQuery.Node) *pgQuery.Node {
 	aExpr := parser.AExpr(node)
 
 	if aExpr.Kind != pgQuery.A_Expr_Kind_AEXPR_OP_ANY {
@@ -95,8 +97,7 @@ func (parser *ParserAExpr) ConvertedRightAnyToIn(node *pgQuery.Node) *pgQuery.No
 	}
 
 	if aExpr.Rexpr.GetAConst() == nil {
-		// NOTE: ... = ANY() on non-constants is not fully supported yet
-		return parser.utils.MakeNullNode()
+		return node
 	}
 
 	arrayStr := aExpr.Rexpr.GetAConst().GetSval().Sval

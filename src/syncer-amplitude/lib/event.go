@@ -1,4 +1,4 @@
-package main
+package amplitude
 
 import (
 	"github.com/BemiHQ/BemiDB/src/common"
