@@ -675,7 +675,7 @@ func (writer *IcebergTableWriter) jsonToDuckdbRowValues(rowValues map[string]int
 	}
 	tableColumnNames := make([]string, len(writer.IcebergSchemaColumns))
 	for i, icebergSchemaColumn := range writer.IcebergSchemaColumns {
-		tableColumnNames[i] = strings.ToLower(icebergSchemaColumn.ColumnName) // Debezium JSON keys are lowercase
+		tableColumnNames[i] = icebergSchemaColumn.ColumnName
 	}
 	if len(rowColumnNames) != len(tableColumnNames) {
 		Panic(writer.Config, "Row column names count doesn't match table column names count: "+strings.Join(rowColumnNames, ", ")+" (row) vs "+strings.Join(tableColumnNames, ", ")+" (table)")
@@ -691,7 +691,7 @@ func (writer *IcebergTableWriter) jsonToDuckdbRowValues(rowValues map[string]int
 	// Convert row values to DuckDB values
 	duckdbRowValues := make([]driver.Value, len(writer.IcebergSchemaColumns))
 	for i, icebergSchemaColumn := range writer.IcebergSchemaColumns {
-		columnName := strings.ToLower(icebergSchemaColumn.ColumnName) // Debezium JSON keys are lowercase
+		columnName := icebergSchemaColumn.ColumnName
 		value := rowValues[columnName]
 		duckdbRowValues[i] = icebergSchemaColumn.DuckdbValueFromJson(value)
 	}

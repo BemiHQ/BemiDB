@@ -62,6 +62,20 @@ func (parser *ParserAExpr) RemappedJsonExtract(node *pgQuery.Node) *pgQuery.Node
 	)
 }
 
+// [column] ? 'key' -> json_exists([column], 'key')
+func (parser *ParserAExpr) RemappedJsonExists(node *pgQuery.Node) *pgQuery.Node {
+	aExpr := parser.AExpr(node)
+	if aExpr == nil || parser.OperatorName(aExpr) != "?" {
+		return node
+	}
+
+	return pgQuery.MakeFuncCallNode(
+		[]*pgQuery.Node{pgQuery.MakeStrNode("json_exists")},
+		[]*pgQuery.Node{aExpr.Lexpr, aExpr.Rexpr},
+		0,
+	)
+}
+
 func (parser *ParserAExpr) OperatorName(aExpr *pgQuery.A_Expr) string {
 	if aExpr.Kind != pgQuery.A_Expr_Kind_AEXPR_OP || len(aExpr.Name) != 1 {
 		return ""

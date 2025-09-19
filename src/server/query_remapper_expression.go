@@ -25,7 +25,7 @@ func NewQueryRemapperExpression(config *Config) *QueryRemapperExpression {
 
 func (remapper *QueryRemapperExpression) RemappedExpression(node *pgQuery.Node) *pgQuery.Node {
 	node = remapper.remappedTypeCast(node)
-	node = remapper.remappedArithmeticExpression(node)
+	node = remapper.remappedOperatorExpression(node)
 	node = remapper.remappedCollateClause(node)
 	node = remapper.remappedNullColumnExpression(node)
 	remapper.remapColumnReference(node)
@@ -80,7 +80,7 @@ func (remapper *QueryRemapperExpression) remappedTypeCast(node *pgQuery.Node) *p
 	return node
 }
 
-func (remapper *QueryRemapperExpression) remappedArithmeticExpression(node *pgQuery.Node) *pgQuery.Node {
+func (remapper *QueryRemapperExpression) remappedOperatorExpression(node *pgQuery.Node) *pgQuery.Node {
 	aExpr := remapper.parserAExpr.AExpr(node)
 	if aExpr == nil {
 		return node
@@ -97,6 +97,9 @@ func (remapper *QueryRemapperExpression) remappedArithmeticExpression(node *pgQu
 
 	// [column]->'value' -> json_extract([column], 'value')
 	node = remapper.parserAExpr.RemappedJsonExtract(node)
+
+	// [column] ? 'key' -> json_exists([column], 'key')
+	node = remapper.parserAExpr.RemappedJsonExists(node)
 
 	return node
 }

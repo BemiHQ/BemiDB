@@ -372,7 +372,7 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedC
 		remapper.remapSelectStatement(subSelect, permissions, indentLevel+1) // recursion
 	}
 
-	// Comparison
+	// Operator: =, ?, etc.
 	aExpr := node.GetAExpr()
 	if aExpr != nil {
 		node = remapper.remapperExpression.RemappedExpression(node)

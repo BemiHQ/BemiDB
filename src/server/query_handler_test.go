@@ -931,6 +931,11 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"value"},
 			},
+			"SELECT json_column ? 'key' AS exists FROM postgres.test_table WHERE id = 1": {
+				"description": {"exists"},
+				"types":       {uint32ToString(pgtype.BoolOID)},
+				"values":      {"t"},
+			},
 			"SELECT jsonb_column FROM postgres.test_table WHERE bool_column = FALSE": {
 				"description": {"jsonb_column"},
 				"types":       {uint32ToString(pgtype.TextOID)},

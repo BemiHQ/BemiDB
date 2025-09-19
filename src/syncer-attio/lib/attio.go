@@ -1,6 +1,7 @@
 package attio
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,23 +41,24 @@ type ListRecordsResponse struct {
 func (attio *Attio) Load(object string, jsonQueueWriter *common.JsonQueueWriter) error {
 	offset := 0
 	for {
-		req, err := http.NewRequest("POST", ATTIO_API_URL+"/objects/"+object+"/records/query", nil)
+		jsonBody, err := json.Marshal(map[string]interface{}{"limit": ATTIO_API_LIMIT, "offset": offset})
 		if err != nil {
 			return err
 		}
-		q := req.URL.Query()
-		q.Add("limit", common.IntToString(ATTIO_API_LIMIT))
-		q.Add("offset", common.IntToString(offset))
-		req.URL.RawQuery = q.Encode()
-
+		req, err := http.NewRequest("POST", ATTIO_API_URL+"/objects/"+object+"/records/query", bytes.NewBuffer(jsonBody))
+		if err != nil {
+			return err
+		}
 		req.Header.Set("Authorization", "Bearer "+attio.Config.ApiAccessToken)
 		req.Header.Set("Content-Type", "application/json")
 
+		common.LogInfo(attio.Config.CommonConfig, "Sending request to Attio:", req.URL.String(), "with body:", string(jsonBody))
 		resp, err := attio.HttpClient.Do(req)
 		if err != nil {
 			return err
 		}
 
+		common.LogDebug(attio.Config.CommonConfig, "Received response from Attio:", resp.Status)
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
