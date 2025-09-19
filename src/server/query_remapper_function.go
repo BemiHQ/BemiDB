@@ -41,6 +41,8 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 			ELSE json_extract_path_text(from_json, path_elems)::varchar
 		END`,
 		`CREATE MACRO jsonb_object_agg(key, value) AS to_json(map(array_agg(key), array_agg(value)))`,
+		`CREATE MACRO jsonb_array_length(json) AS json_array_length(json)`,
+		`CREATE MACRO jsonb_pretty(json) AS json_pretty(json)`,
 		`CREATE MACRO json_build_object(k1, v1) AS json_object(k1, v1),
 			(k1, v1, k2, v2) AS json_object(k1, v1, k2, v2),
 			(k1, v1, k2, v2, k3, v3) AS json_object(k1, v1, k2, v2, k3, v3),
@@ -49,6 +51,18 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 			CASE dimension
 			WHEN 1 THEN len(arr)
 			ELSE NULL
+		END`,
+		`CREATE MACRO to_char(timestamp, text) AS
+			CASE text
+			WHEN 'YYYY-MM-DD' THEN strftime(timestamp, '%Y-%m-%d')
+			WHEN 'YYYY-MM-DD HH24:MI:SS' THEN strftime(timestamp, '%Y-%m-%d %H:%M:%S')
+			WHEN 'MM/DD/YYYY' THEN strftime(timestamp, '%m/%d/%Y')
+			WHEN 'DD-MON-YYYY' THEN strftime(timestamp, '%d-%b-%Y')
+			WHEN 'HH24:MI:SS' THEN strftime(timestamp, '%H:%M:%S')
+			WHEN 'YYYY' THEN strftime(timestamp, '%Y')
+			WHEN 'MM' THEN strftime(timestamp, '%m')
+			WHEN 'DD' THEN strftime(timestamp, '%d')
+			ELSE strftime(timestamp, text)
 		END`,
 
 		// Table functions

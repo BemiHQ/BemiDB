@@ -188,6 +188,21 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.Int4OID)},
 				"values":      {""},
 			},
+			"SELECT jsonb_array_length('[1, 2, 3]'::jsonb)": {
+				"description": {"jsonb_array_length"},
+				"types":       {uint32ToString(pgtype.XID8OID)},
+				"values":      {"3"},
+			},
+			"SELECT jsonb_pretty('{\"key\": \"value\"}'::JSONB)": {
+				"description": {"jsonb_pretty"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"{\n    \"key\": \"value\"\n}"},
+			},
+			"SELECT TO_CHAR('2024-01-15 14:30:00'::timestamp, 'YYYY-MM-DD')": {
+				"description": {"to_char"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"2024-01-15"},
+			},
 		})
 	})
 

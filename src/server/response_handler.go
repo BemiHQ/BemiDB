@@ -120,7 +120,7 @@ func (responseHandler *ResponseHandler) RowValuePointer(col *sql.ColumnType) int
 		return new(sql.NullInt32)
 	case "int64", "*big.Int":
 		return new(sql.NullInt64)
-	case "float64", "float32":
+	case "uint64", "float64", "float32":
 		return new(sql.NullFloat64)
 	case "string":
 		// return a *sql.NullString so Scan writes into the right type
