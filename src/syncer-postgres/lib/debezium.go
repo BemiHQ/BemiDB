@@ -18,6 +18,7 @@ type DebeziumRowSource struct {
 	Schema        string `json:"schema"`
 	Table         string `json:"table"`
 	CommittedAtNs int64  `json:"ts_ns"`
+	Position      int64  `json:"lsn"`
 }
 
 type DebeziumRowData struct {

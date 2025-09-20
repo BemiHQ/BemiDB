@@ -129,9 +129,6 @@ func (writer *IcebergTableWriter) UniqueIndexColumnNames() []string {
 			uniqueIndexColumnNames = append(uniqueIndexColumnNames, icebergSchemaColumn.ColumnName)
 		}
 	}
-	if len(uniqueIndexColumnNames) == 0 {
-		Panic(writer.Config, "Cannot update Iceberg table without unique index columns: "+writer.IcebergTable.String())
-	}
 	return uniqueIndexColumnNames
 }
 
@@ -597,7 +594,7 @@ func (writer *IcebergTableWriter) deleteObject(key string) {
 		fileName = strings.Split(key, "/metadata/")[1]
 	}
 
-	LogInfo(writer.Config, "Deleting object:", fileName)
+	LogDebug(writer.Config, "Deleting object:", fileName)
 	writer.StorageS3.S3Client.DeleteObject(key)
 }
 

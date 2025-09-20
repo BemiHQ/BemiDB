@@ -67,12 +67,12 @@ func NewDuckdbClient(config *CommonConfig, bootQueries ...[]string) *DuckdbClien
 }
 
 func (client *DuckdbClient) QueryContext(ctx context.Context, query string) (*sql.Rows, error) {
-	LogDebug(client.Config, "Querying DuckDBClient:", query)
+	LogDebug(client.Config, "Querying DuckDB:", query)
 	return client.Db.QueryContext(ctx, query)
 }
 
 func (client *DuckdbClient) QueryRowContext(ctx context.Context, query string, args ...map[string]string) *sql.Row {
-	LogDebug(client.Config, "Querying DuckDBClient:", query)
+	LogDebug(client.Config, "Querying DuckDB row:", query)
 	if len(args) == 0 {
 		return client.Db.QueryRowContext(ctx, query)
 	}
@@ -80,12 +80,12 @@ func (client *DuckdbClient) QueryRowContext(ctx context.Context, query string, a
 }
 
 func (client *DuckdbClient) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
-	LogDebug(client.Config, "Preparing DuckDBClient statement:", query)
+	LogDebug(client.Config, "Preparing DuckDB statement:", query)
 	return client.Db.PrepareContext(ctx, query)
 }
 
 func (client *DuckdbClient) ExecContext(ctx context.Context, query string, args ...map[string]string) (sql.Result, error) {
-	LogDebug(client.Config, "Querying DuckDBClient:", query)
+	LogDebug(client.Config, "Executing DuckDB:", query)
 	if len(args) == 0 {
 		return client.Db.ExecContext(ctx, query)
 	}
@@ -95,13 +95,13 @@ func (client *DuckdbClient) ExecContext(ctx context.Context, query string, args 
 
 func (client *DuckdbClient) ExecTransactionContext(ctx context.Context, queries []string, args ...[]map[string]string) error {
 	tx, err := client.Db.Begin()
-	LogDebug(client.Config, "Querying DuckDBClient: BEGIN")
+	LogDebug(client.Config, "Executing DuckDB: BEGIN")
 	if err != nil {
 		return err
 	}
 
 	for i, query := range queries {
-		LogDebug(client.Config, "Querying DuckDBClient:", query)
+		LogDebug(client.Config, "Executing DuckDB in transaction:", query)
 		var err error
 		if len(args) == 0 {
 			_, err = tx.ExecContext(ctx, query)
@@ -114,7 +114,7 @@ func (client *DuckdbClient) ExecTransactionContext(ctx context.Context, queries 
 		}
 	}
 
-	LogDebug(client.Config, "Querying DuckDBClient: COMMIT")
+	LogDebug(client.Config, "Executing DuckDB: COMMIT")
 	return tx.Commit()
 }
 

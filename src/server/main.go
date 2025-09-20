@@ -5,6 +5,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"slices"
+	"sync/atomic"
 
 	"github.com/BemiHQ/BemiDB/src/common"
 )
@@ -33,15 +34,18 @@ func main() {
 
 	queryHandler := NewQueryHandler(config, duckdbClient)
 
+	var connectionCount int64 = 0
 	for {
 		conn := AcceptConnection(config, tcpListener)
-		common.LogInfo(config.CommonConfig, "BemiDB: Accepted connection from", conn.RemoteAddr())
+		atomic.AddInt64(&connectionCount, 1)
+		common.LogInfo(config.CommonConfig, "BemiDB: Accepted", common.Int64ToString(atomic.LoadInt64(&connectionCount))+"th", "connection from", conn.RemoteAddr())
 		server := NewPostgresServer(config, &conn)
 
 		go func() {
 			server.Run(queryHandler)
 			defer server.Close()
-			common.LogInfo(config.CommonConfig, "BemiDB: Closed connection from", conn.RemoteAddr())
+			common.LogInfo(config.CommonConfig, "BemiDB: Closed", common.Int64ToString(atomic.LoadInt64(&connectionCount))+"th", "connection from", conn.RemoteAddr())
+			atomic.AddInt64(&connectionCount, -1)
 		}()
 	}
 }
