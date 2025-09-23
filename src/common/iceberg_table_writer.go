@@ -162,7 +162,7 @@ func (writer *IcebergTableWriter) InsertFromQuery(query string) error {
 	LogInfo(writer.Config, "Written", parquetFile.RecordCount, "records in Parquet file #"+IntToString(len(parquetFilesSortedAsc)), "("+writer.formattedParquetFileSize(parquetFile.Size)+")")
 
 	// Create as table
-	writer.IcebergTable.Create(tableS3Path)
+	writer.IcebergTable.Create(tableS3Path, icebergSchemaColumns)
 
 	return nil
 }
@@ -213,7 +213,7 @@ func (writer *IcebergTableWriter) insertRows(loadRowsToDuckdbTableFunc func(duck
 
 		// Create table
 		if len(parquetFilesSortedAsc) == 1 {
-			writer.IcebergTable.Create(tableS3Path)
+			writer.IcebergTable.Create(tableS3Path, writer.IcebergSchemaColumns)
 		}
 
 		// Delete old files

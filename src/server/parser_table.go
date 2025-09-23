@@ -129,6 +129,21 @@ func (parser *ParserTable) TableFunctionCalls(rangeFunction *pgQuery.RangeFuncti
 	return functionCalls
 }
 
+func (parser *ParserTable) Alias(rangeFunction *pgQuery.RangeFunction) string {
+	if rangeFunction.GetAlias() != nil {
+		return rangeFunction.GetAlias().Aliasname
+	}
+
+	return ""
+}
+
+func (parser *ParserTable) SetAlias(rangeFunction *pgQuery.RangeFunction, alias string, columnName string) {
+	rangeFunction.Alias = &pgQuery.Alias{
+		Aliasname: alias,
+		Colnames:  []*pgQuery.Node{pgQuery.MakeStrNode(columnName)},
+	}
+}
+
 func (parser *ParserTable) SetAliasIfNotExists(rangeFunction *pgQuery.RangeFunction, alias string) {
 	if rangeFunction.GetAlias() != nil {
 		return

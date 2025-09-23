@@ -43,6 +43,8 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 		`CREATE MACRO jsonb_object_agg(key, value) AS to_json(map(array_agg(key), array_agg(value)))`,
 		`CREATE MACRO jsonb_array_length(json) AS json_array_length(json)`,
 		`CREATE MACRO jsonb_pretty(json) AS json_pretty(json)`,
+		`CREATE MACRO json_array_elements(json) AS unnest(json_extract(json, '$[*]'))`,
+		`CREATE MACRO jsonb_array_elements(json) AS unnest(json_extract(json, '$[*]'))`,
 		`CREATE MACRO json_build_object(k1, v1) AS json_object(k1, v1),
 			(k1, v1, k2, v2) AS json_object(k1, v1, k2, v2),
 			(k1, v1, k2, v2, k3, v3) AS json_object(k1, v1, k2, v2, k3, v3),
@@ -67,6 +69,8 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 
 		// Table functions
 		"CREATE MACRO pg_is_in_recovery() AS TABLE SELECT false AS pg_is_in_recovery",
+		`CREATE MACRO json_array_elements(json) AS TABLE SELECT unnest(json_extract(json, '$[*]'))`,
+		`CREATE MACRO jsonb_array_elements(json) AS TABLE SELECT unnest(json_extract(json, '$[*]'))`,
 		`CREATE MACRO pg_show_all_settings() AS TABLE SELECT
 			name,
 			value AS setting,

@@ -6,14 +6,12 @@ import (
 
 type IcebergReader struct {
 	Config         *Config
-	StorageS3      *common.StorageS3
 	IcebergCatalog *common.IcebergCatalog
 }
 
-func NewIcebergReader(config *Config, storageS3 *common.StorageS3, icebergCatalog *common.IcebergCatalog) *IcebergReader {
+func NewIcebergReader(config *Config, icebergCatalog *common.IcebergCatalog) *IcebergReader {
 	return &IcebergReader{
 		Config:         config,
-		StorageS3:      storageS3,
 		IcebergCatalog: icebergCatalog,
 	}
 }
@@ -30,10 +28,8 @@ func (reader *IcebergReader) MaterializedView(icebergSchemaTable common.IcebergS
 	return reader.IcebergCatalog.MaterializedView(icebergSchemaTable)
 }
 
-func (reader *IcebergReader) TableFields(icebergSchemaTable common.IcebergSchemaTable) (icebergTableFields []common.IcebergTableField, err error) {
-	metadataPath := reader.MetadataFileS3Path(icebergSchemaTable)
-	common.LogDebug(reader.Config.CommonConfig, "Reading Iceberg table "+icebergSchemaTable.String()+" fields from "+metadataPath+" ...")
-	return reader.StorageS3.IcebergTableFields(metadataPath)
+func (reader *IcebergReader) TableColumns(icebergSchemaTable common.IcebergSchemaTable) (catalogTableColumns []common.CatalogTableColumn, err error) {
+	return reader.IcebergCatalog.TableColumns(icebergSchemaTable)
 }
 
 func (reader *IcebergReader) MetadataFileS3Path(icebergSchemaTable common.IcebergSchemaTable) string {

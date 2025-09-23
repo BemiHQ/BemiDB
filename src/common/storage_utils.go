@@ -384,9 +384,9 @@ func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string
 		}
 	}
 
-	icebergSchemaFields := make([]interface{}, len(icebergSchemaColumns))
+	catalogTableColumns := make([]interface{}, len(icebergSchemaColumns))
 	for i, icebergSchemaColumn := range icebergSchemaColumns {
-		icebergSchemaFields[i] = icebergSchemaColumn.IcebergSchemaFieldMap()
+		catalogTableColumns[i] = icebergSchemaColumn.CatalogTableColumn().ToMetadataFieldMap()
 	}
 
 	snapshots := make([]map[string]interface{}, len(manifestListFilesSortedAsc))
@@ -444,7 +444,7 @@ func (utils *StorageUtils) WriteMetadataFile(s3TablePath string, filePath string
 			map[string]interface{}{
 				"type":                 "struct",
 				"schema-id":            0,
-				"fields":               icebergSchemaFields,
+				"fields":               catalogTableColumns,
 				"identifier-field-ids": []interface{}{},
 			},
 		},

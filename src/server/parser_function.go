@@ -59,6 +59,8 @@ func (parser *ParserFunction) RemapSchemaToMain(functionCall *pgQuery.FuncCall) 
 		functionCall.Funcname = append([]*pgQuery.Node{pgQuery.MakeStrNode(DUCKDB_SCHEMA_MAIN)}, functionCall.Funcname...)
 	case 2:
 		functionCall.Funcname[0] = pgQuery.MakeStrNode(DUCKDB_SCHEMA_MAIN)
+	default:
+		common.Panic(parser.config.CommonConfig, "Unexpected function name length: "+common.IntToString(len(functionCall.Funcname)))
 	}
 }
 

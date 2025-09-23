@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -74,7 +75,7 @@ func (server *PostgresServer) Run(queryHandler *QueryHandler) {
 		case *pgproto3.Query:
 			server.handleSimpleQuery(queryHandler, message)
 		case *pgproto3.Parse:
-			err = server.handleExtendedQuery(queryHandler, message)
+			err = server.handleExtendedQuery(queryHandler, message) // recursion
 			if err != nil {
 				return // Terminate connection
 			}
@@ -170,6 +171,11 @@ func (server *PostgresServer) handleExtendedQuery(queryHandler *QueryHandler, pa
 			}
 			// Otherwise, wait for Bind/Describe/Execute/Sync.
 			// For example, psycopg sends Parse->[extra Sync]->Bind->Describe->Execute->Sync
+		case *pgproto3.Parse:
+			server.handleExtendedQuery(queryHandler, message) // self-recursion
+			return nil
+		default:
+			return fmt.Errorf("received unexpected message type from client: %T", message)
 		}
 	}
 }

@@ -38,9 +38,9 @@ func (table *IcebergTable) MetadataFileS3Path() string {
 	return table.IcebergCatalog.MetadataFileS3Path(table.IcebergSchemaTable)
 }
 
-func (table *IcebergTable) Create(tableS3Path string) {
+func (table *IcebergTable) Create(tableS3Path string, icebergSchemaColumns []*IcebergSchemaColumn) {
 	LogInfo(table.Config, "Creating Iceberg table:", table.IcebergSchemaTable.Table)
-	table.IcebergCatalog.CreateTable(table.IcebergSchemaTable, tableS3Path+"/metadata/"+ICEBERG_METADATA_INITIAL_FILE_NAME)
+	table.IcebergCatalog.CreateTable(table.IcebergSchemaTable, tableS3Path+"/metadata/"+ICEBERG_METADATA_INITIAL_FILE_NAME, icebergSchemaColumns)
 }
 
 func (table *IcebergTable) ReplaceWith(callbackFunc func(syncingIcebergTable *IcebergTable)) {

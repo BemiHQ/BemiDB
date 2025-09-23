@@ -2,11 +2,9 @@ package common
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -70,27 +68,6 @@ type ManifestListFile struct {
 type MetadataFile struct {
 	Version int64
 	Key     string
-}
-
-type IcebergTableField struct {
-	Name     string
-	Type     string
-	Required bool
-	IsList   bool
-}
-
-func (tableField IcebergTableField) ToSql() string {
-	sql := fmt.Sprintf(`"%s" %s`, tableField.Name, tableField.Type)
-
-	if tableField.IsList {
-		sql += "[]"
-	}
-
-	if tableField.Required {
-		sql += " NOT NULL"
-	}
-
-	return sql
 }
 
 func NewStorageS3(Config *CommonConfig) *StorageS3 {
@@ -190,11 +167,6 @@ func (storage *StorageS3) DeleteTableFiles(tableS3Path string) {
 
 // Read ----------------------------------------------------------------------------------------------------------------
 
-func (storage *StorageS3) IcebergTableFields(metadataS3Path string) ([]IcebergTableField, error) {
-	metadataContent := storage.readObjectContent(metadataS3Path)
-	return storage.parseIcebergTableFields(metadataContent)
-}
-
 func (storage *StorageS3) LastManifestListFile(metadataS3Path string) ManifestListFile {
 	metadataContent := storage.readObjectContent(metadataS3Path)
 	return storage.StorageUtils.ParseLastManifestListFile(storage.S3Client.BucketS3Prefix(), metadataContent)
@@ -272,36 +244,4 @@ func (storage *StorageS3) deleteNestedObjects(prefixS3Key string) {
 	} else {
 		LogDebug(storage.Config, "No objects to delete.")
 	}
-}
-
-func (storage *StorageS3) parseIcebergTableFields(metadataContent []byte) ([]IcebergTableField, error) {
-	var metadataJson MetadataJson
-	err := json.Unmarshal(metadataContent, &metadataJson)
-	if err != nil {
-		return nil, err
-	}
-
-	var icebergTableFields []IcebergTableField
-	schema := metadataJson.Schemas[len(metadataJson.Schemas)-1] // Get the last schema
-	if schema.Fields != nil {
-		for _, field := range schema.Fields {
-			icebergTableField := IcebergTableField{
-				Name: field.Name,
-			}
-
-			if reflect.TypeOf(field.Type).Kind() == reflect.String {
-				icebergTableField.Type = field.Type.(string)
-				icebergTableField.Required = field.Required
-			} else {
-				listType := field.Type.(map[string]interface{})
-				icebergTableField.Type = listType["element"].(string)
-				icebergTableField.Required = listType["element-required"].(bool)
-				icebergTableField.IsList = true
-			}
-
-			icebergTableFields = append(icebergTableFields, icebergTableField)
-		}
-	}
-
-	return icebergTableFields, nil
 }

@@ -49,7 +49,7 @@ type Event struct {
 	OSVersion               string                 `json:"os_version"`
 	PartnerID               string                 `json:"partner_id"`
 	Paying                  string                 `json:"paying"`
-	Plan                    interface{}            `json:"plan"`
+	Plan                    map[string]interface{} `json:"plan"`
 	Platform                string                 `json:"platform"`
 	ProcessedTime           string                 `json:"processed_time"`
 	Region                  string                 `json:"region"`
@@ -139,7 +139,7 @@ func EventsIcebergSchemaColumns(config *common.CommonConfig) []*common.IcebergSc
 		{Config: config, ColumnName: "client_event_time", ColumnType: common.IcebergColumnTypeTimestamp, Position: 7},
 		{Config: config, ColumnName: "client_upload_time", ColumnType: common.IcebergColumnTypeTimestamp, Position: 8},
 		{Config: config, ColumnName: "country", ColumnType: common.IcebergColumnTypeString, Position: 9},
-		{Config: config, ColumnName: "data", ColumnType: common.IcebergColumnTypeString, Position: 10},
+		{Config: config, ColumnName: "data", ColumnType: common.IcebergColumnTypeString, Position: 10, LogicalColumnType: common.IcebergLogicalColumnTypeJson},
 		{Config: config, ColumnName: "data_type", ColumnType: common.IcebergColumnTypeString, Position: 11},
 		{Config: config, ColumnName: "device_brand", ColumnType: common.IcebergColumnTypeString, Position: 12},
 		{Config: config, ColumnName: "device_carrier", ColumnType: common.IcebergColumnTypeString, Position: 13},
@@ -150,12 +150,12 @@ func EventsIcebergSchemaColumns(config *common.CommonConfig) []*common.IcebergSc
 		{Config: config, ColumnName: "device_type", ColumnType: common.IcebergColumnTypeString, Position: 18},
 		{Config: config, ColumnName: "dma", ColumnType: common.IcebergColumnTypeString, Position: 19},
 		{Config: config, ColumnName: "event_id", ColumnType: common.IcebergColumnTypeInteger, Position: 20},
-		{Config: config, ColumnName: "event_properties", ColumnType: common.IcebergColumnTypeString, Position: 21},
+		{Config: config, ColumnName: "event_properties", ColumnType: common.IcebergColumnTypeString, Position: 21, LogicalColumnType: common.IcebergLogicalColumnTypeJson},
 		{Config: config, ColumnName: "event_time", ColumnType: common.IcebergColumnTypeTimestamp, Position: 22},
 		{Config: config, ColumnName: "event_type", ColumnType: common.IcebergColumnTypeString, Position: 23},
-		{Config: config, ColumnName: "global_user_properties", ColumnType: common.IcebergColumnTypeString, Position: 24},
-		{Config: config, ColumnName: "group_properties", ColumnType: common.IcebergColumnTypeString, Position: 25},
-		{Config: config, ColumnName: "groups", ColumnType: common.IcebergColumnTypeString, Position: 26},
+		{Config: config, ColumnName: "global_user_properties", ColumnType: common.IcebergColumnTypeString, Position: 24, LogicalColumnType: common.IcebergLogicalColumnTypeJson},
+		{Config: config, ColumnName: "group_properties", ColumnType: common.IcebergColumnTypeString, Position: 25, LogicalColumnType: common.IcebergLogicalColumnTypeJson},
+		{Config: config, ColumnName: "groups", ColumnType: common.IcebergColumnTypeString, Position: 26, LogicalColumnType: common.IcebergLogicalColumnTypeJson},
 		{Config: config, ColumnName: "idfa", ColumnType: common.IcebergColumnTypeString, Position: 27},
 		{Config: config, ColumnName: "insert_id", ColumnType: common.IcebergColumnTypeString, Position: 28},
 		{Config: config, ColumnName: "insert_key", ColumnType: common.IcebergColumnTypeString, Position: 29},
@@ -169,7 +169,7 @@ func EventsIcebergSchemaColumns(config *common.CommonConfig) []*common.IcebergSc
 		{Config: config, ColumnName: "os_version", ColumnType: common.IcebergColumnTypeString, Position: 37},
 		{Config: config, ColumnName: "partner_id", ColumnType: common.IcebergColumnTypeString, Position: 38},
 		{Config: config, ColumnName: "paying", ColumnType: common.IcebergColumnTypeBoolean, Position: 39},
-		{Config: config, ColumnName: "plan", ColumnType: common.IcebergColumnTypeString, Position: 40},
+		{Config: config, ColumnName: "plan", ColumnType: common.IcebergColumnTypeString, Position: 40, LogicalColumnType: common.IcebergLogicalColumnTypeJson},
 		{Config: config, ColumnName: "platform", ColumnType: common.IcebergColumnTypeString, Position: 41},
 		{Config: config, ColumnName: "processed_time", ColumnType: common.IcebergColumnTypeTimestamp, Position: 42},
 		{Config: config, ColumnName: "region", ColumnType: common.IcebergColumnTypeString, Position: 43},
@@ -182,7 +182,7 @@ func EventsIcebergSchemaColumns(config *common.CommonConfig) []*common.IcebergSc
 		{Config: config, ColumnName: "start_version", ColumnType: common.IcebergColumnTypeString, Position: 50},
 		{Config: config, ColumnName: "user_creation_time", ColumnType: common.IcebergColumnTypeTimestamp, Position: 51},
 		{Config: config, ColumnName: "user_id", ColumnType: common.IcebergColumnTypeString, Position: 52},
-		{Config: config, ColumnName: "user_properties", ColumnType: common.IcebergColumnTypeString, Position: 53},
+		{Config: config, ColumnName: "user_properties", ColumnType: common.IcebergColumnTypeString, Position: 53, LogicalColumnType: common.IcebergLogicalColumnTypeJson},
 		{Config: config, ColumnName: "uuid", ColumnType: common.IcebergColumnTypeString, Position: 54},
 		{Config: config, ColumnName: "version_name", ColumnType: common.IcebergColumnTypeString, Position: 55},
 	}

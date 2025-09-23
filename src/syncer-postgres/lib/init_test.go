@@ -431,6 +431,8 @@ func init() {
 		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "public", Table: "partitioned_table2"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE2)
 		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "public", Table: "partitioned_table3"}, PG_SCHEMA_COLUMNS_PARTITIONED_TABLE, CSV_ROWS_PARTITIONED_TABLE3)
 		createTestTableViaFullRefresh(syncer, PgSchemaTable{Schema: "test", Table: "empty_table"}, PG_SCHEMA_COLUMNS_EMPTY_TABLE, [][]string{})
+	default:
+		common.Panic(config.CommonConfig, "Unsupported sync mode: "+string(config.SyncMode))
 	}
 }
 

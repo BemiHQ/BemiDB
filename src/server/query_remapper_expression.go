@@ -75,6 +75,8 @@ func (remapper *QueryRemapperExpression) remappedTypeCast(node *pgQuery.Node) *p
 			return node
 		}
 		remapper.parserTypeCast.SetTypeCastArg(typeCast, nestedTypeCast.Arg)
+	default:
+		// Allow other type casts as-is (regtype, etc.)
 	}
 
 	return node

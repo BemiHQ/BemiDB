@@ -34,7 +34,6 @@ var KNOWN_SET_STATEMENTS = common.NewSet[string]().AddAll([]string{
 var NOOP_QUERY_TREE, _ = pgQuery.Parse("SET TimeZone = 'UTC'")
 
 type QueryRemapper struct {
-	parserTypeCast     *ParserTypeCast
 	remapperTable      *QueryRemapperTable
 	remapperExpression *QueryRemapperExpression
 	remapperFunction   *QueryRemapperFunction
@@ -47,7 +46,6 @@ type QueryRemapper struct {
 
 func NewQueryRemapper(config *Config, icebergReader *IcebergReader, icebergWriter *IcebergWriter, serverDuckdbClient *common.DuckdbClient) *QueryRemapper {
 	return &QueryRemapper{
-		parserTypeCast:     NewParserTypeCast(config),
 		remapperTable:      NewQueryRemapperTable(config, icebergReader, serverDuckdbClient),
 		remapperExpression: NewQueryRemapperExpression(config),
 		remapperFunction:   NewQueryRemapperFunction(config, icebergReader),
@@ -219,11 +217,6 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 		remapper.remapSelectStatement(rightSelectStatement, permissions, indentLevel+1) // self-recursion
 	}
 
-	// JOIN
-	if len(selectStatement.FromClause) > 0 && selectStatement.FromClause[0].GetJoinExpr() != nil {
-		selectStatement.FromClause[0] = remapper.remapJoinExpressions(selectStatement, selectStatement.FromClause[0], remappedColumnRefs, permissions, indentLevel+1) // recursion
-	}
-
 	// WHERE
 	if selectStatement.WhereClause != nil {
 		remapper.traceTreeTraversal("WHERE statements", indentLevel)
@@ -245,9 +238,14 @@ func (remapper *QueryRemapper) remapSelectStatement(selectStatement *pgQuery.Sel
 		}
 	}
 
-	// FROM
 	if len(selectStatement.FromClause) > 0 {
 		for i, fromNode := range selectStatement.FromClause {
+			// JOIN
+			if fromNode.GetJoinExpr() != nil {
+				selectStatement.FromClause[i] = remapper.remapJoinExpressions(selectStatement, fromNode, remappedColumnRefs, permissions, indentLevel+1) // recursion
+			}
+
+			// FROM
 			if fromNode.GetRangeVar() != nil {
 				// FROM [TABLE]
 				remapper.traceTreeTraversal("FROM table", indentLevel)

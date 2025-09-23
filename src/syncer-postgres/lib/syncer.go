@@ -43,6 +43,8 @@ func (syncer *Syncer) Sync() {
 	case SyncModeFullRefresh:
 		common.LogInfo(syncer.Config.CommonConfig, "Starting full-refresh sync...")
 		NewSyncerFullRefresh(syncer.Config, syncer.Utils, syncer.StorageS3, syncer.DuckdbClient).Sync(postgres, pgSchemaTables)
+	default:
+		common.Panic(syncer.Config.CommonConfig, "Unsupported sync mode: "+string(syncer.Config.SyncMode))
 	}
 
 	common.SendAnonymousAnalytics(syncer.Config.CommonConfig, "syncer-postgres-finish", syncer.name())

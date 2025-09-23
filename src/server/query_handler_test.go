@@ -198,6 +198,21 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"{\n    \"key\": \"value\"\n}"},
 			},
+			"SELECT json_array_elements('[{\"key\": \"value1\"}]')": {
+				"description": {"json_array_elements"},
+				"types":       {uint32ToString(pgtype.JSONOID)},
+				"values":      {"{\"key\":\"value1\"}"},
+			},
+			"SELECT value FROM json_array_elements('[{\"key\": \"value1\"}]')": {
+				"description": {"value"},
+				"types":       {uint32ToString(pgtype.JSONOID)},
+				"values":      {"{\"key\":\"value1\"}"},
+			},
+			"SELECT foo FROM jsonb_array_elements('[{\"key\": \"value1\"}]') AS foo": {
+				"description": {"foo"},
+				"types":       {uint32ToString(pgtype.JSONOID)},
+				"values":      {"{\"key\":\"value1\"}"},
+			},
 			"SELECT TO_CHAR('2024-01-15 14:30:00'::timestamp, 'YYYY-MM-DD')": {
 				"description": {"to_char"},
 				"types":       {uint32ToString(pgtype.TextOID)},
@@ -380,6 +395,11 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {"user"},
 			},
+			"SELECT oid FROM pg_type WHERE typname = 'text'": {
+				"description": {"oid"},
+				"types":       {uint32ToString(pgtype.OIDOID)},
+				"values":      {"25"},
+			},
 		})
 	})
 
@@ -549,12 +569,12 @@ func TestHandleQuery(t *testing.T) {
 			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'json_column'": {
 				"description": {"udt_name"},
 				"types":       {uint32ToString(pgtype.TextOID)},
-				"values":      {"text"},
+				"values":      {"json"},
 			},
 			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'jsonb_column'": {
 				"description": {"udt_name"},
 				"types":       {uint32ToString(pgtype.TextOID)},
-				"values":      {"text"},
+				"values":      {"json"},
 			},
 			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'tsvector_column'": {
 				"description": {"udt_name"},
@@ -584,7 +604,7 @@ func TestHandleQuery(t *testing.T) {
 			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'array_jsonb_column'": {
 				"description": {"udt_name"},
 				"types":       {uint32ToString(pgtype.TextOID)},
-				"values":      {"_text"},
+				"values":      {"_json"},
 			},
 			"SELECT udt_name FROM information_schema.columns WHERE table_schema = 'postgres' AND table_name = 'test_table' AND column_name = 'array_ltree_column'": {
 				"description": {"udt_name"},
@@ -1175,6 +1195,11 @@ func TestHandleQuery(t *testing.T) {
 				"description": {"text"},
 				"types":       {uint32ToString(pgtype.TextOID)},
 				"values":      {},
+			},
+			"SELECT relname FROM pg_catalog.pg_namespace, pg_catalog.pg_class LEFT JOIN pg_catalog.pg_description d ON (d.classoid = 'pg_class'::regclass) WHERE relname = 'test_table' AND nspname = 'postgres'": {
+				"description": {"relname"},
+				"types":       {uint32ToString(pgtype.TextOID)},
+				"values":      {"test_table"},
 			},
 		})
 	})

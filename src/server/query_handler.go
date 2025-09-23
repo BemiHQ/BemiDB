@@ -48,7 +48,7 @@ type PreparedStatement struct {
 func NewQueryHandler(config *Config, serverDuckdbClient *common.DuckdbClient) *QueryHandler {
 	storageS3 := common.NewStorageS3(config.CommonConfig)
 	icebergCatalog := common.NewIcebergCatalog(config.CommonConfig)
-	icebergReader := NewIcebergReader(config, storageS3, icebergCatalog)
+	icebergReader := NewIcebergReader(config, icebergCatalog)
 	icebergWriter := NewIcebergWriter(config, storageS3, serverDuckdbClient, icebergCatalog)
 
 	queryHandler := &QueryHandler{
@@ -193,6 +193,8 @@ func (queryHandler *QueryHandler) HandleDescribeQuery(message *pgproto3.Describe
 		if message.Name != preparedStatement.Portal {
 			return nil, nil, fmt.Errorf("portal mismatch, %s instead of %s: %s", message.Name, preparedStatement.Portal, preparedStatement.OriginalQuery)
 		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported describe object type: %c. Original query: %s", message.ObjectType, preparedStatement.OriginalQuery)
 	}
 
 	preparedStatement.Described = true
@@ -277,12 +279,16 @@ func (queryHandler *QueryHandler) rowsToDataMessages(rows *sql.Rows, originalQue
 		commandTag = "DISCARD ALL"
 	case strings.HasPrefix(upperOriginalQueryStatement, "BEGIN"):
 		commandTag = "BEGIN"
+	case strings.HasPrefix(upperOriginalQueryStatement, "COMMIT"):
+		commandTag = "COMMIT"
 	case strings.HasPrefix(upperOriginalQueryStatement, "CREATE MATERIALIZED VIEW "):
 		commandTag = "CREATE MATERIALIZED VIEW"
 	case strings.HasPrefix(upperOriginalQueryStatement, "DROP MATERIALIZED VIEW "):
 		commandTag = "DROP MATERIALIZED VIEW"
 	case strings.HasPrefix(upperOriginalQueryStatement, "REFRESH MATERIALIZED VIEW "):
 		commandTag = "REFRESH MATERIALIZED VIEW"
+	default:
+		// Fallback to SELECT from FALLBACK_SQL_QUERY
 	}
 
 	messages = append(messages, &pgproto3.CommandComplete{CommandTag: []byte(commandTag)})

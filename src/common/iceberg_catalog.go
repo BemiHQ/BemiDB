@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -9,9 +10,9 @@ import (
 const (
 	TEMP_TABLE_SUFFIX_SYNCING  = "-bemidb-syncing"
 	TEMP_TABLE_SUFFIX_DELETING = "-bemidb-deleting"
-
-	CATALOG_NAME_PLACEHOLDER = "postgres" // Trino legacy, to delete
 )
+
+// ---------------------------------------------------------------------------------------------------------------------
 
 type IcebergSchemaTable struct {
 	Schema string
@@ -26,6 +27,8 @@ func (schemaTable IcebergSchemaTable) String() string {
 	return fmt.Sprintf(`"%s"."%s"`, schemaTable.Schema, schemaTable.Table)
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+
 type IcebergMaterializedView struct {
 	Schema     string
 	Table      string
@@ -38,6 +41,8 @@ func (view IcebergMaterializedView) ToIcebergSchemaTable() IcebergSchemaTable {
 		Table:  view.Table,
 	}
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
 
 type IcebergCatalog struct {
 	Config *CommonConfig
@@ -170,6 +175,29 @@ func (catalog *IcebergCatalog) SchemaTableNames(schemaName string) Set[string] {
 	return tableNames
 }
 
+func (catalog *IcebergCatalog) TableColumns(icebergSchemaTable IcebergSchemaTable) ([]CatalogTableColumn, error) {
+	pgClient := catalog.newPostgresClient()
+	defer pgClient.Close()
+
+	var columnsJson []byte
+	err := pgClient.QueryRow(
+		context.Background(),
+		"SELECT columns FROM iceberg_tables WHERE table_namespace=$1 AND table_name=$2",
+		icebergSchemaTable.Schema, icebergSchemaTable.Table,
+	).Scan(&columnsJson)
+	if err != nil {
+		return nil, err
+	}
+
+	var catalogTableColumns []CatalogTableColumn
+	err = json.Unmarshal(columnsJson, &catalogTableColumns)
+	if err != nil {
+		return nil, err
+	}
+
+	return catalogTableColumns, nil
+}
+
 func (catalog *IcebergCatalog) TableS3Path(icebergTableName IcebergSchemaTable) string {
 	metadataFileS3Path := catalog.MetadataFileS3Path(icebergTableName)
 	if metadataFileS3Path == "" {
@@ -181,17 +209,24 @@ func (catalog *IcebergCatalog) TableS3Path(icebergTableName IcebergSchemaTable) 
 
 // Write ---------------------------------------------------------------------------------------------------------------
 
-func (catalog *IcebergCatalog) CreateTable(icebergSchemaTable IcebergSchemaTable, metadataLocation string) {
+func (catalog *IcebergCatalog) CreateTable(icebergSchemaTable IcebergSchemaTable, metadataLocation string, icebergSchemaColumns []*IcebergSchemaColumn) {
 	pgClient := catalog.newPostgresClient()
 	defer pgClient.Close()
 
-	_, err := pgClient.Exec(
+	catalogTableColumns := make([]CatalogTableColumn, len(icebergSchemaColumns))
+	for i, icebergSchemaColumn := range icebergSchemaColumns {
+		catalogTableColumns[i] = icebergSchemaColumn.CatalogTableColumn()
+	}
+	columnsJson, err := json.Marshal(catalogTableColumns)
+	PanicIfError(catalog.Config, err)
+
+	_, err = pgClient.Exec(
 		context.Background(),
-		"INSERT INTO iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) VALUES ($1, $2, $3, $4)",
-		CATALOG_NAME_PLACEHOLDER,
+		"INSERT INTO iceberg_tables (table_namespace, table_name, metadata_location, columns) VALUES ($1, $2, $3, $4)",
 		icebergSchemaTable.Schema,
 		icebergSchemaTable.Table,
 		metadataLocation,
+		columnsJson,
 	)
 	PanicIfError(catalog.Config, err)
 }

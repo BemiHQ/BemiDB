@@ -14,6 +14,7 @@ import (
 )
 
 type IcebergColumnType string
+type IcebergLogicalColumnType string
 
 const (
 	IcebergColumnTypeBoolean   IcebergColumnType = "boolean"
@@ -29,50 +30,81 @@ const (
 	IcebergColumnTypeTimestamp IcebergColumnType = "timestamp"
 	IcebergColumnTypeBinary    IcebergColumnType = "binary"
 
+	IcebergLogicalColumnTypeInterval    IcebergLogicalColumnType = "interval"
+	IcebergLogicalColumnTypeBpchar      IcebergLogicalColumnType = "bpchar"
+	IcebergLogicalColumnTypePoint       IcebergLogicalColumnType = "point"
+	IcebergLogicalColumnTypeJson        IcebergLogicalColumnType = "json"
+	IcebergLogicalColumnTypeUserDefined IcebergLogicalColumnType = "user_defined"
+
 	BEMIDB_NULL_STRING = "BEMIDB_NULL"
 
 	PARQUET_NAN                    = 0 // DuckDB crashes on NaN, libc++abi: terminating due to uncaught exception of type duckdb::InvalidConfigurationException: {"exception_type":"Invalid Configuration","exception_message":"Column float4_column lower bound deserialization failed: Failed to deserialize blob '' of size 0, attempting to produce value of type 'FLOAT'"}
 	PARQUET_MAX_DECIMAL_PRECISION  = 38
 	PARQUET_FALLBACK_DECIMAL_SCALE = 6
 	PARQUET_NESTED_FIELD_ID_PREFIX = 1000
-
-	PG_USER_DEFINED_PRIMITIVE_TYPE = "USER_DEFINED"
 )
 
+type CatalogTableColumn struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Position int    `json:"position"`
+	List     bool   `json:"list"`
+	Required bool   `json:"required"`
+}
+
+func (tableColumn CatalogTableColumn) ToSql() string {
+	sql := fmt.Sprintf(`"%s" %s`, tableColumn.Name, tableColumn.Type)
+
+	if tableColumn.List {
+		sql += "[]"
+	}
+
+	if tableColumn.Required {
+		sql += " NOT NULL"
+	}
+
+	return sql
+}
+
+func (tableColumn CatalogTableColumn) ToMetadataFieldMap() map[string]interface{} {
+	primitiveType := tableColumn.Type
+	if primitiveType == "json" {
+		primitiveType = "string"
+	}
+
+	result := map[string]interface{}{
+		"id":       tableColumn.Position,
+		"name":     tableColumn.Name,
+		"type":     primitiveType,
+		"required": tableColumn.Required,
+	}
+
+	if tableColumn.List {
+		result["type"] = map[string]interface{}{
+			"type":             "list",
+			"element":          primitiveType,
+			"element-id":       PARQUET_NESTED_FIELD_ID_PREFIX + tableColumn.Position,
+			"element-required": false,
+		}
+	}
+
+	return result
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
 type IcebergSchemaColumn struct {
-	Config                *CommonConfig
-	ColumnName            string
-	ColumnType            IcebergColumnType
-	Position              int
-	NumericPrecision      int
-	NumericScale          int
-	DatetimePrecision     int
-	IsList                bool
-	IsRequired            bool
-	IsPartOfUniqueIndex   bool
-	PgPrimitiveColumnType string
-}
-
-type ParquetSchemaField struct {
-	FieldId              string
-	Name                 string
-	Type                 string
-	ConvertedType        string
-	RepetitionType       string
-	Scale                string
-	Precision            string
-	Length               string
-	NestedType           string
-	NestedConvertedType  string
-	NestedRepetitionType string
-	NestedFieldId        string
-}
-
-type IcebergSchemaField struct {
-	Id       int         `json:"id"`
-	Name     string      `json:"name"`
-	Type     interface{} `json:"type"`
-	Required bool        `json:"required"`
+	Config              *CommonConfig
+	ColumnName          string
+	ColumnType          IcebergColumnType
+	LogicalColumnType   IcebergLogicalColumnType
+	Position            int
+	NumericPrecision    int
+	NumericScale        int
+	DatetimePrecision   int
+	IsList              bool
+	IsRequired          bool
+	IsPartOfUniqueIndex bool
 }
 
 func (col *IcebergSchemaColumn) NormalizedColumnName() string {
@@ -97,51 +129,47 @@ func (col *IcebergSchemaColumn) NormalizedScale() int {
 	return col.NumericScale
 }
 
-func (col *IcebergSchemaColumn) IcebergSchemaFieldMap() IcebergSchemaField {
-	icebergSchemaField := IcebergSchemaField{
-		Id:   col.Position,
-		Name: col.NormalizedColumnName(),
+func (col *IcebergSchemaColumn) CatalogTableColumn() CatalogTableColumn {
+	catalogTableColumn := CatalogTableColumn{
+		Name:     col.NormalizedColumnName(),
+		Position: col.Position,
+		Required: col.IsRequired,
+		List:     col.IsList,
 	}
 
 	switch col.ColumnType {
 	case IcebergColumnTypeBoolean:
-		icebergSchemaField.Type = "boolean"
+		catalogTableColumn.Type = "boolean"
 	case IcebergColumnTypeString:
-		icebergSchemaField.Type = "string"
+		switch col.LogicalColumnType {
+		case IcebergLogicalColumnTypeJson:
+			catalogTableColumn.Type = "json"
+		default:
+			catalogTableColumn.Type = "string"
+		}
 	case IcebergColumnTypeInteger:
-		icebergSchemaField.Type = "int"
+		catalogTableColumn.Type = "int"
 	case IcebergColumnTypeDecimal:
-		icebergSchemaField.Type = "decimal(" + IntToString(col.NormalizedPrecision()) + ", " + IntToString(col.NormalizedScale()) + ")"
+		catalogTableColumn.Type = "decimal(" + IntToString(col.NormalizedPrecision()) + ", " + IntToString(col.NormalizedScale()) + ")"
 	case IcebergColumnTypeLong:
-		icebergSchemaField.Type = "long"
+		catalogTableColumn.Type = "long"
 	case IcebergColumnTypeFloat:
-		icebergSchemaField.Type = "float"
+		catalogTableColumn.Type = "float"
 	case IcebergColumnTypeDouble:
-		icebergSchemaField.Type = "double"
+		catalogTableColumn.Type = "double"
 	case IcebergColumnTypeDate:
-		icebergSchemaField.Type = "date"
+		catalogTableColumn.Type = "date"
 	case IcebergColumnTypeTime, IcebergColumnTypeTimeTz:
-		icebergSchemaField.Type = "time"
+		catalogTableColumn.Type = "time"
 	case IcebergColumnTypeTimestamp:
-		icebergSchemaField.Type = "timestamp"
+		catalogTableColumn.Type = "timestamp"
 	case IcebergColumnTypeBinary:
-		icebergSchemaField.Type = "binary"
+		catalogTableColumn.Type = "binary"
 	default:
 		panic("Unsupported column type: " + string(col.ColumnType))
 	}
 
-	icebergSchemaField.Required = col.IsRequired
-
-	if col.IsList {
-		icebergSchemaField.Type = map[string]interface{}{
-			"type":             "list",
-			"element":          icebergSchemaField.Type,
-			"element-id":       PARQUET_NESTED_FIELD_ID_PREFIX + col.Position,
-			"element-required": false,
-		}
-	}
-
-	return icebergSchemaField
+	return catalogTableColumn
 }
 
 func (col *IcebergSchemaColumn) DuckdbType() string {
@@ -250,8 +278,8 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromCsv(value string) interf
 		}
 		return valueFloat
 	case IcebergColumnTypeDecimal:
-		switch col.PgPrimitiveColumnType {
-		case "interval":
+		switch col.LogicalColumnType {
+		case IcebergLogicalColumnTypeInterval:
 			microseconds := 0
 
 			parts := strings.Split(value, " ")
@@ -341,13 +369,13 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromJson(value any) interfac
 			return value
 		}
 	case IcebergColumnTypeString:
-		switch col.PgPrimitiveColumnType {
-		case "bpchar":
+		switch col.LogicalColumnType {
+		case IcebergLogicalColumnTypeBpchar:
 			return strings.TrimRight(value.(string), " ")
-		case "point":
+		case IcebergLogicalColumnTypePoint:
 			valueMap := value.(map[string]interface{})
 			return "(" + Float64ToString(valueMap["x"].(float64)) + "," + Float64ToString(valueMap["y"].(float64)) + ")"
-		case PG_USER_DEFINED_PRIMITIVE_TYPE:
+		case IcebergLogicalColumnTypeUserDefined:
 			valueString := value.(string)
 			valueDecodedHex, err := HexToString(valueString)
 			if err == nil {
@@ -378,6 +406,8 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromJson(value any) interfac
 		case reflect.Float64:
 			days := value.(float64)
 			return time.Unix(0, 0).UTC().AddDate(0, 0, int(days))
+		default:
+			Panic(col.Config, fmt.Sprintf("Unsupported value: %v for column type: %s", value, col.ColumnType))
 		}
 	case IcebergColumnTypeTime:
 		var nanoseconds int64
@@ -426,6 +456,8 @@ func (col *IcebergSchemaColumn) duckdbPrimitiveValueFromJson(value any) interfac
 			}
 			milliseconds := int64(valueFloat)
 			return epoch.Add(time.Duration(milliseconds) * time.Millisecond)
+		default:
+			Panic(col.Config, fmt.Sprintf("Unsupported value: %v for column type: %s", value, col.ColumnType))
 		}
 	}
 

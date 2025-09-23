@@ -9,9 +9,11 @@ const (
 	PG_SCHEMA_PG_CATALOG         = "pg_catalog"
 	PG_SCHEMA_PUBLIC             = "public"
 
-	PG_FUNCTION_FORMAT    = "format"
-	PG_FUNCTION_ENCODE    = "encode"
-	PG_FUNCTION_JSONB_AGG = "jsonb_agg"
+	PG_FUNCTION_FORMAT               = "format"
+	PG_FUNCTION_ENCODE               = "encode"
+	PG_FUNCTION_JSONB_AGG            = "jsonb_agg"
+	PG_FUNCTION_JSON_ARRAY_ELEMENTS  = "json_array_elements"
+	PG_FUNCTION_JSONB_ARRAY_ELEMENTS = "jsonb_array_elements"
 
 	PG_TABLE_PG_MATVIEWS         = "pg_matviews"
 	PG_TABLE_PG_CLASS            = "pg_class"
