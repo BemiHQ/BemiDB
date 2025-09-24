@@ -480,6 +480,12 @@ func (col *IcebergSchemaColumn) duckdbDecimal(value string) duckdb.Decimal {
 		}
 	}
 	decimalValue := new(big.Int)
+
+	if len(integerPart)+len(fractionalPart) > PARQUET_MAX_DECIMAL_PRECISION {
+		integerPart = strings.Repeat("9", PARQUET_MAX_DECIMAL_PRECISION-len(fractionalPart))
+		LogWarn(col.Config, "Truncating decimal value", value, "to", integerPart+"."+fractionalPart, "in column", col.ColumnName, "to fit precision", IntToString(PARQUET_MAX_DECIMAL_PRECISION))
+	}
+
 	decimalValue.SetString(integerPart+fractionalPart, 10)
 
 	return duckdb.Decimal{
