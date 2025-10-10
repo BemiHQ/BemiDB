@@ -174,7 +174,13 @@ func (server *PostgresServer) handleExtendedQuery(queryHandler *QueryHandler, pa
 		case *pgproto3.Parse:
 			server.handleExtendedQuery(queryHandler, message) // self-recursion
 			return nil
+		case *pgproto3.Flush:
+			// Ignore Flush messages, as we are sending responses immediately.
+		case *pgproto3.Close:
+			common.LogDebug(server.config.CommonConfig, "Closing prepared statement", message.Name)
+			server.writeMessages(&pgproto3.CloseComplete{})
 		default:
+			common.LogError(server.config.CommonConfig, fmt.Sprintf("Received unexpected message type from client: %T", message))
 			return fmt.Errorf("received unexpected message type from client: %T", message)
 		}
 	}

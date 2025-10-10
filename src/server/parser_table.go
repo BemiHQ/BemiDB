@@ -55,7 +55,11 @@ func (parser *ParserTable) MakeIcebergTableNode(queryToIcebergTable QueryToIcebe
 	if permissions == nil {
 		query = "SELECT * FROM iceberg_scan('" + queryToIcebergTable.IcebergTablePath + "')"
 	} else if columnNames, allowed := (*permissions)[queryToIcebergTable.QuerySchemaTable.ToIcebergSchemaTable().ToArg()]; allowed {
-		query = "SELECT " + strings.Join(columnNames, ", ") + " FROM iceberg_scan('" + queryToIcebergTable.IcebergTablePath + "')"
+		quotedColumnNames := make([]string, len(columnNames))
+		for i, columnName := range columnNames {
+			quotedColumnNames[i] = "\"" + columnName + "\""
+		}
+		query = "SELECT " + strings.Join(quotedColumnNames, ", ") + " FROM iceberg_scan('" + queryToIcebergTable.IcebergTablePath + "')"
 	} else {
 		query = "SELECT NULL WHERE FALSE"
 	}

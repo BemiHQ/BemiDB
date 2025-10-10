@@ -83,6 +83,11 @@ func TestHandleQuery(t *testing.T) {
 				"types":       {uint32ToString(pgtype.Int4OID)},
 				"values":      {"0"},
 			},
+			"SELECT pg_cancel_backend(12345) AS pg_cancel_backend": {
+				"description": {"pg_cancel_backend"},
+				"types":       {uint32ToString(pgtype.BoolOID)},
+				"values":      {"t"},
+			},
 			"SELECT * from pg_is_in_recovery()": {
 				"description": {"pg_is_in_recovery"},
 				"types":       {uint32ToString(pgtype.BoolOID)},
@@ -399,6 +404,11 @@ func TestHandleQuery(t *testing.T) {
 				"description": {"oid"},
 				"types":       {uint32ToString(pgtype.OIDOID)},
 				"values":      {"25"},
+			},
+			"SELECT DISTINCT ON(typlen) oid FROM pg_type ORDER BY oid LIMIT 1": {
+				"description": {"oid"},
+				"types":       {uint32ToString(pgtype.OIDOID)},
+				"values":      {"16"},
 			},
 		})
 	})

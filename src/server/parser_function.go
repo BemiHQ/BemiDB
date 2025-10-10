@@ -31,7 +31,7 @@ func (parser *ParserFunction) FirstArgumentToString(functionCall *pgQuery.FuncCa
 // n from (FUNCTION()).n
 func (parser *ParserFunction) IndirectionName(targetNode *pgQuery.Node) string {
 	indirection := targetNode.GetResTarget().Val.GetAIndirection()
-	if indirection != nil {
+	if indirection != nil && len(indirection.Indirection) == 1 && indirection.Indirection[0].GetString_() != nil {
 		return indirection.Indirection[0].GetString_().Sval
 	}
 

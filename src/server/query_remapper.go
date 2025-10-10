@@ -509,6 +509,12 @@ func (remapper *QueryRemapper) remapSelect(selectStatement *pgQuery.SelectStmt, 
 		}
 	}
 
+	// DISTINCT ON (column)
+	distinctClauses := selectStatement.GetDistinctClause()
+	for i, distinctNode := range distinctClauses {
+		distinctClauses[i] = remapper.remappedExpressions(distinctNode, remappedColumnRefs, permissions, indentLevel) // recursion
+	}
+
 	return remappedColumnRefs
 }
 

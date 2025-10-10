@@ -317,6 +317,7 @@ SELECT * FROM [TABLE] WHERE [JSON_COLUMN]->>'[JSON_KEY]' = '[JSON_VALUE]';
   - [x] DBeaver
   - [x] pgAdmin
   - [x] Grafana
+  - [x] Retool
   - [ ] Jupyter notebooks ([#27](https://github.com/BemiHQ/BemiDB/issues/27))
 - [x] Data syncing from other sources
   - [x] Amplitude (incremental)

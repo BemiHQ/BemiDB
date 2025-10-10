@@ -17,6 +17,7 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 		"CREATE MACRO aclexplode(aclitem_array) AS json(aclitem_array)",
 		"CREATE MACRO current_setting(setting_name) AS '', (setting_name, missing_ok) AS ''",
 		"CREATE MACRO pg_backend_pid() AS 0",
+		"CREATE MACRO pg_cancel_backend(pid) AS true",
 		"CREATE MACRO pg_encoding_to_char(encoding_int) AS 'UTF8'",
 		"CREATE MACRO pg_get_expr(pg_node_tree, relation_oid) AS pg_catalog.pg_get_expr(pg_node_tree, relation_oid), (pg_node_tree, relation_oid, pretty_bool) AS pg_catalog.pg_get_expr(pg_node_tree, relation_oid)",
 		"CREATE MACRO pg_get_function_identity_arguments(func_oid) AS ''",
