@@ -42,7 +42,7 @@ func CreatePgCatalogMacroQueries(config *Config) []string {
 			ELSE json_extract_path_text(from_json, path_elems)::varchar
 		END`,
 		`CREATE MACRO jsonb_object_agg(key, value) AS to_json(map(array_agg(key), array_agg(value)))`,
-		`CREATE MACRO jsonb_array_length(json) AS json_array_length(json)`,
+		`CREATE MACRO jsonb_array_length(json) AS CAST(json_array_length(json) AS INTEGER)`,
 		`CREATE MACRO jsonb_pretty(json) AS json_pretty(json)`,
 		`CREATE MACRO json_array_elements(json) AS unnest(json_extract(json, '$[*]'))`,
 		`CREATE MACRO jsonb_array_elements(json) AS unnest(json_extract(json, '$[*]'))`,
