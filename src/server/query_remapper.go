@@ -354,11 +354,9 @@ func (remapper *QueryRemapper) remappedExpressions(node *pgQuery.Node, remappedC
 	// COALESCE(value1, value2, ...)
 	coalesceExpr := node.GetCoalesceExpr()
 	if coalesceExpr != nil {
-		for _, arg := range coalesceExpr.Args {
-			if arg.GetSubLink() != nil {
-				// Nested SELECT
-				subSelect := arg.GetSubLink().Subselect.GetSelectStmt()
-				remapper.remapSelectStatement(subSelect, permissions, indentLevel+1) // recursion
+		for i, arg := range coalesceExpr.Args {
+			if arg != nil {
+				coalesceExpr.Args[i] = remapper.remappedExpressions(arg, remappedColumnRefs, permissions, indentLevel+1) // self-recursion
 			}
 		}
 	}
